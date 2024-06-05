@@ -18,6 +18,10 @@ type Timestamp struct {
 	SeriesID uint64
 }
 
+func (e *Timestamp) Slice() []uint64 {
+	return []uint64{1, e.ShardID, e.SeriesID}
+}
+
 func (e *Timestamp) Key() []byte {
 	return Encode(nil, []uint64{1, e.ShardID, e.SeriesID})
 }
@@ -27,8 +31,12 @@ type Value struct {
 	SeriesID uint64
 }
 
+func (e *Value) Slice() []uint64 {
+	return []uint64{2, e.ShardID, e.SeriesID}
+}
+
 func (e *Value) Key() []byte {
-	return Encode(nil, []uint64{2, e.ShardID, e.SeriesID})
+	return Encode(nil, e.Slice())
 }
 
 type Series struct {
@@ -36,8 +44,12 @@ type Series struct {
 	SeriesID uint64
 }
 
+func (e *Series) Slice() []uint64 {
+	return []uint64{2, e.ShardID, e.SeriesID}
+}
+
 func (e *Series) Key() []byte {
-	return Encode(nil, []uint64{3, e.ShardID, e.SeriesID})
+	return Encode(nil, e.Slice())
 }
 
 type Labels struct {
@@ -57,12 +69,12 @@ type Blob struct {
 	BlobID uint64
 }
 
-func (e *Blob) Key() []byte {
-	return Encode(nil, []uint64{5, e.BlobID})
-}
-
 func (e *Blob) Slice() []uint64 {
 	return []uint64{5, e.BlobID}
+}
+
+func (e *Blob) Key() []byte {
+	return Encode(nil, e.Slice())
 }
 
 type Kind struct {
@@ -78,8 +90,12 @@ type Histogram struct {
 	SeriesID uint64
 }
 
+func (e *Histogram) Slice() []uint64 {
+	return []uint64{7, e.ShardID, e.SeriesID}
+}
+
 func (e *Histogram) Key() []byte {
-	return Encode(nil, []uint64{7, e.ShardID, e.SeriesID})
+	return Encode(nil, e.Slice())
 }
 
 type FSTBitmap struct {

@@ -13,5 +13,5 @@ func TestYay(t *testing.T) {
 	b.SetValue(3, 12)
 	b.SetValue(4, 12)
 
-	t.Error(b.Transpose().ToArray())
+	t.Error(b.CompareValue(0, roaring64.EQ, 12, 0, nil).ToArray())
 }
