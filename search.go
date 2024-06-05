@@ -20,9 +20,16 @@ import (
 	"github.com/prometheus/prometheus/storage/remote"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
+	"github.com/prometheus/prometheus/util/annotations"
 )
 
-func Queryable(db Store, mints, maxts int64) {
+type Queryable struct {
+	db Store
+}
+
+var _ storage.Queryable = (*Queryable)(nil)
+
+func (q *Queryable) Querier(mints, maxts int64) (storage.Querier, error) {
 
 	// adjust to epoch
 	mints = max(mints, epochMs)
@@ -30,25 +37,91 @@ func Queryable(db Store, mints, maxts int64) {
 		maxts = mints
 	}
 	if maxts == epochMs {
-		return
+		return &Querier{}, nil
 	}
+
 	minShard := (mints - epochMs) / shardwidth.ShardWidth
 	maxShard := (maxts - epochMs) / shardwidth.ShardWidth
 
-	if minShard == maxShard {
-
+	shards, err := readBitmap(q.db, keys.Shards{}.Key())
+	if err != nil {
+		return nil, err
 	}
+	if minShard == maxShard {
+		if !shards.Contains(uint64(minShard)) {
+			return &Querier{}, nil
+		}
+		return &Querier{shards: []uint64{uint64(minShard)}}, nil
+	}
+	b := roaring64.New()
+	b.AddRange(uint64(minShard), uint64(maxShard))
+	shards.And(b)
+	if shards.IsEmpty() {
+		return &Querier{}, nil
+	}
+	return &Querier{shards: shards.ToArray()}, nil
 }
 
-type singleQuerier struct {
+type Querier struct {
 	storage.LabelQuerier
-	shard uint64
-	db    Store
+	shards []uint64
+	db     Store
 }
 
-var _ storage.Querier = (*singleQuerier)(nil)
+var _ storage.Querier = (*Querier)(nil)
 
-func (s *singleQuerier) Select(ctx context.Context, sortSeries bool, hints *storage.SelectHints, matchers ...*labels.Matcher) storage.SeriesSet {
+func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.SelectHints, matchers ...*labels.Matcher) storage.SeriesSet {
+	if len(s.shards) == 0 {
+		return storage.EmptySeriesSet()
+	}
+	set := make(MapSet)
+	for _, shard := range s.shards {
+		series, err := Series(s.db, shard, matchers...)
+		if err != nil {
+			return storage.ErrSeriesSet(err)
+		}
+		if series.IsEmpty() {
+			continue
+		}
+		err = set.Build(s.db, hints.Start, hints.End, shard, series)
+		if err != nil {
+			return storage.ErrSeriesSet(err)
+		}
+	}
+	if len(set) == 0 {
+		return storage.EmptySeriesSet()
+	}
+	o := &SeriesSet{
+		series: make([]storage.Series, 0, len(set)),
+		pos:    -1,
+	}
+	for _, sx := range set {
+		o.series = append(o.series, storage.NewListSeries(sx.Labels, sx.Samples))
+	}
+	return o
+}
+
+type SeriesSet struct {
+	series []storage.Series
+	pos    int
+}
+
+var _ storage.SeriesSet = (*SeriesSet)(nil)
+
+func (s *SeriesSet) Next() bool {
+	s.pos++
+	return s.pos < len(s.series)
+}
+
+func (s *SeriesSet) At() storage.Series {
+	return s.series[s.pos]
+}
+
+func (s *SeriesSet) Err() error {
+	return nil
+}
+
+func (s *SeriesSet) Warnings() annotations.Annotations {
 	return nil
 }
 

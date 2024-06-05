@@ -22,6 +22,7 @@ type Batch struct {
 
 	blobFunc  BlobFunc
 	labelFunc LabelFunc
+	shards    roaring64.Bitmap
 }
 
 func NewBatch() *Batch {
@@ -48,6 +49,7 @@ func (b *Batch) Reset(blob BlobFunc, label LabelFunc) *Batch {
 	clear(b.series)
 	clear(b.labels)
 	clear(b.fst)
+	b.shards.Clear()
 	return b
 }
 
@@ -70,6 +72,7 @@ func (b *Batch) Append(ts *prompb.TimeSeries) {
 				lb(shard, labels[i], b.labels).Add(series)
 			}
 			currentShard = shard
+			b.shards.Add(shard)
 		}
 		sx(shard, series, b.values).SetValue(id, int64(math.Float64bits(s.Value)))
 		sx(shard, series, b.timestamp).SetValue(id, s.Timestamp)
@@ -89,6 +92,7 @@ func (b *Batch) Append(ts *prompb.TimeSeries) {
 				lb(shard, labels[i], b.labels).Add(series)
 			}
 			currentShard = shard
+			b.shards.Add(shard)
 		}
 
 		sx(shard, series, b.timestamp).SetValue(id, s.Timestamp)

@@ -86,7 +86,7 @@ func Save(db Store, b *Batch) error {
 			return fmt.Errorf("inserting exists bsi %w", err)
 		}
 	}
-	return nil
+	return UpsertBitmap(db, &buf, tmpBitmap, &b.shards, keys.Shards{}.Key())
 }
 
 func UpsertBSI(db Store, buf *bytes.Buffer, tmp, b *roaring64.BSI, key []byte) error {

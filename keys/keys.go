@@ -114,6 +114,16 @@ func (e *FST) Key() []byte {
 	return Encode(nil, []uint64{9, e.ShardID})
 }
 
+type Shards struct{}
+
+func (Shards) Slice() []uint64 {
+	return []uint64{10}
+}
+
+func (e Shards) Key() []byte {
+	return Encode(nil, e.Slice())
+}
+
 func Encode(b []byte, value []uint64) []byte {
 	if b == nil {
 		b = make([]byte, 0, len(value)*8)
