@@ -45,8 +45,12 @@ type Labels struct {
 	LabelID uint64
 }
 
+func (e *Labels) Slice() []uint64 {
+	return []uint64{4, e.ShardID, e.LabelID}
+}
+
 func (e *Labels) Key() []byte {
-	return Encode(nil, []uint64{4, e.ShardID, e.LabelID})
+	return Encode(nil, e.Slice())
 }
 
 type Blob struct {

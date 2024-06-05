@@ -22,12 +22,14 @@ type Store interface {
 func Save(db Store, b *Batch) error {
 	var buf bytes.Buffer
 	tmpBSI := roaring64.NewDefaultBSI()
+	tmpBitmap := roaring64.New()
+
 	var existsKey keys.Exists
 	for shard, bsi := range b.exists {
 		existsKey.ShardID = shard
-		err := UpsertBSI(db, &buf, tmpBSI, bsi, existsKey.Key())
+		err := UpsertBitmap(db, &buf, tmpBitmap, bsi, existsKey.Key())
 		if err != nil {
-			return fmt.Errorf("inserting exists bsi %w", err)
+			return fmt.Errorf("inserting exists bitmap %w", err)
 		}
 	}
 	var valuesKey keys.Value
@@ -54,7 +56,6 @@ func Save(db Store, b *Batch) error {
 		}
 	}
 	var seriesKey keys.Series
-	tmpBitmap := roaring64.New()
 	for shard, series := range b.series {
 		seriesKey.ShardID = shard
 		for seriesID, bsi := range series {
@@ -181,8 +182,11 @@ func UpsertFST(db Store, buf *bytes.Buffer, tmp, b *roaring64.Bitmap, shard uint
 	if err != nil {
 		return fmt.Errorf("opening fst builder %w", err)
 	}
+	var h xxhash.Digest
 	for i := range o {
-		err = bs.Insert(o[i], 0)
+		h.Reset()
+		h.Write(o[i])
+		err = bs.Insert(o[i], h.Sum64())
 		if err != nil {
 			return fmt.Errorf("inserting fst key key=%q %w", string(o[i]), err)
 		}

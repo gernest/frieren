@@ -11,7 +11,7 @@ import (
 )
 
 type Batch struct {
-	exists    map[uint64]*roaring64.BSI
+	exists    map[uint64]*roaring64.Bitmap
 	values    map[uint64]map[uint64]*roaring64.BSI
 	histogram map[uint64]map[uint64]*roaring64.BSI
 	kind      map[uint64]*roaring64.BSI
@@ -26,7 +26,7 @@ type Batch struct {
 
 func NewBatch() *Batch {
 	return &Batch{
-		exists:    make(map[uint64]*roaring64.BSI),
+		exists:    make(map[uint64]*roaring64.Bitmap),
 		values:    make(map[uint64]map[uint64]*roaring64.BSI),
 		histogram: make(map[uint64]map[uint64]*roaring64.BSI),
 		kind:      make(map[uint64]*roaring64.BSI),
@@ -64,13 +64,13 @@ func (b *Batch) Append(ts *prompb.TimeSeries) {
 		shard := id / shardwidth.ShardWidth
 		if shard != currentShard {
 			lb(shard, series, b.series).AddMany(labels)
-			fst(shard, b.fst).AddMany(labels)
+			bitmap(shard, b.fst).AddMany(labels)
+			bitmap(shard, b.exists).Add(series)
 			for i := range labels {
 				lb(shard, labels[i], b.labels).Add(series)
 			}
 			currentShard = shard
 		}
-		get(shard, b.exists).SetValue(id, int64(series))
 		sx(shard, series, b.values).SetValue(id, int64(math.Float64bits(s.Value)))
 		sx(shard, series, b.timestamp).SetValue(id, s.Timestamp)
 	}
@@ -83,14 +83,14 @@ func (b *Batch) Append(ts *prompb.TimeSeries) {
 		if shard != currentShard {
 			lb(shard, series, b.series).AddMany(labels)
 			get(shard, b.kind).SetValue(id, 1)
-			fst(shard, b.fst).AddMany(labels)
+			bitmap(shard, b.fst).AddMany(labels)
+			bitmap(shard, b.exists).Add(series)
 			for i := range labels {
 				lb(shard, labels[i], b.labels).Add(series)
 			}
 			currentShard = shard
 		}
 
-		get(shard, b.exists).SetValue(id, int64(series))
 		sx(shard, series, b.timestamp).SetValue(id, s.Timestamp)
 
 		data, _ := s.Marshal()
@@ -141,7 +141,7 @@ func get(u uint64, m map[uint64]*roaring64.BSI) *roaring64.BSI {
 	return b
 }
 
-func fst(u uint64, m map[uint64]*roaring64.Bitmap) *roaring64.Bitmap {
+func bitmap(u uint64, m map[uint64]*roaring64.Bitmap) *roaring64.Bitmap {
 	b, ok := m[u]
 	if !ok {
 		b = roaring64.New()
