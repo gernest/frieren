@@ -18,6 +18,10 @@ type Batch struct {
 	timestamp map[uint64]map[uint64]*roaring64.BSI
 	series    map[uint64]map[uint64]*roaring64.Bitmap
 	labels    map[uint64]map[uint64]*roaring64.Bitmap
+	fst       map[uint64]*roaring64.Bitmap
+
+	blobFunc  BlobFunc
+	labelFunc LabelFunc
 }
 
 func NewBatch() *Batch {
@@ -29,14 +33,29 @@ func NewBatch() *Batch {
 		timestamp: make(map[uint64]map[uint64]*roaring64.BSI),
 		series:    make(map[uint64]map[uint64]*roaring64.Bitmap),
 		labels:    make(map[uint64]map[uint64]*roaring64.Bitmap),
+		fst:       make(map[uint64]*roaring64.Bitmap),
 	}
+}
+
+func (b *Batch) Reset(blob BlobFunc, label LabelFunc) *Batch {
+	b.blobFunc = blob
+	b.labelFunc = label
+	clear(b.exists)
+	clear(b.values)
+	clear(b.histogram)
+	clear(b.kind)
+	clear(b.timestamp)
+	clear(b.series)
+	clear(b.labels)
+	clear(b.fst)
+	return b
 }
 
 type LabelFunc func([]prompb.Label) []uint64
 type BlobFunc func([]byte) uint64
 
-func (b *Batch) Append(ts *prompb.TimeSeries, f LabelFunc, blob BlobFunc) {
-	labels := f(ts.Labels)
+func (b *Batch) Append(ts *prompb.TimeSeries) {
+	labels := b.labelFunc(ts.Labels)
 	series := xxhash.Sum64(util.Uint64ToBytes(labels))
 
 	currentShard := ^uint64(0)
@@ -45,6 +64,7 @@ func (b *Batch) Append(ts *prompb.TimeSeries, f LabelFunc, blob BlobFunc) {
 		shard := id / shardwidth.ShardWidth
 		if shard != currentShard {
 			lb(shard, series, b.series).AddMany(labels)
+			fst(shard, b.fst).AddMany(labels)
 			for i := range labels {
 				lb(shard, labels[i], b.labels).Add(series)
 			}
@@ -53,7 +73,6 @@ func (b *Batch) Append(ts *prompb.TimeSeries, f LabelFunc, blob BlobFunc) {
 		get(shard, b.exists).SetValue(id, int64(series))
 		sx(shard, series, b.values).SetValue(id, int64(math.Float64bits(s.Value)))
 		sx(shard, series, b.timestamp).SetValue(id, s.Timestamp)
-
 	}
 	currentShard = ^uint64(0)
 
@@ -64,6 +83,7 @@ func (b *Batch) Append(ts *prompb.TimeSeries, f LabelFunc, blob BlobFunc) {
 		if shard != currentShard {
 			lb(shard, series, b.series).AddMany(labels)
 			get(shard, b.kind).SetValue(id, 1)
+			fst(shard, b.fst).AddMany(labels)
 			for i := range labels {
 				lb(shard, labels[i], b.labels).Add(series)
 			}
@@ -74,7 +94,7 @@ func (b *Batch) Append(ts *prompb.TimeSeries, f LabelFunc, blob BlobFunc) {
 		sx(shard, series, b.timestamp).SetValue(id, s.Timestamp)
 
 		data, _ := s.Marshal()
-		value := blob(data)
+		value := b.blobFunc(data)
 		sx(shard, series, b.values).SetValue(id, int64(value))
 
 		lb(shard, series, b.series).AddMany(labels)
@@ -116,6 +136,15 @@ func get(u uint64, m map[uint64]*roaring64.BSI) *roaring64.BSI {
 	b, ok := m[u]
 	if !ok {
 		b = roaring64.NewDefaultBSI()
+		m[u] = b
+	}
+	return b
+}
+
+func fst(u uint64, m map[uint64]*roaring64.Bitmap) *roaring64.Bitmap {
+	b, ok := m[u]
+	if !ok {
+		b = roaring64.New()
 		m[u] = b
 	}
 	return b

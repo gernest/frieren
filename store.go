@@ -6,7 +6,10 @@ import (
 	"runtime"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
+	"github.com/cespare/xxhash/v2"
+	"github.com/dgraph-io/ristretto"
 	"github.com/gernest/ernestdb/keys"
+	"github.com/prometheus/prometheus/prompb"
 )
 
 type Store interface {
@@ -129,4 +132,49 @@ func UpsertBitmap(db Store, buf *bytes.Buffer, tmp, b *roaring64.Bitmap, key []b
 		return err
 	}
 	return db.Set(key, bytes.Clone(buf.Bytes()))
+}
+
+func UpsertBlob(db Store, cache *ristretto.Cache) BlobFunc {
+	h := xxhash.New()
+	var key keys.Blob
+	return func(b []byte) uint64 {
+		h.Reset()
+		h.Write(b)
+		key.BlobID = h.Sum64()
+		if _, ok := cache.Get(key.BlobID); ok {
+			return key.BlobID
+		}
+		cache.Set(key.BlobID, 0, 1)
+
+		k := key.Key()
+		var set bool
+		db.Get(k, func(val []byte) error {
+			set = true
+			return nil
+		})
+		if set {
+			return key.BlobID
+		}
+		err := db.Set(key.Key(), b)
+		if err != nil {
+			panic(fmt.Sprintf("failed saving blob to storage %v", err))
+		}
+		return key.BlobID
+	}
+}
+
+func UpsertLabels(b BlobFunc) LabelFunc {
+	m := roaring64.New()
+	var h bytes.Buffer
+	return func(l []prompb.Label) []uint64 {
+		m.Clear()
+		for i := range l {
+			h.Reset()
+			h.WriteString(l[i].Name)
+			h.WriteByte('=')
+			h.WriteString(l[i].Value)
+			m.Add(b(bytes.Clone(h.Bytes())))
+		}
+		return m.ToArray()
+	}
 }
