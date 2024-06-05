@@ -11,7 +11,6 @@ import (
 	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/ristretto"
 	"github.com/gernest/ernestdb/keys"
-	"github.com/gernest/ernestdb/util"
 	"github.com/prometheus/prometheus/prompb"
 )
 
@@ -154,10 +153,11 @@ func UpsertFST(db Store, buf *bytes.Buffer, tmp, b *roaring64.Bitmap, shard uint
 	o := make([][]byte, 0, tmp.GetCardinality())
 
 	slice := (&keys.Blob{}).Slice()
+	kb := make([]byte, 0, len(slice)*7)
 	it := tmp.Iterator()
 	if it.HasNext() {
 		slice[1] = it.Next()
-		value := value(db, util.Uint64ToBytes(slice))
+		value := value(db, keys.Encode(kb, slice))
 		if len(value) == 0 {
 			exit("cannot find translated label")
 		}

@@ -1,13 +1,16 @@
 package keys
 
-import "github.com/gernest/ernestdb/util"
+import (
+	"encoding/binary"
+	"slices"
+)
 
 type Exists struct {
 	ShardID uint64
 }
 
 func (e *Exists) Key() []byte {
-	return util.Uint64ToBytes([]uint64{0, e.ShardID})
+	return Encode(nil, []uint64{0, e.ShardID})
 }
 
 type Timestamp struct {
@@ -16,7 +19,7 @@ type Timestamp struct {
 }
 
 func (e *Timestamp) Key() []byte {
-	return util.Uint64ToBytes([]uint64{1, e.ShardID, e.SeriesID})
+	return Encode(nil, []uint64{1, e.ShardID, e.SeriesID})
 }
 
 type Value struct {
@@ -25,7 +28,7 @@ type Value struct {
 }
 
 func (e *Value) Key() []byte {
-	return util.Uint64ToBytes([]uint64{2, e.ShardID, e.SeriesID})
+	return Encode(nil, []uint64{2, e.ShardID, e.SeriesID})
 }
 
 type Series struct {
@@ -34,7 +37,7 @@ type Series struct {
 }
 
 func (e *Series) Key() []byte {
-	return util.Uint64ToBytes([]uint64{3, e.ShardID, e.SeriesID})
+	return Encode(nil, []uint64{3, e.ShardID, e.SeriesID})
 }
 
 type Labels struct {
@@ -43,7 +46,7 @@ type Labels struct {
 }
 
 func (e *Labels) Key() []byte {
-	return util.Uint64ToBytes([]uint64{4, e.ShardID, e.LabelID})
+	return Encode(nil, []uint64{4, e.ShardID, e.LabelID})
 }
 
 type Blob struct {
@@ -51,7 +54,7 @@ type Blob struct {
 }
 
 func (e *Blob) Key() []byte {
-	return util.Uint64ToBytes([]uint64{5, e.BlobID})
+	return Encode(nil, []uint64{5, e.BlobID})
 }
 
 func (e *Blob) Slice() []uint64 {
@@ -63,7 +66,7 @@ type Kind struct {
 }
 
 func (e *Kind) Key() []byte {
-	return util.Uint64ToBytes([]uint64{6, e.ShardID})
+	return Encode(nil, []uint64{6, e.ShardID})
 }
 
 type Histogram struct {
@@ -72,7 +75,7 @@ type Histogram struct {
 }
 
 func (e *Histogram) Key() []byte {
-	return util.Uint64ToBytes([]uint64{7, e.ShardID, e.SeriesID})
+	return Encode(nil, []uint64{7, e.ShardID, e.SeriesID})
 }
 
 type FSTBitmap struct {
@@ -80,7 +83,7 @@ type FSTBitmap struct {
 }
 
 func (e *FSTBitmap) Key() []byte {
-	return util.Uint64ToBytes([]uint64{8, e.ShardID})
+	return Encode(nil, []uint64{8, e.ShardID})
 }
 
 type FST struct {
@@ -88,5 +91,17 @@ type FST struct {
 }
 
 func (e *FST) Key() []byte {
-	return util.Uint64ToBytes([]uint64{9, e.ShardID})
+	return Encode(nil, []uint64{9, e.ShardID})
+}
+
+func Encode(b []byte, value []uint64) []byte {
+	if b == nil {
+		b = make([]byte, 0, len(value)*8)
+	} else {
+		b = slices.Grow(b[:0], len(value)*8)
+	}
+	for i := range value {
+		b = binary.BigEndian.AppendUint64(b, value[i])
+	}
+	return b
 }
