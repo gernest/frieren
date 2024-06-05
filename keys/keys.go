@@ -54,6 +54,10 @@ func (e *Blob) Key() []byte {
 	return util.Uint64ToBytes([]uint64{5, e.BlobID})
 }
 
+func (e *Blob) Slice() []uint64 {
+	return []uint64{5, e.BlobID}
+}
+
 type Kind struct {
 	ShardID uint64
 }
@@ -69,4 +73,20 @@ type Histogram struct {
 
 func (e *Histogram) Key() []byte {
 	return util.Uint64ToBytes([]uint64{7, e.ShardID, e.SeriesID})
+}
+
+type FSTBitmap struct {
+	ShardID uint64
+}
+
+func (e *FSTBitmap) Key() []byte {
+	return util.Uint64ToBytes([]uint64{8, e.ShardID})
+}
+
+type FST struct {
+	ShardID uint64
+}
+
+func (e *FST) Key() []byte {
+	return util.Uint64ToBytes([]uint64{9, e.ShardID})
 }

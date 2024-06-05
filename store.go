@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"fmt"
 	"runtime"
+	"slices"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
+	"github.com/blevesearch/vellum"
 	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/ristretto"
 	"github.com/gernest/ernestdb/keys"
+	"github.com/gernest/ernestdb/util"
 	"github.com/prometheus/prometheus/prompb"
 )
 
@@ -75,6 +78,14 @@ func Save(db Store, b *Batch) error {
 			}
 		}
 	}
+	var fstKey keys.FSTBitmap
+	for shard, bsi := range b.fst {
+		fstKey.ShardID = shard
+		err := UpsertFST(db, &buf, tmpBitmap, bsi, shard, fstKey.Key())
+		if err != nil {
+			return fmt.Errorf("inserting exists bsi %w", err)
+		}
+	}
 	return nil
 }
 
@@ -132,6 +143,63 @@ func UpsertBitmap(db Store, buf *bytes.Buffer, tmp, b *roaring64.Bitmap, key []b
 		return err
 	}
 	return db.Set(key, bytes.Clone(buf.Bytes()))
+}
+
+func UpsertFST(db Store, buf *bytes.Buffer, tmp, b *roaring64.Bitmap, shard uint64, key []byte) error {
+	tmp.Clear()
+	db.Get(key, tmp.UnmarshalBinary)
+	tmp.Or(b)
+
+	// Build FST
+	o := make([][]byte, 0, tmp.GetCardinality())
+
+	slice := (&keys.Blob{}).Slice()
+	it := tmp.Iterator()
+	if it.HasNext() {
+		slice[1] = it.Next()
+		value := value(db, util.Uint64ToBytes(slice))
+		if len(value) == 0 {
+			exit("cannot find translated label")
+		}
+		o = append(o, value)
+	}
+	slices.SortFunc(o, bytes.Compare)
+
+	// store the bitmap
+	tmp.RunOptimize()
+	buf.Reset()
+	tmp.WriteTo(buf)
+
+	err := db.Set(key, bytes.Clone(buf.Bytes()))
+	if err != nil {
+		return err
+	}
+
+	// store fst
+	buf.Reset()
+	bs, err := vellum.New(buf, nil)
+	if err != nil {
+		return fmt.Errorf("opening fst builder %w", err)
+	}
+	for i := range o {
+		err = bs.Insert(o[i], 0)
+		if err != nil {
+			return fmt.Errorf("inserting fst key key=%q %w", string(o[i]), err)
+		}
+	}
+	err = bs.Close()
+	if err != nil {
+		return fmt.Errorf("closing fst builder %w", err)
+	}
+	return db.Set((&keys.FST{ShardID: shard}).Key(), bytes.Clone(buf.Bytes()))
+}
+
+func value(db Store, key []byte) (o []byte) {
+	db.Get(key, func(val []byte) error {
+		o = bytes.Clone(val)
+		return nil
+	})
+	return
 }
 
 func UpsertBlob(db Store, cache *ristretto.Cache) BlobFunc {
