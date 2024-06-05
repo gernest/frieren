@@ -8,12 +8,10 @@ const (
 )
 
 var (
-	epochNano uint64
+	epochMs int64
 )
 
 func init() {
 	ts, _ := time.Parse(epochFormat, epoch)
-	epochNano = uint64(ts.UTC().UnixNano())
+	epochMs = ts.UTC().UnixMilli()
 }
-
-func Epoch() uint64 { return epochNano }

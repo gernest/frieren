@@ -7,7 +7,7 @@ type Exists struct {
 }
 
 func (e *Exists) Key() []byte {
-	return util.Uint64ToBytes([]uint64{e.ShardID})
+	return util.Uint64ToBytes([]uint64{0, e.ShardID})
 }
 
 type Timestamp struct {
@@ -16,7 +16,7 @@ type Timestamp struct {
 }
 
 func (e *Timestamp) Key() []byte {
-	return util.Uint64ToBytes([]uint64{e.ShardID, e.SeriesID})
+	return util.Uint64ToBytes([]uint64{1, e.ShardID, e.SeriesID})
 }
 
 type Value struct {
@@ -25,7 +25,7 @@ type Value struct {
 }
 
 func (e *Value) Key() []byte {
-	return util.Uint64ToBytes([]uint64{e.ShardID, e.SeriesID})
+	return util.Uint64ToBytes([]uint64{2, e.ShardID, e.SeriesID})
 }
 
 type Series struct {
@@ -34,7 +34,7 @@ type Series struct {
 }
 
 func (e *Series) Key() []byte {
-	return util.Uint64ToBytes([]uint64{e.ShardID, e.SeriesID})
+	return util.Uint64ToBytes([]uint64{3, e.ShardID, e.SeriesID})
 }
 
 type Labels struct {
@@ -43,5 +43,30 @@ type Labels struct {
 }
 
 func (e *Labels) Key() []byte {
-	return util.Uint64ToBytes([]uint64{e.ShardID, e.LabelID})
+	return util.Uint64ToBytes([]uint64{4, e.ShardID, e.LabelID})
+}
+
+type Blob struct {
+	BlobID uint64
+}
+
+func (e *Blob) Key() []byte {
+	return util.Uint64ToBytes([]uint64{5, e.BlobID})
+}
+
+type Kind struct {
+	ShardID uint64
+}
+
+func (e *Kind) Key() []byte {
+	return util.Uint64ToBytes([]uint64{6, e.ShardID})
+}
+
+type Histogram struct {
+	ShardID  uint64
+	SeriesID uint64
+}
+
+func (e *Histogram) Key() []byte {
+	return util.Uint64ToBytes([]uint64{7, e.ShardID, e.SeriesID})
 }
