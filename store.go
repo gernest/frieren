@@ -15,6 +15,7 @@ import (
 )
 
 type Store interface {
+	Has(key []byte) bool
 	Set(key, value []byte) error
 	Get(key []byte, value func(val []byte) error) error
 }

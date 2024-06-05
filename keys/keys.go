@@ -124,6 +124,18 @@ func (e Shards) Key() []byte {
 	return Encode(nil, e.Slice())
 }
 
+type Metadata struct {
+	MetricID uint64
+}
+
+func (e *Metadata) Slice() []uint64 {
+	return []uint64{11, e.MetricID}
+}
+
+func (e *Metadata) Key() []byte {
+	return Encode(nil, e.Slice())
+}
+
 func Encode(b []byte, value []uint64) []byte {
 	if b == nil {
 		b = make([]byte, 0, len(value)*8)
