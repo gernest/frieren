@@ -32,3 +32,27 @@ func StoreMetadata(db Store, meta []*prompb.MetricMetadata) error {
 	}
 	return nil
 }
+
+func GetMetadata(db Store, name string) (*prompb.MetricMetadata, error) {
+	var p prompb.MetricMetadata
+	key := (&keys.Metadata{MetricID: xxhash.Sum64String(name)}).Key()
+	err := db.Get(key, p.Unmarshal)
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+func ListMetadata(db Store) (o []*prompb.MetricMetadata, err error) {
+	key := (&keys.Metadata{}).Key()
+	err = db.Prefix(key[:len(key)-8], func(key []byte, value Value) error {
+		var p prompb.MetricMetadata
+		err := value.Value(p.Unmarshal)
+		if err != nil {
+			return err
+		}
+		o = append(o, &p)
+		return nil
+	})
+	return
+}

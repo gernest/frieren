@@ -14,10 +14,15 @@ import (
 	"github.com/prometheus/prometheus/prompb"
 )
 
+type Value interface {
+	Value(f func(val []byte) error) error
+}
+
 type Store interface {
 	Has(key []byte) bool
 	Set(key, value []byte) error
 	Get(key []byte, value func(val []byte) error) error
+	Prefix(prefix []byte, f func(key []byte, value Value) error) error
 }
 
 func Save(db Store, b *Batch) error {
