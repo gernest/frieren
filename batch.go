@@ -22,6 +22,7 @@ type Batch struct {
 	series    map[uint64]*roaring64.Bitmap
 	labels    map[uint64]*roaring64.Bitmap
 	exemplars map[uint64]*roaring64.Bitmap
+	exists    map[uint64]*roaring64.Bitmap
 
 	fst map[uint64]*roaring64.Bitmap
 
@@ -40,6 +41,7 @@ func NewBatch() *Batch {
 		series:    make(map[uint64]*roaring64.Bitmap),
 		labels:    make(map[uint64]*roaring64.Bitmap),
 		exemplars: make(map[uint64]*roaring64.Bitmap),
+		exists:    make(map[uint64]*roaring64.Bitmap),
 		fst:       make(map[uint64]*roaring64.Bitmap),
 	}
 }
@@ -53,6 +55,7 @@ func (b *Batch) Reset(blob BlobFunc, label LabelFunc, id ID) *Batch {
 	clear(b.series)
 	clear(b.labels)
 	clear(b.exemplars)
+	clear(b.exists)
 	clear(b.fst)
 	b.id = id
 	b.shards.Clear()
@@ -83,6 +86,7 @@ func (b *Batch) Append(ts *prompb.TimeSeries) {
 		SetBSI(bitmap(shard, b.values), id, math.Float64bits(s.Value))
 		SetBSISet(bitmap(shard, b.series), id, labels)
 		SetMutex(bitmap(shard, b.kind), id, uint64(metricsFloat))
+		bitmap(shard, b.exists).Add(id % shardwidth.ShardWidth)
 		if exemplars != 0 {
 			SetBSI(bitmap(shard, b.exemplars), id, exemplars)
 		}
@@ -104,6 +108,7 @@ func (b *Batch) Append(ts *prompb.TimeSeries) {
 		SetBSI(bitmap(shard, b.values), id, value)
 		SetBSISet(bitmap(shard, b.series), id, labels)
 		SetMutex(bitmap(shard, b.kind), id, uint64(metricsFloat))
+		bitmap(shard, b.exists).Add(id % shardwidth.ShardWidth)
 		if exemplars != 0 {
 			SetBSI(bitmap(shard, b.exemplars), id, exemplars)
 		}

@@ -53,7 +53,11 @@ func Save(db Store, b *Batch, ts time.Time) error {
 		if err != nil {
 			return err
 		}
-		return apply(tx, "metrics.exemplars", view, b.exemplars)
+		err = apply(tx, "metrics.exemplars", view, b.exemplars)
+		if err != nil {
+			return err
+		}
+		return apply(tx, "metrics.exists", view, b.exists)
 	})
 	if err != nil {
 		return err

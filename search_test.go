@@ -3,15 +3,31 @@ package ernestdb
 import (
 	"testing"
 
-	"github.com/RoaringBitmap/roaring/roaring64"
+	"github.com/gernest/rbf"
+	"github.com/gernest/roaring/shardwidth"
 )
 
 func TestYay(t *testing.T) {
-	b := roaring64.NewDefaultBSI()
-	b.SetValue(1, 10)
-	b.SetValue(2, 11)
-	b.SetValue(3, 12)
-	b.SetValue(4, 12)
+	db := rbf.NewDB(t.TempDir(), nil)
 
-	t.Error(b.CompareValue(0, roaring64.EQ, 12, 0, nil).ToArray())
+	db.Open()
+	defer db.Close()
+
+	sw := uint64(shardwidth.ShardWidth)
+	sw2 := sw * 2
+	values := []uint64{1, 2, 3, 3, sw + 1, sw2}
+	o := make([]uint64, 0, len(values))
+	for i := range values {
+		o = append(o, (values[i])%shardwidth.ShardWidth)
+	}
+	view := "=test"
+	tx, _ := db.Begin(true)
+	tx.Add(view, o...)
+	tx.Commit()
+
+	tx, _ = db.Begin(false)
+	defer tx.Rollback()
+
+	e, _ := row(1, view, tx, 0)
+	t.Error(e.Columns())
 }
