@@ -5,27 +5,6 @@ import (
 	"slices"
 )
 
-type Exists struct {
-	ShardID uint64
-}
-
-func (e *Exists) Key() []byte {
-	return Encode(nil, []uint64{0, e.ShardID})
-}
-
-type Timestamp struct {
-	ShardID  uint64
-	SeriesID uint64
-}
-
-func (e *Timestamp) Slice() []uint64 {
-	return []uint64{1, e.ShardID, e.SeriesID}
-}
-
-func (e *Timestamp) Key() []byte {
-	return Encode(nil, []uint64{1, e.ShardID, e.SeriesID})
-}
-
 type Value struct {
 	ShardID  uint64
 	SeriesID uint64

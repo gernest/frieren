@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"math"
+	"io"
 	"strings"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
@@ -13,6 +13,8 @@ import (
 	"github.com/cespare/xxhash/v2"
 	"github.com/gernest/ernestdb/keys"
 	"github.com/gernest/ernestdb/shardwidth"
+	"github.com/gernest/rbf"
+	"github.com/gernest/rows"
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/prompb"
@@ -71,34 +73,7 @@ type Querier struct {
 var _ storage.Querier = (*Querier)(nil)
 
 func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.SelectHints, matchers ...*labels.Matcher) storage.SeriesSet {
-	if len(s.shards) == 0 {
-		return storage.EmptySeriesSet()
-	}
-	set := make(MapSet)
-	for _, shard := range s.shards {
-		series, err := Series(s.db, shard, matchers...)
-		if err != nil {
-			return storage.ErrSeriesSet(err)
-		}
-		if series.IsEmpty() {
-			continue
-		}
-		err = set.Build(s.db, hints.Start, hints.End, shard, series)
-		if err != nil {
-			return storage.ErrSeriesSet(err)
-		}
-	}
-	if len(set) == 0 {
-		return storage.EmptySeriesSet()
-	}
-	o := &SeriesSet{
-		series: make([]storage.Series, 0, len(set)),
-		pos:    -1,
-	}
-	for _, sx := range set {
-		o.series = append(o.series, storage.NewListSeries(sx.Labels, sx.Samples))
-	}
-	return o
+	return nil
 }
 
 type SeriesSet struct {
@@ -131,38 +106,25 @@ var (
 	sep = []byte("=")
 )
 
-func (s MapSet) Build(db Store, start, end int64, shard uint64, series *roaring64.Bitmap) error {
-	tsSlice := (&keys.Timestamp{ShardID: shard}).Slice()
-	valueSlice := (&keys.Value{ShardID: shard}).Slice()
-	hsSlice := (&keys.Histogram{ShardID: shard}).Slice()
-	seriesSlice := (&keys.Series{ShardID: shard}).Slice()
+func (s MapSet) Build(db Store, start, end int64, view string, shard uint64, filter *rows.Row) error {
 	blobSlice := (&keys.Blob{}).Slice()
-
-	histogram, err := readBitmap(db, (&keys.Kind{}).Key())
-	if err != nil {
-		return err
-	}
-	kb := make([]byte, 0, 1<<10)
-	it := series.Iterator()
-
-	add := func(seriesID uint64, samples []chunks.Sample) error {
+	kb := make([]byte, 0, len(blobSlice)*8)
+	add := func(tx *rbf.Tx, view string, seriesID, shard, validID uint64, samples []chunks.Sample) error {
 		sx, ok := s[seriesID]
 		if ok {
 			sx.Samples = append(sx.Samples, samples...)
 			return nil
 		}
-		seriesSlice[len(seriesSlice)-1] = seriesID
-		b, err := readBitmap(db, keys.Encode(kb, seriesSlice))
+		lbl, err := ReadSetValue(shard, "metrics.labels", view, tx, validID)
 		if err != nil {
-			return fmt.Errorf("reading series bitmap %w", err)
+			return fmt.Errorf("reading labels %w", err)
 		}
 		sx = &S{
-			Labels:  make(labels.Labels, 0, b.GetCardinality()),
+			Labels:  make(labels.Labels, 0, len(lbl)),
 			Samples: samples,
 		}
-		itr := b.Iterator()
-		for itr.HasNext() {
-			blobSlice[len(blobSlice)-1] = it.Next()
+		for i := range lbl {
+			blobSlice[len(blobSlice)-1] = lbl[i]
 			err = db.Get(keys.Encode(kb, blobSlice), func(val []byte) error {
 				key, value, _ := bytes.Cut(val, sep)
 				sx.Labels = append(sx.Labels, labels.Label{
@@ -178,104 +140,67 @@ func (s MapSet) Build(db Store, start, end int64, shard uint64, series *roaring6
 		s[seriesID] = sx
 		return nil
 	}
-	for it.HasNext() {
-		seriesID := it.Next()
 
-		tsSlice[len(tsSlice)-1] = seriesID
-		ts, err := readBSI(db, keys.Encode(kb, tsSlice))
+	db.ViewIndex(func(tx *rbf.Tx) error {
+		// find matching timestamps
+		r, err := Between(shard, "metrics.timestamp", view, tx, uint64(start), uint64(end))
+		if err != nil {
+			return fmt.Errorf("reading timestamp %w", err)
+		}
+		if filter != nil {
+			r = r.Intersect(filter)
+		}
+		if r.IsEmpty() {
+			return nil
+		}
+
+		// find all series
+		series, err := TransposeBSI(shard, "metrics.series", view, tx, r)
 		if err != nil {
 			return err
 		}
+		if series.IsEmpty() {
+			return nil
+		}
 
-		// find ids within range
-		ids := ts.CompareValue(0, roaring64.RANGE, start, end, nil)
-		if ids.IsEmpty() {
-			continue
-		}
-		if histogram.Contains(seriesID) {
-			// read this series as histogram
-			hsSlice[len(hsSlice)-1] = seriesID
-			hs, err := readBSI(db, keys.Encode(kb, hsSlice))
+		// iterate on each series
+		it := series.Iterator()
+		for it.HasNext() {
+			seriesID := it.Next()
+			sr, err := EqBSI(shard, "metrics.series", view, tx, seriesID)
 			if err != nil {
-				return err
+				return fmt.Errorf("reading columns for series %w", err)
 			}
-
-			itr := ids.Iterator()
-			var h prompb.Histogram
-			decode := func(n uint64) error {
-				value, found := hs.GetValue(n)
-				if !found {
-					return fmt.Errorf("missing histogram value for series=%d id=%d ", seriesID, n)
-				}
-				blobSlice[len(blobSlice)-1] = uint64(value)
-				err = db.Get(keys.Encode(kb, blobSlice), h.Unmarshal)
-				if err != nil {
-					return fmt.Errorf("reading histogram %w", err)
-				}
-				return nil
+			sr = sr.Intersect(r)
+			if sr.IsEmpty() {
+				continue
 			}
-			// we need to detect kind of histogram before proceeding
-			err = decode(itr.Next())
-			if err != nil {
-				return err
-			}
-			samples := make([]chunks.Sample, 0, ids.GetCardinality())
-			switch h.Count.(type) {
-			case *prompb.Histogram_CountFloat:
-				samples = append(samples, NewFH(&h))
-				for itr.HasNext() {
-					err = decode(itr.Next())
-					if err != nil {
-						return err
-					}
-					samples = append(samples, NewFH(&h))
-				}
-			default:
-				samples = append(samples, NewH(&h))
-				for itr.HasNext() {
-					err = decode(itr.Next())
-					if err != nil {
-						return err
-					}
-					samples = append(samples, NewH(&h))
-				}
-			}
-			err = add(seriesID, samples)
-			if err != nil {
-				return err
-			}
-			continue
-		}
-		valueSlice[len(valueSlice)-1] = seriesID
-		values, err := readBSI(db, keys.Encode(kb, valueSlice))
-		if err != nil {
-			return fmt.Errorf("reading series value %w", err)
-		}
-		samples := make([]chunks.Sample, 0, ids.GetCardinality())
-		timestamps := ts.IntersectAndTranspose(0, ids)
-		tsItr := timestamps.Iterator()
-		itr := ids.Iterator()
-		a, b := ids.GetCardinality(), timestamps.GetCardinality()
-		if a != b {
-			// Make sure
-			exit("mismatch ids and timestamp values", "ids", a, "ts", b)
-		}
-		for itr.HasNext() {
-			column := itr.Next()
-			value, found := values.GetValue(column)
-			if !found {
-				return fmt.Errorf("missing value for column=%d", column)
-			}
-			samples = append(samples, &V{
-				ts: int64(tsItr.Next()),
-				f:  math.Float64frombits(uint64(value)),
+			// sr is a set of column ids that belongs to seriesID and matches the filter.
+			// We need to determine what kind of series before reading. Only one column
+			// id is enough
+			var kindColumnID uint64
+			sr.RangeColumns(func(u uint64) error {
+				kindColumnID = u
+				return io.EOF
 			})
+
+			kind, err := MutexValue(shard, "metrics.kind", view, tx, kindColumnID)
+			if err != nil {
+				return fmt.Errorf("reading series kind %w", err)
+			}
+			chunks := make([]chunks.Sample, 0, sr.Count())
+			switch metricsKind(kind) {
+			case metricsFloat:
+			case metricsHistogram:
+			case metricsFloatHistogram:
+			}
+			err = add(tx, view, seriesID, shard, kindColumnID, chunks)
+			if err != nil {
+				return err
+			}
 		}
-		err = add(seriesID, samples)
-		if err != nil {
-			return err
-		}
-	}
+		return nil
+	})
 	return nil
 }
 
@@ -339,9 +264,6 @@ func NewFH(o *prompb.Histogram) *FH {
 
 // Series returns a bitmap of all series ID that match matchers for the given shard.
 func Series(db Store, shard uint64, matchers ...*labels.Matcher) (*roaring64.Bitmap, error) {
-	if len(matchers) == 0 {
-		return readBitmap(db, (&keys.Exists{ShardID: shard}).Key())
-	}
 
 	var (
 		hasRe bool
@@ -412,31 +334,7 @@ func Series(db Store, shard uint64, matchers ...*labels.Matcher) (*roaring64.Bit
 			return nil, err
 		}
 	}
-
-	// lbl contains all labels satisfying the matchers conditions. The series we
-	// want is the intersection of all labels
-	series := roaring64.New()
-	slice := (&keys.Labels{}).Slice()
-	xb := make([]byte, 0, len(slice)*8)
-	it := lbl.Iterator()
-	start := true
-	for it.HasNext() {
-		slice[len(slice)-1] = it.Next()
-		b, err := readBitmap(db, keys.Encode(xb, slice))
-		if err != nil {
-			return nil, err
-		}
-		if start {
-			series.Or(b)
-			start = false
-		} else {
-			series.And(b)
-		}
-		if series.IsEmpty() {
-			break
-		}
-	}
-	return series, nil
+	return lbl, nil
 }
 
 func compile(b *bytes.Buffer, key, value string) (*re.Regexp, error) {

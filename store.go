@@ -3,14 +3,16 @@ package ernestdb
 import (
 	"bytes"
 	"fmt"
-	"runtime"
 	"slices"
+	"time"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/blevesearch/vellum"
 	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/ristretto"
 	"github.com/gernest/ernestdb/keys"
+	"github.com/gernest/rbf"
+	"github.com/gernest/rbf/quantum"
 	"github.com/prometheus/prometheus/prompb"
 )
 
@@ -19,72 +21,47 @@ type Value interface {
 }
 
 type Store interface {
+	NextID() uint64
 	Has(key []byte) bool
 	Set(key, value []byte) error
 	Get(key []byte, value func(val []byte) error) error
 	Prefix(prefix []byte, f func(key []byte, value Value) error) error
+	ViewIndex(f func(tx *rbf.Tx) error) error
+	UpdateIndex(f func(tx *rbf.Tx) error) error
 }
 
-func Save(db Store, b *Batch) error {
-	var buf bytes.Buffer
-	tmpBSI := roaring64.NewDefaultBSI()
-	tmpBitmap := roaring64.New()
-
-	var existsKey keys.Exists
-	for shard, bsi := range b.exists {
-		existsKey.ShardID = shard
-		err := UpsertBitmap(db, &buf, tmpBitmap, bsi, existsKey.Key())
+func Save(db Store, b *Batch, ts time.Time) error {
+	err := db.UpdateIndex(func(tx *rbf.Tx) error {
+		view := quantum.ViewByTimeUnit("", ts, 'D')
+		err := apply(tx, "metrics.values", view, b.values)
 		if err != nil {
-			return fmt.Errorf("inserting exists bitmap %w", err)
+			return err
 		}
-	}
-	var valuesKey keys.Value
-	for shard, series := range b.values {
-		valuesKey.ShardID = shard
-		for seriesID, bsi := range series {
-			valuesKey.SeriesID = seriesID
-			err := UpsertBSI(db, &buf, tmpBSI, bsi, valuesKey.Key())
-			if err != nil {
-				return fmt.Errorf("inserting exists bsi %w", err)
-			}
+		err = apply(tx, "metrics.kind", view, b.kind)
+		if err != nil {
+			return err
 		}
+		err = apply(tx, "metrics.timestamp", view, b.timestamp)
+		if err != nil {
+			return err
+		}
+		err = apply(tx, "metrics.series", view, b.series)
+		if err != nil {
+			return err
+		}
+		err = apply(tx, "metrics.labels", view, b.labels)
+		if err != nil {
+			return err
+		}
+		return apply(tx, "metrics.exemplars", view, b.exemplars)
+	})
+	if err != nil {
+		return err
 	}
 
-	var tsKey keys.Timestamp
-	for shard, series := range b.timestamp {
-		tsKey.ShardID = shard
-		for seriesID, bsi := range series {
-			tsKey.SeriesID = seriesID
-			err := UpsertBSI(db, &buf, tmpBSI, bsi, tsKey.Key())
-			if err != nil {
-				return fmt.Errorf("inserting exists bsi %w", err)
-			}
-		}
-	}
-	var seriesKey keys.Series
-	for shard, series := range b.series {
-		seriesKey.ShardID = shard
-		for seriesID, bsi := range series {
-			tsKey.SeriesID = seriesID
-			err := UpsertBitmap(db, &buf, tmpBitmap, bsi, seriesKey.Key())
-			if err != nil {
-				return fmt.Errorf("inserting exists bsi %w", err)
-			}
-		}
-	}
-	var labelsKey keys.Labels
-
-	for shard, series := range b.labels {
-		labelsKey.ShardID = shard
-		for labelID, bsi := range series {
-			labelsKey.LabelID = labelID
-			err := UpsertBitmap(db, &buf, tmpBitmap, bsi, labelsKey.Key())
-			if err != nil {
-				return fmt.Errorf("inserting exists bsi %w", err)
-			}
-		}
-	}
 	var fstKey keys.FSTBitmap
+	var buf bytes.Buffer
+	tmpBitmap := roaring64.New()
 	for shard, bsi := range b.fst {
 		fstKey.ShardID = shard
 		err := UpsertFST(db, &buf, tmpBitmap, bsi, shard, fstKey.Key())
@@ -95,32 +72,15 @@ func Save(db Store, b *Batch) error {
 	return UpsertBitmap(db, &buf, tmpBitmap, &b.shards, keys.Shards{}.Key())
 }
 
-func UpsertBSI(db Store, buf *bytes.Buffer, tmp, b *roaring64.BSI, key []byte) error {
-	buf.Reset()
-	var update bool
-	err := db.Get(key, func(val []byte) error {
-		update = true
-		_, err := tmp.ReadFrom(bytes.NewReader(val))
-		return err
-	})
-	if err != nil {
-		return err
-	}
-	if !update {
-		b.RunOptimize()
-		_, err = b.WriteTo(buf)
+func apply(tx *rbf.Tx, field, view string, data map[uint64]*roaring64.Bitmap) error {
+	for shard, m := range data {
+		key := viewFor(field, view, shard)
+		_, err := tx.Add(key, m.ToArray()...)
 		if err != nil {
-			return err
+			return fmt.Errorf("adding to %s %w", key, err)
 		}
-		return db.Set(key, bytes.Clone(buf.Bytes()))
 	}
-	tmp.ParOr(runtime.NumCPU(), b)
-	tmp.RunOptimize()
-	_, err = tmp.WriteTo(buf)
-	if err != nil {
-		return err
-	}
-	return db.Set(key, bytes.Clone(buf.Bytes()))
+	return nil
 }
 
 func UpsertBitmap(db Store, buf *bytes.Buffer, tmp, b *roaring64.Bitmap, key []byte) error {
