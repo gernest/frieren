@@ -9,6 +9,7 @@ import (
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/blevesearch/vellum"
 	"github.com/cespare/xxhash/v2"
+	"github.com/dgraph-io/badger/v4"
 	"github.com/dgraph-io/ristretto"
 	"github.com/gernest/ernestdb/keys"
 	"github.com/gernest/rbf"
@@ -20,18 +21,8 @@ type Value interface {
 	Value(f func(val []byte) error) error
 }
 
-type Store interface {
-	NextID() uint64
-	Has(key []byte) bool
-	Set(key, value []byte) error
-	Get(key []byte, value func(val []byte) error) error
-	Prefix(prefix []byte, f func(key []byte, value Value) error) error
-	ViewIndex(f func(tx *rbf.Tx) error) error
-	UpdateIndex(f func(tx *rbf.Tx) error) error
-}
-
-func Save(db Store, b *Batch, ts time.Time) error {
-	err := db.UpdateIndex(func(tx *rbf.Tx) error {
+func Save(db *badger.DB, idx *rbf.DB, b *Batch, ts time.Time) error {
+	err := UpdateIndex(idx, func(tx *rbf.Tx) error {
 		view := quantum.ViewByTimeUnit("", ts, 'D')
 		err := apply(tx, "metrics.values", view, b.values)
 		if err != nil {
@@ -57,23 +48,28 @@ func Save(db Store, b *Batch, ts time.Time) error {
 		if err != nil {
 			return err
 		}
-		return apply(tx, "metrics.exists", view, b.exists)
+		err = apply(tx, "metrics.exists", view, b.exists)
+		if err != nil {
+			return err
+		}
+		return applyShards(tx, "metrics.shards", view, &b.shards)
 	})
 	if err != nil {
 		return err
 	}
-
-	var fstKey keys.FSTBitmap
-	var buf bytes.Buffer
-	tmpBitmap := roaring64.New()
-	for shard, bsi := range b.fst {
-		fstKey.ShardID = shard
-		err := UpsertFST(db, &buf, tmpBitmap, bsi, shard, fstKey.Key())
-		if err != nil {
-			return fmt.Errorf("inserting exists bsi %w", err)
+	return db.Update(func(txn *badger.Txn) error {
+		var fstKey keys.FSTBitmap
+		var buf bytes.Buffer
+		tmpBitmap := roaring64.New()
+		for shard, bsi := range b.fst {
+			fstKey.ShardID = shard
+			err := UpsertFST(txn, &buf, tmpBitmap, bsi, shard, fstKey.Key())
+			if err != nil {
+				return fmt.Errorf("inserting exists bsi %w", err)
+			}
 		}
-	}
-	return UpsertBitmap(db, &buf, tmpBitmap, &b.shards, keys.Shards{}.Key())
+		return UpsertBitmap(txn, &buf, tmpBitmap, &b.shards, keys.Shards{}.Key())
+	})
 }
 
 func apply(tx *rbf.Tx, field, view string, data map[uint64]*roaring64.Bitmap) error {
@@ -87,48 +83,52 @@ func apply(tx *rbf.Tx, field, view string, data map[uint64]*roaring64.Bitmap) er
 	return nil
 }
 
-func UpsertBitmap(db Store, buf *bytes.Buffer, tmp, b *roaring64.Bitmap, key []byte) error {
-	buf.Reset()
-	var update bool
-	err := db.Get(key, func(val []byte) error {
-		update = true
-		_, err := tmp.FromUnsafeBytes(val)
-		return err
-	})
+func applyShards(tx *rbf.Tx, field, view string, m *roaring64.Bitmap) error {
+	key := viewFor(field, view, 0)
+	_, err := tx.Add(key, m.ToArray()...)
 	if err != nil {
-		return err
+		return fmt.Errorf("adding to %s %w", key, err)
 	}
-	if !update {
-		b.RunOptimize()
-		_, err = b.WriteTo(buf)
+	return nil
+}
+
+func UpsertBitmap(txn *badger.Txn, buf *bytes.Buffer, tmp, b *roaring64.Bitmap, key []byte) error {
+	buf.Reset()
+	if Has(txn, key) {
+		tmp.Clear()
+		err := Get(txn, key, tmp.UnmarshalBinary)
 		if err != nil {
 			return err
 		}
-		return db.Set(key, bytes.Clone(buf.Bytes()))
+		b.Or(tmp)
 	}
-	tmp.Or(b)
-	tmp.RunOptimize()
-	_, err = tmp.WriteTo(buf)
+	b.RunOptimize()
+	_, err := b.WriteTo(buf)
 	if err != nil {
 		return err
 	}
-	return db.Set(key, bytes.Clone(buf.Bytes()))
+	return txn.Set(key, bytes.Clone(buf.Bytes()))
 }
 
-func UpsertFST(db Store, buf *bytes.Buffer, tmp, b *roaring64.Bitmap, shard uint64, key []byte) error {
-	tmp.Clear()
-	db.Get(key, tmp.UnmarshalBinary)
-	tmp.Or(b)
+func UpsertFST(txn *badger.Txn, buf *bytes.Buffer, tmp, b *roaring64.Bitmap, shard uint64, key []byte) error {
+	if Has(txn, key) {
+		tmp.Clear()
+		err := Get(txn, key, tmp.UnmarshalBinary)
+		if err != nil {
+			return err
+		}
+		b.Or(tmp)
+	}
 
 	// Build FST
-	o := make([][]byte, 0, tmp.GetCardinality())
+	o := make([][]byte, 0, b.GetCardinality())
 
 	slice := (&keys.Blob{}).Slice()
 	kb := make([]byte, 0, len(slice)*7)
-	it := tmp.Iterator()
+	it := b.Iterator()
 	if it.HasNext() {
 		slice[1] = it.Next()
-		value := value(db, keys.Encode(kb, slice))
+		value := value(txn, keys.Encode(kb, slice))
 		if len(value) == 0 {
 			exit("cannot find translated label")
 		}
@@ -141,7 +141,7 @@ func UpsertFST(db Store, buf *bytes.Buffer, tmp, b *roaring64.Bitmap, shard uint
 	buf.Reset()
 	tmp.WriteTo(buf)
 
-	err := db.Set(key, bytes.Clone(buf.Bytes()))
+	err := txn.Set(key, bytes.Clone(buf.Bytes()))
 	if err != nil {
 		return err
 	}
@@ -165,18 +165,18 @@ func UpsertFST(db Store, buf *bytes.Buffer, tmp, b *roaring64.Bitmap, shard uint
 	if err != nil {
 		return fmt.Errorf("closing fst builder %w", err)
 	}
-	return db.Set((&keys.FST{ShardID: shard}).Key(), bytes.Clone(buf.Bytes()))
+	return txn.Set((&keys.FST{ShardID: shard}).Key(), bytes.Clone(buf.Bytes()))
 }
 
-func value(db Store, key []byte) (o []byte) {
-	db.Get(key, func(val []byte) error {
+func value(txn *badger.Txn, key []byte) (o []byte) {
+	Get(txn, key, func(val []byte) error {
 		o = bytes.Clone(val)
 		return nil
 	})
 	return
 }
 
-func UpsertBlob(db Store, cache *ristretto.Cache) BlobFunc {
+func UpsertBlob(txn *badger.Txn, cache *ristretto.Cache) BlobFunc {
 	h := xxhash.New()
 	var key keys.Blob
 	return func(b []byte) uint64 {
@@ -189,15 +189,10 @@ func UpsertBlob(db Store, cache *ristretto.Cache) BlobFunc {
 		cache.Set(key.BlobID, 0, 1)
 
 		k := key.Key()
-		var set bool
-		db.Get(k, func(val []byte) error {
-			set = true
-			return nil
-		})
-		if set {
+		if Has(txn, k) {
 			return key.BlobID
 		}
-		err := db.Set(key.Key(), b)
+		err := txn.Set(key.Key(), b)
 		if err != nil {
 			panic(fmt.Sprintf("failed saving blob to storage %v", err))
 		}

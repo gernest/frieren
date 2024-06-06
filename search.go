@@ -12,6 +12,7 @@ import (
 	"github.com/blevesearch/vellum"
 	re "github.com/blevesearch/vellum/regexp"
 	"github.com/cespare/xxhash/v2"
+	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/ernestdb/keys"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/quantum"
@@ -27,7 +28,7 @@ import (
 )
 
 type Queryable struct {
-	db  Store
+	db  *badger.DB
 	idx *rbf.DB
 }
 
@@ -39,7 +40,6 @@ func (q *Queryable) Querier(mints, maxts int64) (storage.Querier, error) {
 		// Same day generate a single view
 		views = []string{quantum.ViewByTimeUnit("", time.UnixMilli(mints), 'D')}
 	} else {
-
 		// We wantview that might contain maxts to be included too, we need to add
 		// extra date
 		views = quantum.ViewsByTimeRange("",
@@ -79,6 +79,7 @@ func (q *Queryable) Querier(mints, maxts int64) (storage.Querier, error) {
 	return &Querier{
 		shards: shards,
 		views:  shardViews,
+		db:     q.db,
 		idx:    q.idx,
 	}, nil
 
@@ -93,7 +94,7 @@ type Querier struct {
 	storage.LabelQuerier
 	shards []uint64
 	views  [][]string
-	db     Store
+	db     *badger.DB
 	idx    *rbf.DB
 }
 
@@ -108,6 +109,9 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 		return storage.ErrSeriesSet(err)
 	}
 	defer tx.Rollback()
+
+	txn := s.db.NewTransaction(false)
+	defer txn.Discard()
 
 	yes, no, re := match00(matchers...)
 	m := make(MapSet)
@@ -125,7 +129,7 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 			//
 			// we are cloning yes an no bitmaps because we update them in place
 			a, b = yes.Clone(), no.Clone()
-			err := match01(s.db, shard, yes, no, re...)
+			err := match01(txn, shard, yes, no, re...)
 			if err != nil {
 				return storage.ErrSeriesSet(err)
 			}
@@ -176,7 +180,7 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 			}
 
 			// r is the row ids in this view/shard that we want to read.
-			err = m.Build(s.db, tx, hints.Start, hints.End, view, shard, r)
+			err = m.Build(txn, tx, hints.Start, hints.End, view, shard, r)
 			if err != nil {
 				return storage.ErrSeriesSet(err)
 			}
@@ -215,7 +219,7 @@ var (
 	sep = []byte("=")
 )
 
-func (s MapSet) Build(db Store, tx *rbf.Tx, start, end int64, view string, shard uint64, filter *rows.Row) error {
+func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, start, end int64, view string, shard uint64, filter *rows.Row) error {
 	blobSlice := (&keys.Blob{}).Slice()
 	kb := make([]byte, 0, len(blobSlice)*8)
 	add := func(view string, seriesID, shard, validID uint64, samples []chunks.Sample) error {
@@ -234,7 +238,7 @@ func (s MapSet) Build(db Store, tx *rbf.Tx, start, end int64, view string, shard
 		}
 		for i := range lbl {
 			blobSlice[len(blobSlice)-1] = lbl[i]
-			err = db.Get(keys.Encode(kb, blobSlice), func(val []byte) error {
+			err = Get(txn, keys.Encode(kb, blobSlice), func(val []byte) error {
 				key, value, _ := bytes.Cut(val, sep)
 				sx.Labels = append(sx.Labels, labels.Label{
 					Name:  string(key),
@@ -397,9 +401,9 @@ func match00(matchers ...*labels.Matcher) (yes, no *roaring64.Bitmap, regex []*l
 	return
 }
 
-func match01(db Store, shard uint64, yes, no *roaring64.Bitmap, matchers ...*labels.Matcher) error {
+func match01(txn *badger.Txn, shard uint64, yes, no *roaring64.Bitmap, matchers ...*labels.Matcher) error {
 	var buf bytes.Buffer
-	return readFST(db, shard, func(fst *vellum.FST) error {
+	return readFST(txn, shard, func(fst *vellum.FST) error {
 		for _, m := range matchers {
 			switch m.Type {
 			case labels.MatchRegexp, labels.MatchNotRegexp:
@@ -423,69 +427,6 @@ func match01(db Store, shard uint64, yes, no *roaring64.Bitmap, matchers ...*lab
 	})
 }
 
-// Series returns a bitmap of all series ID that match matchers for the given shard.
-func Series(db Store, shard uint64, matchers ...*labels.Matcher) (yes, no *roaring64.Bitmap, err error) {
-
-	var (
-		hasRe bool
-	)
-
-	yes = roaring64.New()
-	no = roaring64.New()
-
-	var buf bytes.Buffer
-	var h xxhash.Digest
-
-	for _, m := range matchers {
-		switch m.Type {
-		case labels.MatchEqual, labels.MatchNotEqual:
-			buf.Reset()
-			buf.WriteString(m.Name)
-			buf.WriteByte('=')
-			buf.WriteString(m.Value)
-			h.Reset()
-			h.Write(buf.Bytes())
-			label := h.Sum64()
-
-			if m.Type == labels.MatchEqual {
-				yes.Add(label)
-			} else {
-				no.Add(label)
-			}
-		default:
-			hasRe = true
-		}
-	}
-	if hasRe {
-		err := readFST(db, shard, func(fst *vellum.FST) error {
-			for _, m := range matchers {
-				switch m.Type {
-				case labels.MatchRegexp, labels.MatchNotRegexp:
-					rx, err := compile(&buf, m.Name, m.Value)
-					if err != nil {
-						return fmt.Errorf("compiling matcher %q %w", m.String(), err)
-					}
-					itr, err := fst.Search(rx, nil, nil)
-					for err == nil {
-						_, value := itr.Current()
-						if m.Type == labels.MatchRegexp {
-							yes.Add(value)
-						} else {
-							no.Add(value)
-						}
-						err = itr.Next()
-					}
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-	return yes, no, nil
-}
-
 func compile(b *bytes.Buffer, key, value string) (*re.Regexp, error) {
 	value = strings.TrimPrefix(value, "^")
 	value = strings.TrimSuffix(value, "$")
@@ -496,33 +437,12 @@ func compile(b *bytes.Buffer, key, value string) (*re.Regexp, error) {
 	return re.New(b.String())
 }
 
-func readFST(db Store, shard uint64, f func(fst *vellum.FST) error) error {
-	return db.Get((&keys.FST{ShardID: shard}).Key(), func(val []byte) error {
+func readFST(txn *badger.Txn, shard uint64, f func(fst *vellum.FST) error) error {
+	return Get(txn, (&keys.FST{ShardID: shard}).Key(), func(val []byte) error {
 		fst, err := vellum.Load(val)
 		if err != nil {
 			return err
 		}
 		return f(fst)
 	})
-}
-
-func readBSI(db Store, key []byte) (*roaring64.BSI, error) {
-	o := roaring64.NewDefaultBSI()
-	err := db.Get(key, func(val []byte) error {
-		_, err := o.ReadFrom(bytes.NewReader(val))
-		return err
-	})
-	if err != nil {
-		return nil, err
-	}
-	return o, nil
-}
-
-func readBitmap(db Store, key []byte) (*roaring64.Bitmap, error) {
-	o := roaring64.New()
-	err := db.Get(key, o.UnmarshalBinary)
-	if err != nil {
-		return nil, err
-	}
-	return o, nil
 }

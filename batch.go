@@ -79,7 +79,7 @@ func (b *Batch) Append(ts *prompb.TimeSeries) {
 		shard := id / shardwidth.ShardWidth
 		if shard != currentShard {
 			currentShard = shard
-			b.shards.Add(shard)
+			b.shards.Add(shard % shardwidth.ShardWidth)
 		}
 		SetBSI(bitmap(shard, b.series), id, series)
 		SetBSI(bitmap(shard, b.timestamp), id, uint64(s.Timestamp))
@@ -99,7 +99,7 @@ func (b *Batch) Append(ts *prompb.TimeSeries) {
 		shard := id / shardwidth.ShardWidth
 		if shard != currentShard {
 			currentShard = shard
-			b.shards.Add(shard)
+			b.shards.Add(shard % shardwidth.ShardWidth)
 		}
 		data, _ := s.Marshal()
 		value := b.blobFunc(data)

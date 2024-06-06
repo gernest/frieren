@@ -2,6 +2,7 @@ package ernestdb
 
 import (
 	"github.com/dgraph-io/badger/v4"
+	"github.com/gernest/rbf"
 )
 
 func Has(txn *badger.Txn, key []byte) bool {
@@ -30,4 +31,17 @@ func Prefix(txn *badger.Txn, prefix []byte, f func(key []byte, value Value) erro
 		}
 	}
 	return nil
+}
+
+func UpdateIndex(idx *rbf.DB, f func(tx *rbf.Tx) error) error {
+	tx, err := idx.Begin(true)
+	if err != nil {
+		return err
+	}
+	err = f(tx)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
 }
