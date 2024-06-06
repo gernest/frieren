@@ -178,13 +178,13 @@ func (s MapSet) Build(db Store, start, end int64, view string, shard uint64, fil
 			// sr is a set of column ids that belongs to seriesID and matches the filter.
 			// We need to determine what kind of series before reading. Only one column
 			// id is enough
-			var kindColumnID uint64
+			var validColumnID uint64
 			sr.RangeColumns(func(u uint64) error {
-				kindColumnID = u
+				validColumnID = u
 				return io.EOF
 			})
 
-			kind, err := MutexValue(shard, "metrics.kind", view, tx, kindColumnID)
+			kind, err := MutexValue(shard, "metrics.kind", view, tx, validColumnID)
 			if err != nil {
 				return fmt.Errorf("reading series kind %w", err)
 			}
@@ -194,7 +194,7 @@ func (s MapSet) Build(db Store, start, end int64, view string, shard uint64, fil
 			case metricsHistogram:
 			case metricsFloatHistogram:
 			}
-			err = add(tx, view, seriesID, shard, kindColumnID, chunks)
+			err = add(tx, view, seriesID, shard, validColumnID, chunks)
 			if err != nil {
 				return err
 			}
