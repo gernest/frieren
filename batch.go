@@ -6,6 +6,7 @@ import (
 
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/cespare/xxhash/v2"
+	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/ernestdb/shardwidth"
 	"github.com/gernest/ernestdb/util"
 	"github.com/prometheus/prometheus/prompb"
@@ -46,9 +47,13 @@ func NewBatch() *Batch {
 	}
 }
 
-func (b *Batch) Reset(blob BlobFunc, label LabelFunc, id ID) *Batch {
-	b.blobFunc = blob
-	b.labelFunc = label
+func (b *Batch) Reset(txn *badger.Txn, id ID) *Batch {
+	b.blobFunc = nil
+	b.labelFunc = nil
+	if txn != nil {
+		b.blobFunc = UpsertBlob(txn)
+		b.labelFunc = UpsertLabels(b.blobFunc)
+	}
 	clear(b.values)
 	clear(b.kind)
 	clear(b.timestamp)

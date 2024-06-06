@@ -10,7 +10,6 @@ import (
 	"github.com/blevesearch/vellum"
 	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
-	"github.com/dgraph-io/ristretto"
 	"github.com/gernest/ernestdb/keys"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/quantum"
@@ -176,18 +175,13 @@ func value(txn *badger.Txn, key []byte) (o []byte) {
 	return
 }
 
-func UpsertBlob(txn *badger.Txn, cache *ristretto.Cache) BlobFunc {
+func UpsertBlob(txn *badger.Txn) BlobFunc {
 	h := xxhash.New()
 	var key keys.Blob
 	return func(b []byte) uint64 {
 		h.Reset()
 		h.Write(b)
 		key.BlobID = h.Sum64()
-		if _, ok := cache.Get(key.BlobID); ok {
-			return key.BlobID
-		}
-		cache.Set(key.BlobID, 0, 1)
-
 		k := key.Key()
 		if Has(txn, k) {
 			return key.BlobID
