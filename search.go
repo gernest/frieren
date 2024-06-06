@@ -6,14 +6,15 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/blevesearch/vellum"
 	re "github.com/blevesearch/vellum/regexp"
 	"github.com/cespare/xxhash/v2"
 	"github.com/gernest/ernestdb/keys"
-	"github.com/gernest/ernestdb/shardwidth"
 	"github.com/gernest/rbf"
+	"github.com/gernest/rbf/quantum"
 	"github.com/gernest/rows"
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
@@ -26,42 +27,66 @@ import (
 )
 
 type Queryable struct {
-	db Store
+	db  Store
+	idx *rbf.DB
 }
 
 var _ storage.Queryable = (*Queryable)(nil)
 
 func (q *Queryable) Querier(mints, maxts int64) (storage.Querier, error) {
+	var views []string
+	if date(mints).Equal(date(maxts)) {
+		// Same day generate a single view
+		views = []string{quantum.ViewByTimeUnit("", time.UnixMilli(mints), 'D')}
+	} else {
 
-	// adjust to epoch
-	mints = max(mints, epochMs)
-	if maxts < mints {
-		maxts = mints
+		// We wantview that might contain maxts to be included too, we need to add
+		// extra date
+		views = quantum.ViewsByTimeRange("",
+			time.UnixMilli(mints), time.UnixMilli(maxts).AddDate(0, 0, 1),
+			quantum.TimeQuantum("D"))
 	}
-	if maxts == epochMs {
-		return &Querier{}, nil
-	}
-
-	minShard := (mints - epochMs) / shardwidth.ShardWidth
-	maxShard := (maxts - epochMs) / shardwidth.ShardWidth
-
-	shards, err := readBitmap(q.db, keys.Shards{}.Key())
+	vs := make(map[int]*roaring64.Bitmap)
+	tx, err := q.idx.Begin(false)
 	if err != nil {
 		return nil, err
 	}
-	if minShard == maxShard {
-		if !shards.Contains(uint64(minShard)) {
-			return &Querier{}, nil
+	defer tx.Rollback()
+	all := roaring64.New()
+	for i := range views {
+		// read the shards observed per view
+		r, err := row(0, viewFor("metrics.shards", views[i], 0), tx, 0)
+		if err != nil {
+			return nil, fmt.Errorf("reading shards %w", err)
 		}
-		return &Querier{shards: []uint64{uint64(minShard)}}, nil
+		if r.IsEmpty() {
+			continue
+		}
+		b := roaring64.New()
+		b.AddMany(r.Columns())
+		vs[i] = b
+		all.Or(b)
 	}
-	b := roaring64.New()
-	b.AddRange(uint64(minShard), uint64(maxShard))
-	shards.And(b)
-	if shards.IsEmpty() {
-		return &Querier{}, nil
+	shards := all.ToArray()
+	shardViews := make([][]string, len(shards))
+	for i := range shards {
+		for k, v := range vs {
+			if v.Contains(shards[i]) {
+				shardViews[i] = append(shardViews[i], views[k])
+			}
+		}
 	}
-	return &Querier{shards: shards.ToArray()}, nil
+	return &Querier{
+		shards: shards,
+		views:  shardViews,
+		idx:    q.idx,
+	}, nil
+
+}
+
+func date(ts int64) time.Time {
+	y, m, d := time.UnixMilli(ts).Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }
 
 type Querier struct {
