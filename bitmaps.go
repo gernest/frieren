@@ -30,6 +30,10 @@ func MutexValue(shard uint64, field, view string, tx *rbf.Tx, column uint64) (ui
 	return rs[0], nil
 }
 
+func EqSet(shard uint64, field, view string, tx *rbf.Tx, value uint64) (*rows.Row, error) {
+	return row(shard, viewFor(field, view, shard), tx, value)
+}
+
 func EqBSI(shard uint64, field, view string, tx *rbf.Tx, value uint64) (*rows.Row, error) {
 	return rangeEQ(shard, viewFor(field, view, shard), tx, value)
 }
