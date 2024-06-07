@@ -1,4 +1,4 @@
-module github.com/gernest/ernestdb
+module github.com/gernest/frieren
 
 go 1.22.2
 

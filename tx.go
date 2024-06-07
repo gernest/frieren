@@ -1,4 +1,4 @@
-package ernestdb
+package frieren
 
 import (
 	"github.com/dgraph-io/badger/v4"

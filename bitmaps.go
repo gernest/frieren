@@ -1,11 +1,11 @@
-package ernestdb
+package frieren
 
 import (
 	"errors"
 	"math/bits"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
-	"github.com/gernest/ernestdb/shardwidth"
+	"github.com/gernest/frieren/shardwidth"
 	"github.com/gernest/rbf"
 	"github.com/gernest/roaring"
 	"github.com/gernest/rows"

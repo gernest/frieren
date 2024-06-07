@@ -1,4 +1,4 @@
-package ernestdb
+package frieren
 
 import (
 	"math"
@@ -7,8 +7,8 @@ import (
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
-	"github.com/gernest/ernestdb/shardwidth"
-	"github.com/gernest/ernestdb/util"
+	"github.com/gernest/frieren/shardwidth"
+	"github.com/gernest/frieren/util"
 	"github.com/prometheus/prometheus/prompb"
 )
 

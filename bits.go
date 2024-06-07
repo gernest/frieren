@@ -1,11 +1,11 @@
-package ernestdb
+package frieren
 
 import (
 	"fmt"
 	"math"
 	"math/bits"
 
-	"github.com/gernest/ernestdb/shardwidth"
+	"github.com/gernest/frieren/shardwidth"
 )
 
 const (

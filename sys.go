@@ -1,4 +1,4 @@
-package ernestdb
+package frieren
 
 import (
 	"log/slog"

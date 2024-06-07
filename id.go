@@ -1,8 +1,8 @@
-package ernestdb
+package frieren
 
 import (
 	"github.com/dgraph-io/badger/v4"
-	"github.com/gernest/ernestdb/keys"
+	"github.com/gernest/frieren/keys"
 )
 
 type Seq struct {

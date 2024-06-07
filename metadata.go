@@ -1,4 +1,4 @@
-package ernestdb
+package frieren
 
 import (
 	"bytes"
@@ -6,7 +6,7 @@ import (
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
-	"github.com/gernest/ernestdb/keys"
+	"github.com/gernest/frieren/keys"
 	"github.com/prometheus/prometheus/prompb"
 )
 
