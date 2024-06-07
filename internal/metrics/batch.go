@@ -2,11 +2,12 @@ package metrics
 
 import (
 	"math"
-	"math/bits"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
+	"github.com/gernest/frieren/internal/blob"
+	"github.com/gernest/frieren/internal/ro"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/shardwidth"
 	"github.com/gernest/frieren/util"
@@ -60,9 +61,8 @@ func (b *Batch) Reset() *Batch {
 }
 
 type LabelFunc func([]prompb.Label) []uint64
-type BlobFunc func([]byte) uint64
 
-func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc BlobFunc, id ID) {
+func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob.Func, id ID) {
 	labels := labelFunc(ts.Labels)
 	series := xxhash.Sum64(util.Uint64ToBytes(labels))
 	currentShard := ^uint64(0)
@@ -78,13 +78,13 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc Blob
 			currentShard = shard
 			b.shards.Add(shard % shardwidth.ShardWidth)
 		}
-		SetBSI(bitmap(shard, b.series), id, series)
-		SetBSI(bitmap(shard, b.timestamp), id, uint64(s.Timestamp))
-		SetBSI(bitmap(shard, b.values), id, math.Float64bits(s.Value))
-		SetBSISet(bitmap(shard, b.series), id, labels)
+		ro.SetBSI(bitmap(shard, b.series), id, series)
+		ro.SetBSI(bitmap(shard, b.timestamp), id, uint64(s.Timestamp))
+		ro.SetBSI(bitmap(shard, b.values), id, math.Float64bits(s.Value))
+		ro.SetBSISet(bitmap(shard, b.series), id, labels)
 		bitmap(shard, b.exists).Add(id % shardwidth.ShardWidth)
 		if exemplars != 0 {
-			SetBSI(bitmap(shard, b.exemplars), id, exemplars)
+			ro.SetBSI(bitmap(shard, b.exemplars), id, exemplars)
 		}
 	}
 	currentShard = ^uint64(0)
@@ -99,47 +99,15 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc Blob
 		}
 		data, _ := s.Marshal()
 		value := blobFunc(data)
-		SetBSI(bitmap(shard, b.series), id, series)
-		SetBSI(bitmap(shard, b.timestamp), id, uint64(s.Timestamp))
-		SetBSI(bitmap(shard, b.values), id, value)
-		SetBSISet(bitmap(shard, b.series), id, labels)
-		SetBBool(bitmap(shard, b.kind), id, false)
+		ro.SetBSI(bitmap(shard, b.series), id, series)
+		ro.SetBSI(bitmap(shard, b.timestamp), id, uint64(s.Timestamp))
+		ro.SetBSI(bitmap(shard, b.values), id, value)
+		ro.SetBSISet(bitmap(shard, b.series), id, labels)
+		ro.SetBBool(bitmap(shard, b.kind), id, false)
 		bitmap(shard, b.exists).Add(id % shardwidth.ShardWidth)
 		if exemplars != 0 {
-			SetBSI(bitmap(shard, b.exemplars), id, exemplars)
+			ro.SetBSI(bitmap(shard, b.exemplars), id, exemplars)
 		}
-	}
-}
-
-func SetMutex(m *roaring64.Bitmap, id uint64, value uint64) {
-	m.Add(value*shardwidth.ShardWidth + (id % shardwidth.ShardWidth))
-}
-
-func SetBSI(m *roaring64.Bitmap, id uint64, value uint64) {
-	fragmentColumn := id % shardwidth.ShardWidth
-	m.Add(fragmentColumn)
-	lz := bits.LeadingZeros64(value)
-	row := uint64(2)
-	for mask := uint64(0x1); mask <= 1<<(64-lz) && mask != 0; mask = mask << 1 {
-		if value&mask > 0 {
-			m.Add(row*shardwidth.ShardWidth + fragmentColumn)
-		}
-		row++
-	}
-}
-
-func SetBSISet(m *roaring64.Bitmap, id uint64, values []uint64) {
-	for _, row := range values {
-		m.Add(row*shardwidth.ShardWidth + (id % shardwidth.ShardWidth))
-	}
-}
-
-func SetBBool(m *roaring64.Bitmap, id uint64, value bool) {
-	fragmentColumn := id % shardwidth.ShardWidth
-	if value {
-		m.Add(trueRowOffset + fragmentColumn)
-	} else {
-		m.Add(falseRowOffset + fragmentColumn)
 	}
 }
 
@@ -160,7 +128,7 @@ func AppendBatch(store *store.Store, batch *Batch, mets pmetric.Metrics) error {
 		return err
 	}
 	return store.DB.Update(func(txn *badger.Txn) error {
-		blob := UpsertBlob(txn)
+		blob := blob.Upsert(txn)
 		label := UpsertLabels(blob)
 		for _, series := range ts {
 			batch.Append(series, label, blob, store.Seq)

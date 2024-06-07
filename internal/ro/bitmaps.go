@@ -1,4 +1,4 @@
-package metrics
+package ro
 
 import (
 	"errors"
@@ -14,7 +14,7 @@ import (
 var ErrSkip = errors.New("skip")
 
 func ReadSetValue(shard uint64, field, view string, tx *rbf.Tx, column uint64) ([]uint64, error) {
-	rw := viewFor(field, view, shard)
+	rw := ViewFor(field, view, shard)
 	rs, err := Rows(rw, tx, 0, roaring.NewBitmapColumnFilter(column))
 	if err != nil {
 		return nil, err
@@ -23,7 +23,7 @@ func ReadSetValue(shard uint64, field, view string, tx *rbf.Tx, column uint64) (
 }
 
 func MutexValue(shard uint64, field, view string, tx *rbf.Tx, column uint64) (uint64, error) {
-	rs, err := Rows(viewFor(field, view, shard), tx, 0, roaring.NewBitmapColumnFilter(column))
+	rs, err := Rows(ViewFor(field, view, shard), tx, 0, roaring.NewBitmapColumnFilter(column))
 	if err != nil {
 		return 0, err
 	}
@@ -31,27 +31,27 @@ func MutexValue(shard uint64, field, view string, tx *rbf.Tx, column uint64) (ui
 }
 
 func EqSet(shard uint64, field, view string, tx *rbf.Tx, value uint64) (*rows.Row, error) {
-	return row(shard, viewFor(field, view, shard), tx, value)
+	return Row(shard, ViewFor(field, view, shard), tx, value)
 }
 
 func EqBSI(shard uint64, field, view string, tx *rbf.Tx, value uint64) (*rows.Row, error) {
-	return rangeEQ(shard, viewFor(field, view, shard), tx, value)
+	return rangeEQ(shard, ViewFor(field, view, shard), tx, value)
 }
 
 func False(shard uint64, field, view string, tx *rbf.Tx) (*rows.Row, error) {
-	return row(shard, viewFor(field, view, shard), tx, falseRowOffset)
+	return Row(shard, ViewFor(field, view, shard), tx, falseRowOffset)
 }
 
 func Exists(shard uint64, field, view string, tx *rbf.Tx) (*rows.Row, error) {
-	return row(shard, viewFor(field, view, shard), tx, bsiExistsBit)
+	return Row(shard, ViewFor(field, view, shard), tx, bsiExistsBit)
 }
 
 func TransposeBSI(shard uint64, field, view string, tx *rbf.Tx, filters *rows.Row) (*roaring64.Bitmap, error) {
-	return transposeBSI(tx, shard, viewFor(field, view, shard), filters)
+	return transposeBSI(tx, shard, ViewFor(field, view, shard), filters)
 }
 
 func transposeBSI(tx *rbf.Tx, shard uint64, view string, columns *rows.Row) (*roaring64.Bitmap, error) {
-	exists, err := row(shard, view, tx, bsiExistsBit)
+	exists, err := Row(shard, view, tx, bsiExistsBit)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +64,7 @@ func transposeBSI(tx *rbf.Tx, shard uint64, view string, columns *rows.Row) (*ro
 	data := make(map[uint64]uint64)
 	mergeBits(exists, 0, data)
 	for i := uint64(0); i < bitDepth; i++ {
-		bits, err := row(shard, view, tx, bsiOffsetBit+uint64(i))
+		bits, err := Row(shard, view, tx, bsiOffsetBit+uint64(i))
 		if err != nil {
 			return nil, err
 		}
@@ -80,12 +80,12 @@ func transposeBSI(tx *rbf.Tx, shard uint64, view string, columns *rows.Row) (*ro
 	return o, nil
 }
 
-func extractBSI(shard uint64, view string, tx *rbf.Tx, exists *rows.Row, mapping map[uint64]int, f func(i int, v uint64) error) error {
+func ExtractBSI(shard uint64, view string, tx *rbf.Tx, exists *rows.Row, mapping map[uint64]int, f func(i int, v uint64) error) error {
 	data := make(map[uint64]uint64)
 	mergeBits(exists, 0, data)
 
 	for i := uint64(0); i < bitDepth; i++ {
-		bits, err := row(shard, view, tx, bsiOffsetBit+uint64(i))
+		bits, err := Row(shard, view, tx, bsiOffsetBit+uint64(i))
 		if err != nil {
 			return err
 		}
@@ -106,10 +106,10 @@ func extractBSI(shard uint64, view string, tx *rbf.Tx, exists *rows.Row, mapping
 }
 
 func Between(shard uint64, field, view string, tx *rbf.Tx, min, max uint64) (*rows.Row, error) {
-	return rangeBetween(shard, viewFor(field, view, shard), tx, min, max)
+	return rangeBetween(shard, ViewFor(field, view, shard), tx, min, max)
 }
 
-func row(shard uint64, view string, tx *rbf.Tx, rowID uint64) (*rows.Row, error) {
+func Row(shard uint64, view string, tx *rbf.Tx, rowID uint64) (*rows.Row, error) {
 	data, err := tx.OffsetRange(view,
 		shard*shardwidth.ShardWidth,
 		rowID*shardwidth.ShardWidth,
@@ -145,14 +145,14 @@ func Rows(view string, tx *rbf.Tx, start uint64, filters ...roaring.BitmapFilter
 
 func rangeEQ(shard uint64, view string, tx *rbf.Tx, predicate uint64) (*rows.Row, error) {
 	// Start with set of columns with values set.
-	b, err := row(shard, view, tx, bsiExistsBit)
+	b, err := Row(shard, view, tx, bsiExistsBit)
 	if err != nil {
 		return nil, err
 	}
 	bitDepth := bits.Len64(predicate)
 	// Filter any bits that don't match the current bit value.
 	for i := int(bitDepth - 1); i >= 0; i-- {
-		row, err := row(shard, view, tx, uint64(bsiOffsetBit+i))
+		row, err := Row(shard, view, tx, uint64(bsiOffsetBit+i))
 		if err != nil {
 			return nil, err
 		}
@@ -168,7 +168,7 @@ func rangeEQ(shard uint64, view string, tx *rbf.Tx, predicate uint64) (*rows.Row
 
 func rangeNEQ(shard uint64, view string, tx *rbf.Tx, predicate uint64) (*rows.Row, error) {
 	// Start with set of columns with values set.
-	b, err := row(shard, view, tx, bsiExistsBit)
+	b, err := Row(shard, view, tx, bsiExistsBit)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +191,7 @@ func rangeLT(shard uint64, view string, tx *rbf.Tx, predicate uint64, allowEqual
 	}
 
 	// Start with set of columns with values set.
-	b, err := row(shard, view, tx, bsiExistsBit)
+	b, err := Row(shard, view, tx, bsiExistsBit)
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +218,7 @@ func rangeLTUnsigned(shard uint64, view string, tx *rbf.Tx, filter *rows.Row, bi
 		// This query matches everything that is not (1<<bitDepth)-1.
 		matches := rows.NewRow()
 		for i := uint64(0); i < bitDepth; i++ {
-			row, err := row(shard, view, tx, uint64(bsiOffsetBit+i))
+			row, err := Row(shard, view, tx, uint64(bsiOffsetBit+i))
 			if err != nil {
 				return nil, err
 			}
@@ -233,7 +233,7 @@ func rangeLTUnsigned(shard uint64, view string, tx *rbf.Tx, filter *rows.Row, bi
 	matched := rows.NewRow()
 	remaining := filter
 	for i := int(bitDepth - 1); i >= 0 && predicate > 0 && remaining.Any(); i-- {
-		row, err := row(shard, view, tx, uint64(bsiOffsetBit+i))
+		row, err := Row(shard, view, tx, uint64(bsiOffsetBit+i))
 		if err != nil {
 			return nil, err
 		}
@@ -253,7 +253,7 @@ func rangeLTUnsigned(shard uint64, view string, tx *rbf.Tx, filter *rows.Row, bi
 }
 
 func rangeGT(shard uint64, view string, tx *rbf.Tx, predicate uint64, allowEquality bool) (*rows.Row, error) {
-	b, err := row(shard, view, tx, bsiExistsBit)
+	b, err := Row(shard, view, tx, bsiExistsBit)
 	if err != nil {
 		return nil, err
 	}
@@ -285,7 +285,7 @@ prep:
 		// This query matches everything that is not 0.
 		matches := rows.NewRow()
 		for i := uint64(0); i < bitDepth; i++ {
-			row, err := row(shard, view, tx, uint64(bsiOffsetBit+i))
+			row, err := Row(shard, view, tx, uint64(bsiOffsetBit+i))
 			if err != nil {
 				return nil, err
 			}
@@ -306,7 +306,7 @@ prep:
 	remaining := filter
 	predicate |= (^uint64(0)) << bitDepth
 	for i := int(bitDepth - 1); i >= 0 && predicate < ^uint64(0) && remaining.Any(); i-- {
-		row, err := row(shard, view, tx, uint64(bsiOffsetBit+i))
+		row, err := Row(shard, view, tx, uint64(bsiOffsetBit+i))
 		if err != nil {
 			return nil, err
 		}
@@ -326,7 +326,7 @@ prep:
 }
 
 func rangeBetween(shard uint64, view string, tx *rbf.Tx, predicateMin, predicateMax uint64) (*rows.Row, error) {
-	b, err := row(shard, view, tx, bsiExistsBit)
+	b, err := Row(shard, view, tx, bsiExistsBit)
 	if err != nil {
 		return nil, err
 	}
@@ -336,7 +336,7 @@ func rangeBetween(shard uint64, view string, tx *rbf.Tx, predicateMin, predicate
 		return rangeEQ(shard, view, tx, predicateMin)
 	default:
 		// Handle positive-only values.
-		r, err := row(shard, view, tx, bsiSignBit)
+		r, err := Row(shard, view, tx, bsiSignBit)
 		if err != nil {
 			return nil, err
 		}
@@ -358,7 +358,7 @@ func rangeBetweenUnsigned(shard uint64, view string, tx *rbf.Tx, filter *rows.Ro
 	diffLen := bits.Len64(predicateMax ^ predicateMin)
 	remaining := filter
 	for i := int(bitDepth - 1); i >= diffLen; i-- {
-		row, err := row(shard, view, tx, uint64(bsiOffsetBit+i))
+		row, err := Row(shard, view, tx, uint64(bsiOffsetBit+i))
 		if err != nil {
 			return nil, err
 		}

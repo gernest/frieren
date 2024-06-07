@@ -13,7 +13,9 @@ import (
 	re "github.com/blevesearch/vellum/regexp"
 	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
+	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/keys"
+	"github.com/gernest/frieren/internal/ro"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/quantum"
@@ -56,7 +58,7 @@ func (q *Queryable) Querier(mints, maxts int64) (storage.Querier, error) {
 	all := roaring64.New()
 	for i := range views {
 		// read the shards observed per view
-		r, err := row(0, viewFor("metrics.shards", views[i], 0), tx, 0)
+		r, err := ro.Row(0, ro.ViewFor("metrics.shards", views[i], 0), tx, 0)
 		if err != nil {
 			return nil, fmt.Errorf("reading shards %w", err)
 		}
@@ -142,7 +144,7 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 				it := a.Iterator()
 				for it.HasNext() {
 					label := it.Next()
-					rw, err := EqSet(shard, "metrics.labels", view, tx, label)
+					rw, err := ro.EqSet(shard, "metrics.labels", view, tx, label)
 					if err != nil {
 						err = fmt.Errorf("reading labels %w", err)
 						return storage.ErrSeriesSet(err)
@@ -160,7 +162,7 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 			}
 			if !b.IsEmpty() {
 				it := b.Iterator()
-				exists, err := row(shard, viewFor("metrics.labels", view, shard), tx, 0)
+				exists, err := ro.Row(shard, ro.ViewFor("metrics.labels", view, shard), tx, 0)
 				if err != nil {
 					err = fmt.Errorf("reading labels exists bitmap %w", err)
 					return storage.ErrSeriesSet(err)
@@ -168,7 +170,7 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 				r = exists
 				for it.HasNext() {
 					label := it.Next()
-					rw, err := EqSet(shard, "metrics.labels", view, tx, label)
+					rw, err := ro.EqSet(shard, "metrics.labels", view, tx, label)
 					if err != nil {
 						err = fmt.Errorf("reading labels %w", err)
 						return storage.ErrSeriesSet(err)
@@ -181,7 +183,7 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 			}
 
 			// r is the row ids in this view/shard that we want to read.
-			err = m.Build(txn, tx, Translate(txn), hints.Start, hints.End, view, shard, r)
+			err = m.Build(txn, tx, blob.Translate(txn), hints.Start, hints.End, view, shard, r)
 			if err != nil {
 				return storage.ErrSeriesSet(err)
 			}
@@ -220,16 +222,14 @@ var (
 	sep = []byte("=")
 )
 
-type Tr func(id uint64, f func([]byte) error) error
-
-func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, tr Tr, start, end int64, view string, shard uint64, filter *rows.Row) error {
+func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, start, end int64, view string, shard uint64, filter *rows.Row) error {
 	add := func(view string, seriesID, shard, validID uint64, samples []chunks.Sample) error {
 		sx, ok := s[seriesID]
 		if ok {
 			sx.Samples = append(sx.Samples, samples...)
 			return nil
 		}
-		lbl, err := ReadSetValue(shard, "metrics.labels", view, tx, validID)
+		lbl, err := ro.ReadSetValue(shard, "metrics.labels", view, tx, validID)
 		if err != nil {
 			return fmt.Errorf("reading labels %w", err)
 		}
@@ -255,7 +255,7 @@ func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, tr Tr, start, end int64, view
 	}
 
 	// find matching timestamps
-	r, err := Between(shard, "metrics.timestamp", view, tx, uint64(start), uint64(end))
+	r, err := ro.Between(shard, "metrics.timestamp", view, tx, uint64(start), uint64(end))
 	if err != nil {
 		return fmt.Errorf("reading timestamp %w", err)
 	}
@@ -267,7 +267,7 @@ func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, tr Tr, start, end int64, view
 	}
 
 	// find all series
-	series, err := TransposeBSI(shard, "metrics.series", view, tx, r)
+	series, err := ro.TransposeBSI(shard, "metrics.series", view, tx, r)
 	if err != nil {
 		return err
 	}
@@ -279,14 +279,14 @@ func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, tr Tr, start, end int64, view
 	it := series.Iterator()
 
 	// Filter to check if series is of histogram type
-	kind, err := False(shard, "metrics.kind", view, tx)
+	kind, err := ro.False(shard, "metrics.kind", view, tx)
 	if err != nil {
 		return fmt.Errorf("reading kind %w", err)
 	}
 	mapping := map[uint64]int{}
 	for it.HasNext() {
 		seriesID := it.Next()
-		sr, err := EqBSI(shard, "metrics.series", view, tx, seriesID)
+		sr, err := ro.EqBSI(shard, "metrics.series", view, tx, seriesID)
 		if err != nil {
 			return fmt.Errorf("reading columns for series %w", err)
 		}
@@ -307,14 +307,14 @@ func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, tr Tr, start, end int64, view
 			for i := range chunks {
 				chunks[i] = &V{}
 			}
-			err := extractBSI(shard, viewFor("metrics.value", view, shard), tx, sr, mapping, func(i int, v uint64) error {
+			err := ro.ExtractBSI(shard, ro.ViewFor("metrics.value", view, shard), tx, sr, mapping, func(i int, v uint64) error {
 				chunks[i].(*V).f = math.Float64frombits(v)
 				return nil
 			})
 			if err != nil {
 				return fmt.Errorf("extracting values %w", err)
 			}
-			err = extractBSI(shard, viewFor("metrics.timestamp", view, shard), tx, sr, mapping, func(i int, v uint64) error {
+			err = ro.ExtractBSI(shard, ro.ViewFor("metrics.timestamp", view, shard), tx, sr, mapping, func(i int, v uint64) error {
 				chunks[i].(*V).ts = int64(v)
 				return nil
 			})
@@ -325,7 +325,7 @@ func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, tr Tr, start, end int64, view
 			isFloat := false
 			first := true
 			hs := &prompb.Histogram{}
-			err := extractBSI(shard, viewFor("metrics.value", view, shard), tx, sr, mapping, func(i int, v uint64) error {
+			err := ro.ExtractBSI(shard, ro.ViewFor("metrics.value", view, shard), tx, sr, mapping, func(i int, v uint64) error {
 				hs.Reset()
 				err := tr(v, hs.Unmarshal)
 				if err != nil {

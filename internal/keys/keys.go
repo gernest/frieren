@@ -39,8 +39,12 @@ type FSTBitmap struct {
 	ShardID uint64
 }
 
+func (e *FSTBitmap) Slice() []uint64 {
+	return []uint64{fstBitmap, e.ShardID}
+}
+
 func (e *FSTBitmap) Key() []byte {
-	return Encode(nil, []uint64{fstBitmap, e.ShardID})
+	return Encode(nil, e.Slice())
 }
 
 type FST struct {

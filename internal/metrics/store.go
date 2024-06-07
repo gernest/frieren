@@ -10,7 +10,9 @@ import (
 	"github.com/blevesearch/vellum"
 	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
+	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/keys"
+	"github.com/gernest/frieren/internal/ro"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/util"
 	"github.com/gernest/rbf"
@@ -55,12 +57,12 @@ func Save(db *badger.DB, idx *rbf.DB, b *Batch, ts time.Time) error {
 		return err
 	}
 	return db.Update(func(txn *badger.Txn) error {
-		var fstKey keys.FSTBitmap
 		var buf bytes.Buffer
 		tmpBitmap := roaring64.New()
+		slice := (&keys.FSTBitmap{}).Slice()
 		for shard, bsi := range b.fst {
-			fstKey.ShardID = shard
-			err := UpsertFST(txn, &buf, tmpBitmap, bsi, shard, fstKey.Key())
+			slice[len(slice)-1] = shard
+			err := UpsertFST(txn, &buf, tmpBitmap, bsi, shard, keys.Encode(nil, slice))
 			if err != nil {
 				return fmt.Errorf("inserting exists bsi %w", err)
 			}
@@ -71,7 +73,7 @@ func Save(db *badger.DB, idx *rbf.DB, b *Batch, ts time.Time) error {
 
 func apply(tx *rbf.Tx, field, view string, data map[uint64]*roaring64.Bitmap) error {
 	for shard, m := range data {
-		key := viewFor(field, view, shard)
+		key := ro.ViewFor(field, view, shard)
 		_, err := tx.Add(key, m.ToArray()...)
 		if err != nil {
 			return fmt.Errorf("adding to %s %w", key, err)
@@ -81,7 +83,7 @@ func apply(tx *rbf.Tx, field, view string, data map[uint64]*roaring64.Bitmap) er
 }
 
 func applyShards(tx *rbf.Tx, field, view string, m *roaring64.Bitmap) error {
-	key := viewFor(field, view, 0)
+	key := ro.ViewFor(field, view, 0)
 	_, err := tx.Add(key, m.ToArray()...)
 	if err != nil {
 		return fmt.Errorf("adding to %s %w", key, err)
@@ -173,39 +175,7 @@ func value(txn *badger.Txn, key []byte) (o []byte) {
 	return
 }
 
-func UpsertBlob(txn *badger.Txn) BlobFunc {
-	h := xxhash.New()
-	var key keys.Blob
-	return func(b []byte) uint64 {
-		h.Reset()
-		h.Write(b)
-		key.BlobID = h.Sum64()
-		k := key.Key()
-		if store.Has(txn, k) {
-			return key.BlobID
-		}
-		err := txn.Set(key.Key(), b)
-		if err != nil {
-			panic(fmt.Sprintf("failed saving blob to storage %v", err))
-		}
-		return key.BlobID
-	}
-}
-
-func Translate(txn *badger.Txn) Tr {
-	slice := (&keys.Blob{}).Slice()
-	buf := make([]byte, 0, len(slice)*8)
-	return func(u uint64, f func([]byte) error) error {
-		slice[len(slice)-1] = u
-		it, err := txn.Get(keys.Encode(buf, slice))
-		if err != nil {
-			return err
-		}
-		return it.Value(f)
-	}
-}
-
-func UpsertLabels(b BlobFunc) LabelFunc {
+func UpsertLabels(b blob.Func) LabelFunc {
 	m := roaring64.New()
 	var h bytes.Buffer
 	return func(l []prompb.Label) []uint64 {
