@@ -4,8 +4,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prometheus/prometheus/prompb"
-	"github.com/prometheus/prometheus/storage/remote/otlptranslator/prometheusremotewrite"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
@@ -18,17 +16,9 @@ func TestBach_Append(t *testing.T) {
 	defer db.Close()
 
 	batch := NewBatch()
-	ts := generateMetrics(t)
-	err = AppendBatch(db, batch, ts)
+	m := generateOTLPWriteRequest()
+	err = AppendBatch(db, batch, m.Metrics())
 	require.NoError(t, err)
-}
-
-func generateMetrics(t *testing.T) map[string]*prompb.TimeSeries {
-	t.Helper()
-	o := generateOTLPWriteRequest()
-	m, err := prometheusremotewrite.FromMetrics(o.Metrics(), prometheusremotewrite.Settings{})
-	require.NoError(t, err)
-	return m
 }
 
 func generateOTLPWriteRequest() pmetricotlp.ExportRequest {

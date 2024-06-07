@@ -10,6 +10,8 @@ import (
 	"github.com/gernest/frieren/shardwidth"
 	"github.com/gernest/frieren/util"
 	"github.com/prometheus/prometheus/prompb"
+	"github.com/prometheus/prometheus/storage/remote/otlptranslator/prometheusremotewrite"
+	"go.opentelemetry.io/collector/pdata/pmetric"
 )
 
 type ID interface {
@@ -149,7 +151,13 @@ func bitmap(u uint64, m map[uint64]*roaring64.Bitmap) *roaring64.Bitmap {
 	return b
 }
 
-func AppendBatch(store *Store, batch *Batch, ts map[string]*prompb.TimeSeries) error {
+func AppendBatch(store *Store, batch *Batch, mets pmetric.Metrics) error {
+	ts, err := prometheusremotewrite.FromMetrics(mets, prometheusremotewrite.Settings{
+		DisableTargetInfo: true,
+	})
+	if err != nil {
+		return err
+	}
 	return store.DB.Update(func(txn *badger.Txn) error {
 		blob := UpsertBlob(txn)
 		label := UpsertLabels(blob)
