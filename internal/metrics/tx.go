@@ -1,4 +1,4 @@
-package frieren
+package metrics
 
 import (
 	"github.com/dgraph-io/badger/v4"
