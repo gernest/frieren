@@ -15,6 +15,8 @@ require (
 	github.com/prometheus/client_golang v1.19.0
 	github.com/prometheus/common v0.53.0
 	github.com/prometheus/prometheus v0.52.1
+	github.com/stretchr/testify v1.9.0
+	go.opentelemetry.io/collector/pdata v1.5.0
 )
 
 require (
@@ -67,10 +69,8 @@ require (
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common/sigv4 v0.1.0 // indirect
 	github.com/prometheus/procfs v0.12.0 // indirect
-	github.com/stretchr/testify v1.9.0 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/collector/featuregate v1.5.0 // indirect
-	go.opentelemetry.io/collector/pdata v1.5.0 // indirect
 	go.opentelemetry.io/collector/semconv v0.98.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.50.0 // indirect
 	go.opentelemetry.io/otel v1.25.0 // indirect
