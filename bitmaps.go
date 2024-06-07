@@ -38,6 +38,14 @@ func EqBSI(shard uint64, field, view string, tx *rbf.Tx, value uint64) (*rows.Ro
 	return rangeEQ(shard, viewFor(field, view, shard), tx, value)
 }
 
+func False(shard uint64, field, view string, tx *rbf.Tx) (*rows.Row, error) {
+	return row(shard, viewFor(field, view, shard), tx, falseRowOffset)
+}
+
+func Exists(shard uint64, field, view string, tx *rbf.Tx) (*rows.Row, error) {
+	return row(shard, viewFor(field, view, shard), tx, bsiExistsBit)
+}
+
 func TransposeBSI(shard uint64, field, view string, tx *rbf.Tx, filters *rows.Row) (*roaring64.Bitmap, error) {
 	return transposeBSI(tx, shard, viewFor(field, view, shard), filters)
 }
@@ -71,25 +79,15 @@ func transposeBSI(tx *rbf.Tx, shard uint64, view string, columns *rows.Row) (*ro
 	}
 	return o, nil
 }
-func extractBSI(shard uint64, view string, tx *rbf.Tx, columns *rows.Row, mapping map[uint64]int) ([][]uint64, error) {
-	exists, err := row(shard, view, tx, bsiExistsBit)
-	if err != nil {
-		return nil, err
-	}
-	// Filter BSI exists bit by selected columns.
-	exists = exists.Intersect(columns)
-	if !exists.Any() {
-		// No relevant BSI values are present in this fragment.
-		return nil, ErrSkip
-	}
-	// Populate a map with the BSI data.
+
+func extractBSI(shard uint64, view string, tx *rbf.Tx, exists *rows.Row, mapping map[uint64]int, f func(i int, v uint64) error) error {
 	data := make(map[uint64]uint64)
 	mergeBits(exists, 0, data)
 
 	for i := uint64(0); i < bitDepth; i++ {
 		bits, err := row(shard, view, tx, bsiOffsetBit+uint64(i))
 		if err != nil {
-			return nil, err
+			return err
 		}
 		bits = bits.Intersect(exists)
 		mergeBits(bits, 1<<i, data)
@@ -99,8 +97,12 @@ func extractBSI(shard uint64, view string, tx *rbf.Tx, columns *rows.Row, mappin
 		// Convert to two's complement and add base back to value.
 		val = uint64((2*(int64(val)>>63) + 1) * int64(val&^(1<<63)))
 		result[mapping[columnID]] = []uint64{val}
+		err := f(mapping[columnID], val)
+		if err != nil {
+			return err
+		}
 	}
-	return result, nil
+	return nil
 }
 
 func Between(shard uint64, field, view string, tx *rbf.Tx, min, max uint64) (*rows.Row, error) {

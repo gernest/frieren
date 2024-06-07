@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
+	"math"
 	"strings"
 	"time"
 
@@ -180,7 +180,7 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 			}
 
 			// r is the row ids in this view/shard that we want to read.
-			err = m.Build(txn, tx, hints.Start, hints.End, view, shard, r)
+			err = m.Build(txn, tx, Translate(txn), hints.Start, hints.End, view, shard, r)
 			if err != nil {
 				return storage.ErrSeriesSet(err)
 			}
@@ -219,9 +219,9 @@ var (
 	sep = []byte("=")
 )
 
-func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, start, end int64, view string, shard uint64, filter *rows.Row) error {
-	blobSlice := (&keys.Blob{}).Slice()
-	kb := make([]byte, 0, len(blobSlice)*8)
+type Tr func(id uint64, f func([]byte) error) error
+
+func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, tr Tr, start, end int64, view string, shard uint64, filter *rows.Row) error {
 	add := func(view string, seriesID, shard, validID uint64, samples []chunks.Sample) error {
 		sx, ok := s[seriesID]
 		if ok {
@@ -237,8 +237,7 @@ func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, start, end int64, view string
 			Samples: samples,
 		}
 		for i := range lbl {
-			blobSlice[len(blobSlice)-1] = lbl[i]
-			err = Get(txn, keys.Encode(kb, blobSlice), func(val []byte) error {
+			err = tr(lbl[i], func(val []byte) error {
 				key, value, _ := bytes.Cut(val, sep)
 				sx.Labels = append(sx.Labels, labels.Label{
 					Name:  string(key),
@@ -277,6 +276,13 @@ func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, start, end int64, view string
 
 	// iterate on each series
 	it := series.Iterator()
+
+	// Filter to check if series is of histogram type
+	kind, err := False(shard, "metrics.kind", view, tx)
+	if err != nil {
+		return fmt.Errorf("reading kind %w", err)
+	}
+	mapping := map[uint64]int{}
 	for it.HasNext() {
 		seriesID := it.Next()
 		sr, err := EqBSI(shard, "metrics.series", view, tx, seriesID)
@@ -287,26 +293,59 @@ func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, start, end int64, view string
 		if sr.IsEmpty() {
 			continue
 		}
-		// sr is a set of column ids that belongs to seriesID and matches the filter.
-		// We need to determine what kind of series before reading. Only one column
-		// id is enough
-		var validColumnID uint64
-		sr.RangeColumns(func(u uint64) error {
-			validColumnID = u
-			return io.EOF
-		})
+		columns := sr.Columns()
+		clear(mapping)
+		for i := range columns {
+			mapping[columns[i]] = i
+		}
 
-		kind, err := MutexValue(shard, "metrics.kind", view, tx, validColumnID)
-		if err != nil {
-			return fmt.Errorf("reading series kind %w", err)
+		chunks := make([]chunks.Sample, len(columns))
+
+		if !kind.Includes(columns[0]) {
+			// This is a float series
+			for i := range chunks {
+				chunks[i] = &V{}
+			}
+			err := extractBSI(shard, viewFor("metrics.value", view, shard), tx, sr, mapping, func(i int, v uint64) error {
+				chunks[i].(*V).f = math.Float64frombits(v)
+				return nil
+			})
+			if err != nil {
+				return fmt.Errorf("extracting values %w", err)
+			}
+			err = extractBSI(shard, viewFor("metrics.timestamp", view, shard), tx, sr, mapping, func(i int, v uint64) error {
+				chunks[i].(*V).ts = int64(v)
+				return nil
+			})
+			if err != nil {
+				return fmt.Errorf("extracting timestamp %w", err)
+			}
+		} else {
+			isFloat := false
+			first := true
+			hs := &prompb.Histogram{}
+			err := extractBSI(shard, viewFor("metrics.value", view, shard), tx, sr, mapping, func(i int, v uint64) error {
+				hs.Reset()
+				err := tr(v, hs.Unmarshal)
+				if err != nil {
+					return fmt.Errorf("reading histogram blob %w", err)
+				}
+				if first {
+					_, isFloat = hs.Count.(*prompb.Histogram_CountFloat)
+					first = false
+				}
+				if isFloat {
+					chunks[i] = NewFH(hs)
+					return nil
+				}
+				chunks[i] = NewH(hs)
+				return nil
+			})
+			if err != nil {
+				return fmt.Errorf("extracting values %w", err)
+			}
 		}
-		chunks := make([]chunks.Sample, 0, sr.Count())
-		switch metricsKind(kind) {
-		case metricsFloat:
-		case metricsHistogram:
-		case metricsFloatHistogram:
-		}
-		err = add(view, seriesID, shard, validColumnID, chunks)
+		err = add(view, seriesID, shard, columns[0], chunks)
 		if err != nil {
 			return err
 		}

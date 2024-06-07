@@ -79,7 +79,6 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc Blob
 		SetBSI(bitmap(shard, b.timestamp), id, uint64(s.Timestamp))
 		SetBSI(bitmap(shard, b.values), id, math.Float64bits(s.Value))
 		SetBSISet(bitmap(shard, b.series), id, labels)
-		SetMutex(bitmap(shard, b.kind), id, uint64(metricsFloat))
 		bitmap(shard, b.exists).Add(id % shardwidth.ShardWidth)
 		if exemplars != 0 {
 			SetBSI(bitmap(shard, b.exemplars), id, exemplars)
@@ -101,7 +100,7 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc Blob
 		SetBSI(bitmap(shard, b.timestamp), id, uint64(s.Timestamp))
 		SetBSI(bitmap(shard, b.values), id, value)
 		SetBSISet(bitmap(shard, b.series), id, labels)
-		SetMutex(bitmap(shard, b.kind), id, uint64(metricsFloat))
+		SetBBool(bitmap(shard, b.kind), id, false)
 		bitmap(shard, b.exists).Add(id % shardwidth.ShardWidth)
 		if exemplars != 0 {
 			SetBSI(bitmap(shard, b.exemplars), id, exemplars)

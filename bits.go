@@ -22,14 +22,6 @@ const (
 	trueRowOffset  = 1 * shardwidth.ShardWidth // fragment row 1
 )
 
-type metricsKind uint64
-
-const (
-	metricsFloat metricsKind = iota
-	metricsHistogram
-	metricsFloatHistogram
-)
-
 var bitDepth = uint64(bits.Len64(math.MaxUint64))
 
 func viewFor(field, view string, shard uint64) string {

@@ -229,6 +229,19 @@ func UpsertBlob(txn *badger.Txn) BlobFunc {
 	}
 }
 
+func Translate(txn *badger.Txn) Tr {
+	slice := (&keys.Blob{}).Slice()
+	buf := make([]byte, 0, len(slice)*8)
+	return func(u uint64, f func([]byte) error) error {
+		slice[len(slice)-1] = u
+		it, err := txn.Get(keys.Encode(buf, slice))
+		if err != nil {
+			return err
+		}
+		return it.Value(f)
+	}
+}
+
 func UpsertLabels(b BlobFunc) LabelFunc {
 	m := roaring64.New()
 	var h bytes.Buffer
