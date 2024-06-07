@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gernest/frieren/internal/store"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
@@ -11,7 +12,7 @@ import (
 )
 
 func TestBach_Append(t *testing.T) {
-	db, err := NewStore(t.TempDir())
+	db, err := store.New(t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 

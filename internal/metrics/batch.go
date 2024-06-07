@@ -7,6 +7,7 @@ import (
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
+	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/shardwidth"
 	"github.com/gernest/frieren/util"
 	"github.com/prometheus/prometheus/prompb"
@@ -151,7 +152,7 @@ func bitmap(u uint64, m map[uint64]*roaring64.Bitmap) *roaring64.Bitmap {
 	return b
 }
 
-func AppendBatch(store *Store, batch *Batch, mets pmetric.Metrics) error {
+func AppendBatch(store *store.Store, batch *Batch, mets pmetric.Metrics) error {
 	ts, err := prometheusremotewrite.FromMetrics(mets, prometheusremotewrite.Settings{
 		DisableTargetInfo: true,
 	})

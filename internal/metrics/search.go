@@ -14,6 +14,7 @@ import (
 	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/keys"
+	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/quantum"
 	"github.com/gernest/rows"
@@ -477,7 +478,7 @@ func compile(b *bytes.Buffer, key, value string) (*re.Regexp, error) {
 }
 
 func readFST(txn *badger.Txn, shard uint64, f func(fst *vellum.FST) error) error {
-	return Get(txn, (&keys.FST{ShardID: shard}).Key(), func(val []byte) error {
+	return store.Get(txn, (&keys.FST{ShardID: shard}).Key(), func(val []byte) error {
 		fst, err := vellum.Load(val)
 		if err != nil {
 			return err

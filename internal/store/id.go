@@ -1,8 +1,9 @@
-package metrics
+package store
 
 import (
 	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/keys"
+	"github.com/gernest/frieren/util"
 )
 
 type Seq struct {
@@ -26,7 +27,7 @@ func (s *Seq) NextID() uint64 {
 	if err != nil {
 		// Sequence ID is the heart of the storage. Any failure to create new one is
 		// fatal.
-		exit("generating sequence id", "err", err)
+		util.Exit("generating sequence id", "err", err)
 	}
 	return id
 }

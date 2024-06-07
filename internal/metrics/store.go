@@ -2,9 +2,7 @@ package metrics
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"time"
 
@@ -13,50 +11,15 @@ import (
 	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/keys"
+	"github.com/gernest/frieren/internal/store"
+	"github.com/gernest/frieren/util"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/quantum"
 	"github.com/prometheus/prometheus/prompb"
 )
 
-type Store struct {
-	DB    *badger.DB
-	Index *rbf.DB
-	Seq   *Seq
-}
-
-func NewStore(path string) (*Store, error) {
-	dbPath := filepath.Join(path, "db")
-
-	db, err := badger.Open(badger.DefaultOptions(dbPath).
-		WithLogger(nil))
-	if err != nil {
-		return nil, err
-	}
-	idxPath := filepath.Join(path, "index")
-	idx := rbf.NewDB(idxPath, nil)
-	err = idx.Open()
-	if err != nil {
-		return nil, err
-	}
-	seq, err := NewSequence(db)
-	if err != nil {
-		return nil, err
-	}
-	return &Store{DB: db, Index: idx, Seq: seq}, nil
-}
-
-func (s *Store) Close() error {
-	return errors.Join(
-		s.Seq.Release(), s.Index.Close(), s.DB.Close(),
-	)
-}
-
-type Value interface {
-	Value(f func(val []byte) error) error
-}
-
 func Save(db *badger.DB, idx *rbf.DB, b *Batch, ts time.Time) error {
-	err := UpdateIndex(idx, func(tx *rbf.Tx) error {
+	err := store.UpdateIndex(idx, func(tx *rbf.Tx) error {
 		view := quantum.ViewByTimeUnit("", ts, 'D')
 		err := apply(tx, "metrics.values", view, b.values)
 		if err != nil {
@@ -128,9 +91,9 @@ func applyShards(tx *rbf.Tx, field, view string, m *roaring64.Bitmap) error {
 
 func UpsertBitmap(txn *badger.Txn, buf *bytes.Buffer, tmp, b *roaring64.Bitmap, key []byte) error {
 	buf.Reset()
-	if Has(txn, key) {
+	if store.Has(txn, key) {
 		tmp.Clear()
-		err := Get(txn, key, tmp.UnmarshalBinary)
+		err := store.Get(txn, key, tmp.UnmarshalBinary)
 		if err != nil {
 			return err
 		}
@@ -145,9 +108,9 @@ func UpsertBitmap(txn *badger.Txn, buf *bytes.Buffer, tmp, b *roaring64.Bitmap, 
 }
 
 func UpsertFST(txn *badger.Txn, buf *bytes.Buffer, tmp, b *roaring64.Bitmap, shard uint64, key []byte) error {
-	if Has(txn, key) {
+	if store.Has(txn, key) {
 		tmp.Clear()
-		err := Get(txn, key, tmp.UnmarshalBinary)
+		err := store.Get(txn, key, tmp.UnmarshalBinary)
 		if err != nil {
 			return err
 		}
@@ -164,7 +127,7 @@ func UpsertFST(txn *badger.Txn, buf *bytes.Buffer, tmp, b *roaring64.Bitmap, sha
 		slice[1] = it.Next()
 		value := value(txn, keys.Encode(kb, slice))
 		if len(value) == 0 {
-			exit("cannot find translated label")
+			util.Exit("cannot find translated label")
 		}
 		o = append(o, value)
 	}
@@ -203,7 +166,7 @@ func UpsertFST(txn *badger.Txn, buf *bytes.Buffer, tmp, b *roaring64.Bitmap, sha
 }
 
 func value(txn *badger.Txn, key []byte) (o []byte) {
-	Get(txn, key, func(val []byte) error {
+	store.Get(txn, key, func(val []byte) error {
 		o = bytes.Clone(val)
 		return nil
 	})
@@ -218,7 +181,7 @@ func UpsertBlob(txn *badger.Txn) BlobFunc {
 		h.Write(b)
 		key.BlobID = h.Sum64()
 		k := key.Key()
-		if Has(txn, k) {
+		if store.Has(txn, k) {
 			return key.BlobID
 		}
 		err := txn.Set(key.Key(), b)

@@ -1,6 +1,10 @@
 package util
 
-import "unsafe"
+import (
+	"log/slog"
+	"os"
+	"unsafe"
+)
 
 func Uint64ToBytes(in []uint64) []byte {
 	return reinterpretSlice[byte](in)
@@ -19,4 +23,9 @@ func reinterpretSlice[Out, T any](b []T) []Out {
 	capOut := capBytes / int(unsafe.Sizeof(*out))
 
 	return unsafe.Slice(out, capOut)[:lenOut]
+}
+
+func Exit(msg string, args ...any) {
+	slog.Error(msg, args...)
+	os.Exit(1)
 }

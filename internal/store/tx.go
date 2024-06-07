@@ -1,4 +1,4 @@
-package metrics
+package store
 
 import (
 	"github.com/dgraph-io/badger/v4"
