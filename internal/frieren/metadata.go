@@ -6,7 +6,7 @@ import (
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
-	"github.com/gernest/frieren/keys"
+	"github.com/gernest/frieren/internal/keys"
 	"github.com/prometheus/prometheus/prompb"
 )
 

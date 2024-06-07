@@ -13,7 +13,7 @@ import (
 	re "github.com/blevesearch/vellum/regexp"
 	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
-	"github.com/gernest/frieren/keys"
+	"github.com/gernest/frieren/internal/keys"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/quantum"
 	"github.com/gernest/rows"

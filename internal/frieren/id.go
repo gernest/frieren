@@ -2,7 +2,7 @@ package frieren
 
 import (
 	"github.com/dgraph-io/badger/v4"
-	"github.com/gernest/frieren/keys"
+	"github.com/gernest/frieren/internal/keys"
 )
 
 type Seq struct {
