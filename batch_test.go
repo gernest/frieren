@@ -25,13 +25,13 @@ func TestBach_Append(t *testing.T) {
 
 func generateMetrics(t *testing.T) map[string]*prompb.TimeSeries {
 	t.Helper()
-	o := generateOTLPWriteRequest(t)
+	o := generateOTLPWriteRequest()
 	m, err := prometheusremotewrite.FromMetrics(o.Metrics(), prometheusremotewrite.Settings{})
 	require.NoError(t, err)
 	return m
 }
 
-func generateOTLPWriteRequest(t *testing.T) pmetricotlp.ExportRequest {
+func generateOTLPWriteRequest() pmetricotlp.ExportRequest {
 	d := pmetric.NewMetrics()
 
 	// Generate One Counter, One Gauge, One Histogram, One Exponential-Histogram
