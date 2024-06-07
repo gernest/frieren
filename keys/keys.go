@@ -5,42 +5,21 @@ import (
 	"slices"
 )
 
-type Value struct {
-	ShardID  uint64
-	SeriesID uint64
+const (
+	seq uint64 = iota + (1 << 10)
+	blob
+	fstBitmap
+	fst
+	metadata
+)
+
+type Seq struct{}
+
+func (e Seq) Slice() []uint64 {
+	return []uint64{seq}
 }
 
-func (e *Value) Slice() []uint64 {
-	return []uint64{2, e.ShardID, e.SeriesID}
-}
-
-func (e *Value) Key() []byte {
-	return Encode(nil, e.Slice())
-}
-
-type Series struct {
-	ShardID  uint64
-	SeriesID uint64
-}
-
-func (e *Series) Slice() []uint64 {
-	return []uint64{2, e.ShardID, e.SeriesID}
-}
-
-func (e *Series) Key() []byte {
-	return Encode(nil, e.Slice())
-}
-
-type Labels struct {
-	ShardID uint64
-	LabelID uint64
-}
-
-func (e *Labels) Slice() []uint64 {
-	return []uint64{4, e.ShardID, e.LabelID}
-}
-
-func (e *Labels) Key() []byte {
+func (e Seq) Key() []byte {
 	return Encode(nil, e.Slice())
 }
 
@@ -49,31 +28,10 @@ type Blob struct {
 }
 
 func (e *Blob) Slice() []uint64 {
-	return []uint64{5, e.BlobID}
+	return []uint64{blob, e.BlobID}
 }
 
 func (e *Blob) Key() []byte {
-	return Encode(nil, e.Slice())
-}
-
-type Kind struct {
-	ShardID uint64
-}
-
-func (e *Kind) Key() []byte {
-	return Encode(nil, []uint64{6, e.ShardID})
-}
-
-type Histogram struct {
-	ShardID  uint64
-	SeriesID uint64
-}
-
-func (e *Histogram) Slice() []uint64 {
-	return []uint64{7, e.ShardID, e.SeriesID}
-}
-
-func (e *Histogram) Key() []byte {
 	return Encode(nil, e.Slice())
 }
 
@@ -82,7 +40,7 @@ type FSTBitmap struct {
 }
 
 func (e *FSTBitmap) Key() []byte {
-	return Encode(nil, []uint64{8, e.ShardID})
+	return Encode(nil, []uint64{fstBitmap, e.ShardID})
 }
 
 type FST struct {
@@ -90,17 +48,7 @@ type FST struct {
 }
 
 func (e *FST) Key() []byte {
-	return Encode(nil, []uint64{9, e.ShardID})
-}
-
-type Shards struct{}
-
-func (Shards) Slice() []uint64 {
-	return []uint64{10}
-}
-
-func (e Shards) Key() []byte {
-	return Encode(nil, e.Slice())
+	return Encode(nil, []uint64{fst, e.ShardID})
 }
 
 type Metadata struct {
@@ -108,7 +56,7 @@ type Metadata struct {
 }
 
 func (e *Metadata) Slice() []uint64 {
-	return []uint64{11, e.MetricID}
+	return []uint64{metadata, e.MetricID}
 }
 
 func (e *Metadata) Key() []byte {

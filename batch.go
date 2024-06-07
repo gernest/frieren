@@ -27,10 +27,6 @@ type Batch struct {
 
 	fst map[uint64]*roaring64.Bitmap
 
-	blobFunc  BlobFunc
-	labelFunc LabelFunc
-	id        ID
-
 	shards roaring64.Bitmap
 }
 
@@ -47,13 +43,7 @@ func NewBatch() *Batch {
 	}
 }
 
-func (b *Batch) Reset(txn *badger.Txn, id ID) *Batch {
-	b.blobFunc = nil
-	b.labelFunc = nil
-	if txn != nil {
-		b.blobFunc = UpsertBlob(txn)
-		b.labelFunc = UpsertLabels(b.blobFunc)
-	}
+func (b *Batch) Reset() *Batch {
 	clear(b.values)
 	clear(b.kind)
 	clear(b.timestamp)
@@ -62,7 +52,6 @@ func (b *Batch) Reset(txn *badger.Txn, id ID) *Batch {
 	clear(b.exemplars)
 	clear(b.exists)
 	clear(b.fst)
-	b.id = id
 	b.shards.Clear()
 	return b
 }
@@ -70,17 +59,17 @@ func (b *Batch) Reset(txn *badger.Txn, id ID) *Batch {
 type LabelFunc func([]prompb.Label) []uint64
 type BlobFunc func([]byte) uint64
 
-func (b *Batch) Append(ts *prompb.TimeSeries) {
-	labels := b.labelFunc(ts.Labels)
+func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc BlobFunc, id ID) {
+	labels := labelFunc(ts.Labels)
 	series := xxhash.Sum64(util.Uint64ToBytes(labels))
 	currentShard := ^uint64(0)
 	var exemplars uint64
 	if len(ts.Exemplars) > 0 {
 		data, _ := EncodeExemplars(ts.Exemplars)
-		exemplars = b.blobFunc(data)
+		exemplars = blobFunc(data)
 	}
 	for _, s := range ts.Samples {
-		id := b.id.NextID()
+		id := id.NextID()
 		shard := id / shardwidth.ShardWidth
 		if shard != currentShard {
 			currentShard = shard
@@ -100,14 +89,14 @@ func (b *Batch) Append(ts *prompb.TimeSeries) {
 
 	for j := range ts.Histograms {
 		s := &ts.Histograms[j]
-		id := b.id.NextID()
+		id := id.NextID()
 		shard := id / shardwidth.ShardWidth
 		if shard != currentShard {
 			currentShard = shard
 			b.shards.Add(shard % shardwidth.ShardWidth)
 		}
 		data, _ := s.Marshal()
-		value := b.blobFunc(data)
+		value := blobFunc(data)
 		SetBSI(bitmap(shard, b.series), id, series)
 		SetBSI(bitmap(shard, b.timestamp), id, uint64(s.Timestamp))
 		SetBSI(bitmap(shard, b.values), id, value)
@@ -159,4 +148,15 @@ func bitmap(u uint64, m map[uint64]*roaring64.Bitmap) *roaring64.Bitmap {
 		m[u] = b
 	}
 	return b
+}
+
+func AppendBatch(store *Store, batch *Batch, ts map[string]*prompb.TimeSeries) error {
+	return store.DB.Update(func(txn *badger.Txn) error {
+		blob := UpsertBlob(txn)
+		label := UpsertLabels(blob)
+		for _, series := range ts {
+			batch.Append(series, label, blob, store.Seq)
+		}
+		return nil
+	})
 }

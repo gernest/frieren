@@ -2,7 +2,9 @@ package ernestdb
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"time"
 
@@ -15,6 +17,39 @@ import (
 	"github.com/gernest/rbf/quantum"
 	"github.com/prometheus/prometheus/prompb"
 )
+
+type Store struct {
+	DB    *badger.DB
+	Index *rbf.DB
+	Seq   *Seq
+}
+
+func NewStore(path string) (*Store, error) {
+	dbPath := filepath.Join(path, "db")
+
+	db, err := badger.Open(badger.DefaultOptions(dbPath).
+		WithLogger(nil))
+	if err != nil {
+		return nil, err
+	}
+	idxPath := filepath.Join(path, "index")
+	idx := rbf.NewDB(idxPath, nil)
+	err = idx.Open()
+	if err != nil {
+		return nil, err
+	}
+	seq, err := NewSequence(db)
+	if err != nil {
+		return nil, err
+	}
+	return &Store{DB: db, Index: idx, Seq: seq}, nil
+}
+
+func (s *Store) Close() error {
+	return errors.Join(
+		s.Seq.Release(), s.Index.Close(), s.DB.Close(),
+	)
+}
 
 type Value interface {
 	Value(f func(val []byte) error) error
@@ -67,7 +102,7 @@ func Save(db *badger.DB, idx *rbf.DB, b *Batch, ts time.Time) error {
 				return fmt.Errorf("inserting exists bsi %w", err)
 			}
 		}
-		return UpsertBitmap(txn, &buf, tmpBitmap, &b.shards, keys.Shards{}.Key())
+		return nil
 	})
 }
 
