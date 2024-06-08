@@ -16,20 +16,20 @@ const (
 	sep
 )
 
-type View struct {
+type Fragment struct {
 	ID    ID
 	Shard uint64
 	View  string
 }
 
-func (v *View) WithShard(shard uint64) *View {
-	return &View{
+func (v *Fragment) WithShard(shard uint64) *Fragment {
+	return &Fragment{
 		ID:    v.ID,
 		Shard: shard,
 		View:  v.View,
 	}
 }
 
-func (v *View) String() string {
+func (v *Fragment) String() string {
 	return fmt.Sprintf("%d%s_%d", v.ID, v.View, v.Shard)
 }

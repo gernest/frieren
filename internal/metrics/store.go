@@ -23,35 +23,35 @@ import (
 func Save(db *badger.DB, idx *rbf.DB, b *Batch, ts time.Time) error {
 	err := store.UpdateIndex(idx, func(tx *rbf.Tx) error {
 		view := quantum.ViewByTimeUnit("", ts, 'D')
-		err := apply(tx, fields.View{ID: fields.MetricsValue, View: view}, b.values)
+		err := apply(tx, fields.Fragment{ID: fields.MetricsValue, View: view}, b.values)
 		if err != nil {
 			return err
 		}
-		err = apply(tx, fields.View{ID: fields.MetricsKind, View: view}, b.kind)
+		err = apply(tx, fields.Fragment{ID: fields.MetricsKind, View: view}, b.kind)
 		if err != nil {
 			return err
 		}
-		err = apply(tx, fields.View{ID: fields.MetricsTimestamp, View: view}, b.timestamp)
+		err = apply(tx, fields.Fragment{ID: fields.MetricsTimestamp, View: view}, b.timestamp)
 		if err != nil {
 			return err
 		}
-		err = apply(tx, fields.View{ID: fields.MetricsSeries, View: view}, b.series)
+		err = apply(tx, fields.Fragment{ID: fields.MetricsSeries, View: view}, b.series)
 		if err != nil {
 			return err
 		}
-		err = apply(tx, fields.View{ID: fields.MetricsLabels, View: view}, b.labels)
+		err = apply(tx, fields.Fragment{ID: fields.MetricsLabels, View: view}, b.labels)
 		if err != nil {
 			return err
 		}
-		err = apply(tx, fields.View{ID: fields.MetricsExemplars, View: view}, b.exemplars)
+		err = apply(tx, fields.Fragment{ID: fields.MetricsExemplars, View: view}, b.exemplars)
 		if err != nil {
 			return err
 		}
-		err = apply(tx, fields.View{ID: fields.MetricsExists, View: view}, b.exists)
+		err = apply(tx, fields.Fragment{ID: fields.MetricsExists, View: view}, b.exists)
 		if err != nil {
 			return err
 		}
-		return applyShards(tx, fields.View{ID: fields.MetricsShards, View: view}, &b.shards)
+		return applyShards(tx, fields.Fragment{ID: fields.MetricsShards, View: view}, &b.shards)
 	})
 	if err != nil {
 		return err
@@ -71,7 +71,7 @@ func Save(db *badger.DB, idx *rbf.DB, b *Batch, ts time.Time) error {
 	})
 }
 
-func apply(tx *rbf.Tx, view fields.View, data map[uint64]*roaring64.Bitmap) error {
+func apply(tx *rbf.Tx, view fields.Fragment, data map[uint64]*roaring64.Bitmap) error {
 	for shard, m := range data {
 		key := view.WithShard(shard).String()
 		_, err := tx.Add(key, m.ToArray()...)
@@ -82,7 +82,7 @@ func apply(tx *rbf.Tx, view fields.View, data map[uint64]*roaring64.Bitmap) erro
 	return nil
 }
 
-func applyShards(tx *rbf.Tx, view fields.View, m *roaring64.Bitmap) error {
+func applyShards(tx *rbf.Tx, view fields.Fragment, m *roaring64.Bitmap) error {
 	key := view.WithShard(0).String()
 	_, err := tx.Add(key, m.ToArray()...)
 	if err != nil {
