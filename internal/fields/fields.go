@@ -13,6 +13,8 @@ const (
 	MetricsExemplars
 	MetricsExists
 	MetricsShards
+	MetricsFSTBitmap
+	MetricsFST
 	sep
 )
 

@@ -28,10 +28,8 @@ type Batch struct {
 	labels    map[uint64]*roaring64.Bitmap
 	exemplars map[uint64]*roaring64.Bitmap
 	exists    map[uint64]*roaring64.Bitmap
-
-	fst map[uint64]*roaring64.Bitmap
-
-	shards roaring64.Bitmap
+	fst       map[uint64]*roaring64.Bitmap
+	shards    roaring64.Bitmap
 }
 
 func NewBatch() *Batch {
@@ -76,7 +74,7 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob
 		shard := id / shardwidth.ShardWidth
 		if shard != currentShard {
 			currentShard = shard
-			b.shards.Add(shard % shardwidth.ShardWidth)
+			b.shards.Add(shard)
 		}
 		ro.SetBSI(bitmap(shard, b.series), id, series)
 		ro.SetBSI(bitmap(shard, b.timestamp), id, uint64(s.Timestamp))
@@ -95,7 +93,7 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob
 		shard := id / shardwidth.ShardWidth
 		if shard != currentShard {
 			currentShard = shard
-			b.shards.Add(shard % shardwidth.ShardWidth)
+			b.shards.Add(shard)
 		}
 		data, _ := s.Marshal()
 		value := blobFunc(data)

@@ -21,7 +21,9 @@ import (
 )
 
 func Save(db *badger.DB, idx *rbf.DB, b *Batch, ts time.Time) error {
-	err := store.UpdateIndex(idx, func(tx *rbf.Tx) error {
+	txn := db.NewTransaction(true)
+	defer txn.Discard()
+	return store.UpdateIndex(idx, func(tx *rbf.Tx) error {
 		view := quantum.ViewByTimeUnit("", ts, 'D')
 		err := apply(tx, fields.Fragment{ID: fields.MetricsValue, View: view}, b.values)
 		if err != nil {
@@ -51,24 +53,29 @@ func Save(db *badger.DB, idx *rbf.DB, b *Batch, ts time.Time) error {
 		if err != nil {
 			return err
 		}
+		err = apply(tx, fields.Fragment{ID: fields.MetricsFSTBitmap, View: view}, b.fst)
+		if err != nil {
+			return err
+		}
+		err = applyFST(txn, fields.Fragment{ID: fields.MetricsFST, View: view}, b.fst)
+		if err != nil {
+			return err
+		}
 		return applyShards(tx, fields.Fragment{ID: fields.MetricsShards, View: view}, &b.shards)
 	})
-	if err != nil {
-		return err
-	}
-	return db.Update(func(txn *badger.Txn) error {
-		var buf bytes.Buffer
-		tmpBitmap := roaring64.New()
-		slice := (&keys.FSTBitmap{}).Slice()
-		for shard, bsi := range b.fst {
-			slice[len(slice)-1] = shard
-			err := UpsertFST(txn, &buf, tmpBitmap, bsi, shard, keys.Encode(nil, slice))
-			if err != nil {
-				return fmt.Errorf("inserting exists bsi %w", err)
-			}
+}
+
+func applyFST(txn *badger.Txn, view fields.Fragment, data map[uint64]*roaring64.Bitmap) error {
+	var buf bytes.Buffer
+	tmpBitmap := roaring64.New()
+	for shard, m := range data {
+		key := view.WithShard(shard).String()
+		err := UpsertFST(txn, &buf, tmpBitmap, m, shard, []byte(key))
+		if err != nil {
+			return fmt.Errorf("inserting exists bsi %w", err)
 		}
-		return nil
-	})
+	}
+	return txn.Commit()
 }
 
 func apply(tx *rbf.Tx, view fields.Fragment, data map[uint64]*roaring64.Bitmap) error {
@@ -89,24 +96,6 @@ func applyShards(tx *rbf.Tx, view fields.Fragment, m *roaring64.Bitmap) error {
 		return fmt.Errorf("adding to %s %w", key, err)
 	}
 	return nil
-}
-
-func UpsertBitmap(txn *badger.Txn, buf *bytes.Buffer, tmp, b *roaring64.Bitmap, key []byte) error {
-	buf.Reset()
-	if store.Has(txn, key) {
-		tmp.Clear()
-		err := store.Get(txn, key, tmp.UnmarshalBinary)
-		if err != nil {
-			return err
-		}
-		b.Or(tmp)
-	}
-	b.RunOptimize()
-	_, err := b.WriteTo(buf)
-	if err != nil {
-		return err
-	}
-	return txn.Set(key, bytes.Clone(buf.Bytes()))
 }
 
 func UpsertFST(txn *badger.Txn, buf *bytes.Buffer, tmp, b *roaring64.Bitmap, shard uint64, key []byte) error {
