@@ -1,0 +1,17 @@
+syntax = "proto3";
+package v1;
+
+message Events {
+  repeated uint64 timestamp = 1;
+  repeated uint64 name = 2;
+  repeated Attr attr = 3;
+}
+
+message Links {
+  repeated uint64 trace_id = 1;
+  repeated uint64 span_id = 2;
+  repeated Attr attr = 3;
+  repeated uint64 trace_state = 4;
+}
+
+message Attr { repeated uint64 value = 1; }

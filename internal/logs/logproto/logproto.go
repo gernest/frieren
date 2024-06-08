@@ -1,14 +1,13 @@
 package logproto
 
 import (
-	"bytes"
 	"encoding/hex"
 	"fmt"
 	"time"
 
-	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/cespare/xxhash/v2"
 	"github.com/gernest/frieren/internal/blob"
+	"github.com/gernest/frieren/px"
 	"github.com/gernest/frieren/util"
 	"github.com/prometheus/prometheus/storage/remote/otlptranslator/prometheus"
 	"go.opentelemetry.io/collector/pdata/pcommon"
@@ -47,30 +46,11 @@ var resourceAttrAsIndex = map[string]struct{}{
 	"k8s.job.name":            {},
 }
 
-type attrCtx struct {
-	o   roaring64.Bitmap
-	tr  blob.Func
-	buf bytes.Buffer
-}
-
-func (a *attrCtx) Reset() {
-	a.o.Clear()
-	a.buf.Reset()
-}
-
-func (x *attrCtx) Set(key, value string) {
-	x.buf.Reset()
-	x.buf.WriteString(key)
-	x.buf.WriteByte('=')
-	x.buf.WriteString(value)
-	x.o.Add(x.tr(x.buf.Bytes()))
-}
-
 const (
 	attrServiceName = "service.name"
 )
 
-func FromLogs(ld plog.Logs) map[uint64]*Stream {
+func FromLogs(ld plog.Logs, tr blob.Func) map[uint64]*Stream {
 	if ld.LogRecordCount() == 0 {
 		return nil
 	}
@@ -78,10 +58,10 @@ func FromLogs(ld plog.Logs) map[uint64]*Stream {
 	rls := ld.ResourceLogs()
 	var h xxhash.Digest
 	pushRequestsByStream := make(map[uint64]*Stream, rls.Len())
-	streamCtx := &attrCtx{}
-	rsCtx := &attrCtx{}
-	scopeCtx := &attrCtx{}
-	attrCtx := &attrCtx{}
+	streamCtx := px.New(tr)
+	rsCtx := px.New(tr)
+	scopeCtx := px.New(tr)
+	attrCtx := px.New(tr)
 	for i := 0; i < rls.Len(); i++ {
 		sls := rls.At(i).ScopeLogs()
 		res := rls.At(i).Resource()
@@ -97,14 +77,14 @@ func FromLogs(ld plog.Logs) map[uint64]*Stream {
 		resAttrs.Range(func(k string, v pcommon.Value) bool {
 			_, idx := resourceAttrAsIndex[k]
 			if idx {
-				streamCtx.attributeToLabels(k, v, "")
+				attributeToLabels(streamCtx, k, v, "")
 			} else {
-				rsCtx.attributeToLabels(k, v, "")
+				attributeToLabels(rsCtx, k, v, "")
 			}
 			return true
 		})
 
-		lbs := streamCtx.o.ToArray()
+		lbs := streamCtx.ToArray()
 		h.Reset()
 		h.Write(util.Uint64ToBytes(lbs))
 		streamID := h.Sum64()
@@ -130,7 +110,7 @@ func FromLogs(ld plog.Logs) map[uint64]*Stream {
 
 			scopeCtx.Reset()
 			scopeAttrs.Range(func(k string, v pcommon.Value) bool {
-				scopeCtx.attributeToLabels(k, v, "")
+				attributeToLabels(scopeCtx, k, v, "")
 				return true
 			})
 
@@ -147,9 +127,9 @@ func FromLogs(ld plog.Logs) map[uint64]*Stream {
 			for k := 0; k < logs.Len(); k++ {
 				log := logs.At(k)
 				attrCtx.Reset()
-				attrCtx.o.Or(&rsCtx.o)
-				attrCtx.o.Or(&scopeCtx.o)
-				entry := attrCtx.entry(log)
+				attrCtx.Or(rsCtx)
+				attrCtx.Or(scopeCtx)
+				entry := entry(attrCtx, log)
 				stream := pushRequestsByStream[streamID]
 				stream.Entries = append(stream.Entries, entry)
 			}
@@ -158,12 +138,12 @@ func FromLogs(ld plog.Logs) map[uint64]*Stream {
 	return pushRequestsByStream
 }
 
-func (x *attrCtx) entry(log plog.LogRecord) *Entry {
+func entry(x *px.Ctx, log plog.LogRecord) *Entry {
 	x.Reset()
 	// copy log attributes and all the fields from log(except log.Body) to structured metadata
 	logAttrs := log.Attributes()
 	logAttrs.Range(func(k string, v pcommon.Value) bool {
-		x.attributeToLabels(k, v, "")
+		attributeToLabels(x, k, v, "")
 		return true
 	})
 
@@ -195,12 +175,12 @@ func (x *attrCtx) entry(log plog.LogRecord) *Entry {
 
 	return &Entry{
 		Timestamp: timestampFromLogRecord(log),
-		Line:      x.tr([]byte(log.Body().AsString())),
-		Metadata:  x.o.ToArray(),
+		Line:      x.Tr([]byte(log.Body().AsString())),
+		Metadata:  x.ToArray(),
 	}
 }
 
-func (x *attrCtx) attributeToLabels(k string, v pcommon.Value, prefix string) {
+func attributeToLabels(x *px.Ctx, k string, v pcommon.Value, prefix string) {
 	keyWithPrefix := k
 	if prefix != "" {
 		keyWithPrefix = prefix + "_" + k
@@ -210,7 +190,7 @@ func (x *attrCtx) attributeToLabels(k string, v pcommon.Value, prefix string) {
 	if typ == pcommon.ValueTypeMap {
 		mv := v.Map()
 		mv.Range(func(k string, v pcommon.Value) bool {
-			x.attributeToLabels(k, v, keyWithPrefix)
+			attributeToLabels(x, k, v, keyWithPrefix)
 			return true
 		})
 	} else {
