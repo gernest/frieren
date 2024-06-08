@@ -11,8 +11,8 @@ import (
 	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/blob"
+	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/keys"
-	"github.com/gernest/frieren/internal/ro"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/util"
 	"github.com/gernest/rbf"
@@ -23,35 +23,35 @@ import (
 func Save(db *badger.DB, idx *rbf.DB, b *Batch, ts time.Time) error {
 	err := store.UpdateIndex(idx, func(tx *rbf.Tx) error {
 		view := quantum.ViewByTimeUnit("", ts, 'D')
-		err := apply(tx, "metrics.values", view, b.values)
+		err := apply(tx, fields.View{ID: fields.MetricsValue, View: view}, b.values)
 		if err != nil {
 			return err
 		}
-		err = apply(tx, "metrics.kind", view, b.kind)
+		err = apply(tx, fields.View{ID: fields.MetricsKind, View: view}, b.kind)
 		if err != nil {
 			return err
 		}
-		err = apply(tx, "metrics.timestamp", view, b.timestamp)
+		err = apply(tx, fields.View{ID: fields.MetricsTimestamp, View: view}, b.timestamp)
 		if err != nil {
 			return err
 		}
-		err = apply(tx, "metrics.series", view, b.series)
+		err = apply(tx, fields.View{ID: fields.MetricsSeries, View: view}, b.series)
 		if err != nil {
 			return err
 		}
-		err = apply(tx, "metrics.labels", view, b.labels)
+		err = apply(tx, fields.View{ID: fields.MetricsLabels, View: view}, b.labels)
 		if err != nil {
 			return err
 		}
-		err = apply(tx, "metrics.exemplars", view, b.exemplars)
+		err = apply(tx, fields.View{ID: fields.MetricsExemplars, View: view}, b.exemplars)
 		if err != nil {
 			return err
 		}
-		err = apply(tx, "metrics.exists", view, b.exists)
+		err = apply(tx, fields.View{ID: fields.MetricsExists, View: view}, b.exists)
 		if err != nil {
 			return err
 		}
-		return applyShards(tx, "metrics.shards", view, &b.shards)
+		return applyShards(tx, fields.View{ID: fields.MetricsShards, View: view}, &b.shards)
 	})
 	if err != nil {
 		return err
@@ -71,9 +71,9 @@ func Save(db *badger.DB, idx *rbf.DB, b *Batch, ts time.Time) error {
 	})
 }
 
-func apply(tx *rbf.Tx, field, view string, data map[uint64]*roaring64.Bitmap) error {
+func apply(tx *rbf.Tx, view fields.View, data map[uint64]*roaring64.Bitmap) error {
 	for shard, m := range data {
-		key := ro.ViewFor(field, view, shard)
+		key := view.WithShard(shard).String()
 		_, err := tx.Add(key, m.ToArray()...)
 		if err != nil {
 			return fmt.Errorf("adding to %s %w", key, err)
@@ -82,8 +82,8 @@ func apply(tx *rbf.Tx, field, view string, data map[uint64]*roaring64.Bitmap) er
 	return nil
 }
 
-func applyShards(tx *rbf.Tx, field, view string, m *roaring64.Bitmap) error {
-	key := ro.ViewFor(field, view, 0)
+func applyShards(tx *rbf.Tx, view fields.View, m *roaring64.Bitmap) error {
+	key := view.WithShard(0).String()
 	_, err := tx.Add(key, m.ToArray()...)
 	if err != nil {
 		return fmt.Errorf("adding to %s %w", key, err)
