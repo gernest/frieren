@@ -1,7 +1,6 @@
 package ro
 
 import (
-	"fmt"
 	"math"
 	"math/bits"
 
@@ -24,10 +23,6 @@ const (
 )
 
 var bitDepth = uint64(bits.Len64(math.MaxUint64))
-
-func ViewFor(field, view string, shard uint64) string {
-	return fmt.Sprintf("%s%s_%d", field, view, shard)
-}
 
 func SetMutex(m *roaring64.Bitmap, id uint64, value uint64) {
 	m.Add(value*shardwidth.ShardWidth + (id % shardwidth.ShardWidth))

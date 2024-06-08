@@ -5,18 +5,15 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"strings"
 	"time"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
-	"github.com/blevesearch/vellum"
-	re "github.com/blevesearch/vellum/regexp"
 	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/blob"
-	"github.com/gernest/frieren/internal/keys"
-	"github.com/gernest/frieren/internal/ro"
-	"github.com/gernest/frieren/internal/store"
+	"github.com/gernest/frieren/internal/fields"
+	"github.com/gernest/frieren/internal/fst"
+	"github.com/gernest/frieren/internal/tags"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/quantum"
 	"github.com/gernest/rows"
@@ -49,39 +46,30 @@ func (q *Queryable) Querier(mints, maxts int64) (storage.Querier, error) {
 			time.UnixMilli(mints), time.UnixMilli(maxts).AddDate(0, 0, 1),
 			quantum.TimeQuantum("D"))
 	}
-	vs := make(map[int]*roaring64.Bitmap)
 	tx, err := q.idx.Begin(false)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
-	all := roaring64.New()
+
+	ids := make([]string, 0, len(views))
+	shards := make([][]uint64, 0, len(views))
 	for i := range views {
 		// read the shards observed per view
-		r, err := ro.Row(0, ro.ViewFor("metrics.shards", views[i], 0), tx, 0)
+		view := fields.Fragment{ID: fields.MetricsShards, View: views[i]}
+		r, err := tx.RoaringBitmap(view.String())
 		if err != nil {
-			return nil, fmt.Errorf("reading shards %w", err)
+			return nil, fmt.Errorf("reading shards bitmap %w", err)
 		}
-		if r.IsEmpty() {
+		if r.Count() == 0 {
 			continue
 		}
-		b := roaring64.New()
-		b.AddMany(r.Columns())
-		vs[i] = b
-		all.Or(b)
-	}
-	shards := all.ToArray()
-	shardViews := make([][]string, len(shards))
-	for i := range shards {
-		for k, v := range vs {
-			if v.Contains(shards[i]) {
-				shardViews[i] = append(shardViews[i], views[k])
-			}
-		}
+		ids = append(ids, views[i])
+		shards = append(shards, r.Slice())
 	}
 	return &Querier{
 		shards: shards,
-		views:  shardViews,
+		views:  ids,
 		db:     q.db,
 		idx:    q.idx,
 	}, nil
@@ -95,8 +83,8 @@ func date(ts int64) time.Time {
 
 type Querier struct {
 	storage.LabelQuerier
-	shards []uint64
-	views  [][]string
+	shards [][]uint64
+	views  []string
 	db     *badger.DB
 	idx    *rbf.DB
 }
@@ -104,7 +92,7 @@ type Querier struct {
 var _ storage.Querier = (*Querier)(nil)
 
 func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.SelectHints, matchers ...*labels.Matcher) storage.SeriesSet {
-	if len(matchers) == 0 {
+	if len(matchers) == 0 || len(s.views) == 0 {
 		return storage.EmptySeriesSet()
 	}
 	tx, err := s.idx.Begin(false)
@@ -119,75 +107,28 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 	yes, no, re := match00(matchers...)
 	m := make(MapSet)
 
-	for i, shard := range s.shards {
-		a, b := yes, no
-		if len(re) > 0 {
-			// Regular expressions are applied per shard because we keep a FST for each
-			// shard regardless of the view.
-			//
-			// FST can get quiet big for high cardinality data. By keeping one per shard
-			// we make sure we have manageable fst for the expected shard width. FST
-			// checks are on hot path it is reasonable to incur the small size penalty
-			// for faster queries.
-			//
-			// we are cloning yes an no bitmaps because we update them in place
-			a, b = yes.Clone(), no.Clone()
-			err := match01(txn, shard, yes, no, re...)
+	for i := range s.views {
+		view := s.views[i]
+		for _, shard := range s.shards[i] {
+			a, b := yes, no
+			if len(re) > 0 {
+				a, b = yes.Clone(), no.Clone()
+				fra := fields.Fragment{ID: fields.MetricsFST, Shard: shard, View: view}
+				err := fst.MatchRe(txn, []byte(fra.String()), yes, no, re...)
+				if err != nil {
+					return storage.ErrSeriesSet(err)
+				}
+			}
+			r, err := tags.Filter(tx, fields.Fragment{ID: fields.MetricsLabels, Shard: shard, View: view}, a, b)
 			if err != nil {
 				return storage.ErrSeriesSet(err)
 			}
-		}
-		for _, view := range s.views[i] {
-			r := rows.NewRow()
-			if !a.IsEmpty() {
-				start := true
-				it := a.Iterator()
-				for it.HasNext() {
-					label := it.Next()
-					rw, err := ro.EqSet(shard, "metrics.labels", view, tx, label)
-					if err != nil {
-						err = fmt.Errorf("reading labels %w", err)
-						return storage.ErrSeriesSet(err)
-					}
-					if start {
-						r = rw
-						start = false
-					} else {
-						r = r.Intersect(rw)
-					}
-					if r.IsEmpty() {
-						return storage.EmptySeriesSet()
-					}
-				}
-			}
-			if !b.IsEmpty() {
-				it := b.Iterator()
-				exists, err := ro.Row(shard, ro.ViewFor("metrics.labels", view, shard), tx, 0)
-				if err != nil {
-					err = fmt.Errorf("reading labels exists bitmap %w", err)
-					return storage.ErrSeriesSet(err)
-				}
-				r = exists
-				for it.HasNext() {
-					label := it.Next()
-					rw, err := ro.EqSet(shard, "metrics.labels", view, tx, label)
-					if err != nil {
-						err = fmt.Errorf("reading labels %w", err)
-						return storage.ErrSeriesSet(err)
-					}
-					r = r.Difference(rw)
-					if r.IsEmpty() {
-						return storage.EmptySeriesSet()
-					}
-				}
-			}
-
-			// r is the row ids in this view/shard that we want to read.
 			err = m.Build(txn, tx, blob.Translate(txn), hints.Start, hints.End, view, shard, r)
 			if err != nil {
 				return storage.ErrSeriesSet(err)
 			}
 		}
+
 	}
 	return nil
 }
@@ -223,13 +164,13 @@ var (
 )
 
 func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, start, end int64, view string, shard uint64, filter *rows.Row) error {
-	add := func(view string, seriesID, shard, validID uint64, samples []chunks.Sample) error {
+	add := func(lf *fields.Fragment, seriesID, validID uint64, samples []chunks.Sample) error {
 		sx, ok := s[seriesID]
 		if ok {
 			sx.Samples = append(sx.Samples, samples...)
 			return nil
 		}
-		lbl, err := ro.ReadSetValue(shard, "metrics.labels", view, tx, validID)
+		lbl, err := lf.ReadSetValue(tx, validID)
 		if err != nil {
 			return fmt.Errorf("reading labels %w", err)
 		}
@@ -253,9 +194,15 @@ func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, start, end int64,
 		s[seriesID] = sx
 		return nil
 	}
+	// fragments
+	sf := fields.Fragment{ID: fields.MetricsSeries, Shard: shard, View: view}
+	kf := fields.Fragment{ID: fields.MetricsKind, Shard: shard, View: view}
+	vf := fields.Fragment{ID: fields.MetricsValue, Shard: shard, View: view}
+	tf := fields.Fragment{ID: fields.MetricsTimestamp, Shard: shard, View: view}
+	lf := fields.Fragment{ID: fields.MetricsLabels, Shard: shard, View: view}
 
 	// find matching timestamps
-	r, err := ro.Between(shard, "metrics.timestamp", view, tx, uint64(start), uint64(end))
+	r, err := tf.Between(tx, uint64(start), uint64(end))
 	if err != nil {
 		return fmt.Errorf("reading timestamp %w", err)
 	}
@@ -267,7 +214,7 @@ func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, start, end int64,
 	}
 
 	// find all series
-	series, err := ro.TransposeBSI(shard, "metrics.series", view, tx, r)
+	series, err := sf.TransposeBSI(tx, r)
 	if err != nil {
 		return err
 	}
@@ -279,14 +226,14 @@ func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, start, end int64,
 	it := series.Iterator()
 
 	// Filter to check if series is of histogram type
-	kind, err := ro.False(shard, "metrics.kind", view, tx)
+	kind, err := kf.False(tx)
 	if err != nil {
 		return fmt.Errorf("reading kind %w", err)
 	}
 	mapping := map[uint64]int{}
 	for it.HasNext() {
 		seriesID := it.Next()
-		sr, err := ro.EqBSI(shard, "metrics.series", view, tx, seriesID)
+		sr, err := sf.EqBSI(tx, seriesID)
 		if err != nil {
 			return fmt.Errorf("reading columns for series %w", err)
 		}
@@ -307,14 +254,14 @@ func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, start, end int64,
 			for i := range chunks {
 				chunks[i] = &V{}
 			}
-			err := ro.ExtractBSI(shard, ro.ViewFor("metrics.value", view, shard), tx, sr, mapping, func(i int, v uint64) error {
+			err := vf.ExtractBSI(tx, sr, mapping, func(i int, v uint64) error {
 				chunks[i].(*V).f = math.Float64frombits(v)
 				return nil
 			})
 			if err != nil {
 				return fmt.Errorf("extracting values %w", err)
 			}
-			err = ro.ExtractBSI(shard, ro.ViewFor("metrics.timestamp", view, shard), tx, sr, mapping, func(i int, v uint64) error {
+			err = tf.ExtractBSI(tx, sr, mapping, func(i int, v uint64) error {
 				chunks[i].(*V).ts = int64(v)
 				return nil
 			})
@@ -325,7 +272,7 @@ func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, start, end int64,
 			isFloat := false
 			first := true
 			hs := &prompb.Histogram{}
-			err := ro.ExtractBSI(shard, ro.ViewFor("metrics.value", view, shard), tx, sr, mapping, func(i int, v uint64) error {
+			err := vf.ExtractBSI(tx, sr, mapping, func(i int, v uint64) error {
 				hs.Reset()
 				err := tr(v, hs.Unmarshal)
 				if err != nil {
@@ -346,7 +293,7 @@ func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, start, end int64,
 				return fmt.Errorf("extracting values %w", err)
 			}
 		}
-		err = add(view, seriesID, shard, columns[0], chunks)
+		err = add(&lf, shard, columns[0], chunks)
 		if err != nil {
 			return err
 		}
@@ -439,50 +386,4 @@ func match00(matchers ...*labels.Matcher) (yes, no *roaring64.Bitmap, regex []*l
 		}
 	}
 	return
-}
-
-func match01(txn *badger.Txn, shard uint64, yes, no *roaring64.Bitmap, matchers ...*labels.Matcher) error {
-	var buf bytes.Buffer
-	return readFST(txn, shard, func(fst *vellum.FST) error {
-		for _, m := range matchers {
-			switch m.Type {
-			case labels.MatchRegexp, labels.MatchNotRegexp:
-				rx, err := compile(&buf, m.Name, m.Value)
-				if err != nil {
-					return fmt.Errorf("compiling matcher %q %w", m.String(), err)
-				}
-				itr, err := fst.Search(rx, nil, nil)
-				for err == nil {
-					_, value := itr.Current()
-					if m.Type == labels.MatchRegexp {
-						yes.Add(value)
-					} else {
-						no.Add(value)
-					}
-					err = itr.Next()
-				}
-			}
-		}
-		return nil
-	})
-}
-
-func compile(b *bytes.Buffer, key, value string) (*re.Regexp, error) {
-	value = strings.TrimPrefix(value, "^")
-	value = strings.TrimSuffix(value, "$")
-	b.Reset()
-	b.WriteString(key)
-	b.WriteByte('=')
-	b.WriteString(value)
-	return re.New(b.String())
-}
-
-func readFST(txn *badger.Txn, shard uint64, f func(fst *vellum.FST) error) error {
-	return store.Get(txn, (&keys.FST{ShardID: shard}).Key(), func(val []byte) error {
-		fst, err := vellum.Load(val)
-		if err != nil {
-			return err
-		}
-		return f(fst)
-	})
 }
