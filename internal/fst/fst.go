@@ -13,6 +13,10 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 )
 
+// Match process matchers and builds yes/no bitmaps of label keys. Where yes is
+// for labels with equal matchers and no is for labels with **not equal** matchers.
+//
+// key refers to the fst to load.
 func Match(txn *badger.Txn, key []byte, yes, no *roaring64.Bitmap, matchers ...*labels.Matcher) error {
 	var buf bytes.Buffer
 	return Read(txn, key, func(fst *vellum.FST) error {
@@ -58,15 +62,18 @@ func Match(txn *badger.Txn, key []byte, yes, no *roaring64.Bitmap, matchers ...*
 	})
 }
 
+// Read  loads vellum.FST from database and calls f with it.
 func Read(txn *badger.Txn, key []byte, f func(fst *vellum.FST) error) error {
 	return store.Get(txn, key, func(val []byte) error {
 		fst, err := vellum.Load(val)
 		if err != nil {
 			return err
 		}
+		defer fst.Close()
 		return f(fst)
 	})
 }
+
 func compile(b *bytes.Buffer, key, value string) (*re.Regexp, error) {
 	value = strings.TrimPrefix(value, "^")
 	value = strings.TrimSuffix(value, "$")
