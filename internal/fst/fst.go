@@ -46,7 +46,7 @@ func Match(txn *badger.Txn, tx *rbf.Tx, fra *fields.Fragment, matchers ...*label
 					}
 				} else {
 					clone := all.Clone().Difference(b)
-					if clone.Count() == 0 {
+					if r.Count() == 0 {
 						r = clone
 					} else {
 						r = r.Intersect(clone)
