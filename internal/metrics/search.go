@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
@@ -80,7 +81,6 @@ func date(ts int64) time.Time {
 }
 
 type Querier struct {
-	storage.LabelQuerier
 	shards [][]uint64
 	views  []string
 	db     *badger.DB
@@ -88,6 +88,61 @@ type Querier struct {
 }
 
 var _ storage.Querier = (*Querier)(nil)
+
+func (q *Querier) Close() error {
+	return nil
+
+}
+func (s *Querier) LabelValues(ctx context.Context, name string, matchers ...*labels.Matcher) ([]string, annotations.Annotations, error) {
+	if len(s.views) == 0 {
+		return []string{}, nil, nil
+	}
+	names := map[string]struct{}{}
+
+	txn := s.db.NewTransaction(false)
+	defer txn.Discard()
+
+	for i := range s.views {
+		view := s.views[i]
+		for _, shard := range s.shards[i] {
+			fra := fields.Fragment{ID: fields.MetricsFST, Shard: shard, View: view}
+			fst.LabelNames(txn, []byte(fra.String()), name, func(name, value []byte) {
+				names[string(value)] = struct{}{}
+			})
+		}
+	}
+	o := make([]string, 0, len(names))
+	for k := range names {
+		o = append(o, k)
+	}
+	sort.Strings(o)
+	return o, nil, nil
+}
+func (s *Querier) LabelNames(ctx context.Context, matchers ...*labels.Matcher) ([]string, annotations.Annotations, error) {
+	if len(s.views) == 0 {
+		return []string{}, nil, nil
+	}
+	names := map[string]struct{}{}
+
+	txn := s.db.NewTransaction(false)
+	defer txn.Discard()
+
+	for i := range s.views {
+		view := s.views[i]
+		for _, shard := range s.shards[i] {
+			fra := fields.Fragment{ID: fields.MetricsFST, Shard: shard, View: view}
+			fst.Labels(txn, []byte(fra.String()), func(name, value []byte) {
+				names[string(name)] = struct{}{}
+			})
+		}
+	}
+	o := make([]string, 0, len(names))
+	for k := range names {
+		o = append(o, k)
+	}
+	sort.Strings(o)
+	return o, nil, nil
+}
 
 func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.SelectHints, matchers ...*labels.Matcher) storage.SeriesSet {
 	if len(matchers) == 0 || len(s.views) == 0 {

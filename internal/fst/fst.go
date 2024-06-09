@@ -62,6 +62,38 @@ func Match(txn *badger.Txn, key []byte, yes, no *roaring64.Bitmap, matchers ...*
 	})
 }
 
+var eql = []byte("=")
+
+func Labels(txn *badger.Txn, key []byte, f func(name, value []byte)) error {
+	return Read(txn, key, func(fst *vellum.FST) error {
+		it, err := fst.Iterator(nil, nil)
+		for err == nil {
+			current, _ := it.Current()
+			name, value, _ := bytes.Cut(current, eql)
+			f(name, value)
+			err = it.Next()
+		}
+		return nil
+	})
+}
+
+func LabelNames(txn *badger.Txn, key []byte, name string, f func(name, value []byte)) error {
+	rx, err := re.New(name + "=.*")
+	if err != nil {
+		return err
+	}
+	return Read(txn, key, func(fst *vellum.FST) error {
+		it, err := fst.Search(rx, nil, nil)
+		for err == nil {
+			current, _ := it.Current()
+			name, value, _ := bytes.Cut(current, eql)
+			f(name, value)
+			err = it.Next()
+		}
+		return nil
+	})
+}
+
 // Read  loads vellum.FST from database and calls f with it.
 func Read(txn *badger.Txn, key []byte, f func(fst *vellum.FST) error) error {
 	return store.Get(txn, key, func(val []byte) error {
