@@ -116,11 +116,12 @@ func bitmap(u uint64, m map[uint64]*roaring64.Bitmap) *roaring64.Bitmap {
 func AppendBatch(store *store.Store, batch *Batch, mets pmetric.Metrics) error {
 	conv := prometheusremotewrite.NewPrometheusConverter()
 	err := conv.FromMetrics(mets, prometheusremotewrite.Settings{
-		DisableTargetInfo: true,
+		AddMetricSuffixes: true,
 	})
 	if err != nil {
 		return err
 	}
+	meta := prometheusremotewrite.OtelMetricsToMetadata(mets, true)
 	return store.DB.Update(func(txn *badger.Txn) error {
 		blob := blob.Upsert(txn, store.BlobSeq)
 		label := UpsertLabels(blob)
@@ -128,6 +129,6 @@ func AppendBatch(store *store.Store, batch *Batch, mets pmetric.Metrics) error {
 		for i := range ts {
 			batch.Append(&ts[i], label, blob, store.Seq)
 		}
-		return nil
+		return StoreMetadata(txn, meta)
 	})
 }
