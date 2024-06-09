@@ -76,13 +76,13 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob
 			currentShard = shard
 			b.shards.Add(shard)
 		}
-		ro.SetBSI(bitmap(shard, b.series), id, series)
-		ro.SetBSI(bitmap(shard, b.timestamp), id, uint64(s.Timestamp))
-		ro.SetBSI(bitmap(shard, b.values), id, math.Float64bits(s.Value))
-		ro.SetBSISet(bitmap(shard, b.series), id, labels)
+		ro.BSI(bitmap(shard, b.series), id, series)
+		ro.BSI(bitmap(shard, b.timestamp), id, uint64(s.Timestamp))
+		ro.BSI(bitmap(shard, b.values), id, math.Float64bits(s.Value))
+		ro.BSISet(bitmap(shard, b.series), id, labels)
 		bitmap(shard, b.exists).Add(id % shardwidth.ShardWidth)
 		if exemplars != 0 {
-			ro.SetBSI(bitmap(shard, b.exemplars), id, exemplars)
+			ro.BSI(bitmap(shard, b.exemplars), id, exemplars)
 		}
 	}
 	currentShard = ^uint64(0)
@@ -97,14 +97,14 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob
 		}
 		data, _ := s.Marshal()
 		value := blobFunc(data)
-		ro.SetBSI(bitmap(shard, b.series), id, series)
-		ro.SetBSI(bitmap(shard, b.timestamp), id, uint64(s.Timestamp))
-		ro.SetBSI(bitmap(shard, b.values), id, value)
-		ro.SetBSISet(bitmap(shard, b.series), id, labels)
-		ro.SetBBool(bitmap(shard, b.kind), id, false)
+		ro.BSI(bitmap(shard, b.series), id, series)
+		ro.BSI(bitmap(shard, b.timestamp), id, uint64(s.Timestamp))
+		ro.BSI(bitmap(shard, b.values), id, value)
+		ro.BSISet(bitmap(shard, b.series), id, labels)
+		ro.Bool(bitmap(shard, b.kind), id, false)
 		bitmap(shard, b.exists).Add(id % shardwidth.ShardWidth)
 		if exemplars != 0 {
-			ro.SetBSI(bitmap(shard, b.exemplars), id, exemplars)
+			ro.BSI(bitmap(shard, b.exemplars), id, exemplars)
 		}
 	}
 }

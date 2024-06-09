@@ -1,7 +1,6 @@
 package ro
 
 import (
-	"math"
 	"math/bits"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
@@ -9,26 +8,15 @@ import (
 )
 
 const (
-	// Row ids used for boolean fields.
-	falseRowID = uint64(0)
-	trueRowID  = uint64(1)
-
-	// BSI bits used to check existence & sign.
-	bsiExistsBit = 0
-	bsiSignBit   = 1
-	bsiOffsetBit = 2
-
 	falseRowOffset = 0 * shardwidth.ShardWidth // fragment row 0
 	trueRowOffset  = 1 * shardwidth.ShardWidth // fragment row 1
 )
 
-var bitDepth = uint64(bits.Len64(math.MaxUint64))
-
-func SetMutex(m *roaring64.Bitmap, id uint64, value uint64) {
+func Mutex(m *roaring64.Bitmap, id uint64, value uint64) {
 	m.Add(value*shardwidth.ShardWidth + (id % shardwidth.ShardWidth))
 }
 
-func SetBSI(m *roaring64.Bitmap, id uint64, value uint64) {
+func BSI(m *roaring64.Bitmap, id uint64, value uint64) {
 	fragmentColumn := id % shardwidth.ShardWidth
 	m.Add(fragmentColumn)
 	lz := bits.LeadingZeros64(value)
@@ -41,13 +29,13 @@ func SetBSI(m *roaring64.Bitmap, id uint64, value uint64) {
 	}
 }
 
-func SetBSISet(m *roaring64.Bitmap, id uint64, values []uint64) {
+func BSISet(m *roaring64.Bitmap, id uint64, values []uint64) {
 	for _, row := range values {
 		m.Add(row*shardwidth.ShardWidth + (id % shardwidth.ShardWidth))
 	}
 }
 
-func SetBBool(m *roaring64.Bitmap, id uint64, value bool) {
+func Bool(m *roaring64.Bitmap, id uint64, value bool) {
 	fragmentColumn := id % shardwidth.ShardWidth
 	if value {
 		m.Add(trueRowOffset + fragmentColumn)
