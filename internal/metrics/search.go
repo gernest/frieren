@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
-	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/fields"
@@ -104,22 +103,23 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 	txn := s.db.NewTransaction(false)
 	defer txn.Discard()
 
-	yes, no, re := match00(matchers...)
+	yes, no := roaring64.New(), roaring64.New()
 	m := make(MapSet)
 
 	for i := range s.views {
 		view := s.views[i]
 		for _, shard := range s.shards[i] {
-			a, b := yes, no
-			if len(re) > 0 {
-				a, b = yes.Clone(), no.Clone()
-				fra := fields.Fragment{ID: fields.MetricsFST, Shard: shard, View: view}
-				err := fst.MatchRe(txn, []byte(fra.String()), yes, no, re...)
-				if err != nil {
-					return storage.ErrSeriesSet(err)
-				}
+			fra := fields.Fragment{ID: fields.MetricsFST, Shard: shard, View: view}
+			yes.Clear()
+			no.Clear()
+			err := fst.MatchRe(txn, []byte(fra.String()), yes, no, matchers...)
+			if err != nil {
+				return storage.ErrSeriesSet(err)
 			}
-			r, err := tags.Filter(tx, fields.Fragment{ID: fields.MetricsLabels, Shard: shard, View: view}, a, b)
+			if yes.IsEmpty() && no.IsEmpty() {
+				continue
+			}
+			r, err := tags.Filter(tx, fields.Fragment{ID: fields.MetricsLabels, Shard: shard, View: view}, yes, no)
 			if err != nil {
 				return storage.ErrSeriesSet(err)
 			}
@@ -357,33 +357,4 @@ func NewFH(o *prompb.Histogram) *FH {
 		ts: o.Timestamp,
 		h:  remote.FloatHistogramProtoToFloatHistogram(*o),
 	}
-}
-
-func match00(matchers ...*labels.Matcher) (yes, no *roaring64.Bitmap, regex []*labels.Matcher) {
-	yes = roaring64.New()
-	no = roaring64.New()
-	var buf bytes.Buffer
-	var h xxhash.Digest
-
-	for _, m := range matchers {
-		switch m.Type {
-		case labels.MatchEqual, labels.MatchNotEqual:
-			buf.Reset()
-			buf.WriteString(m.Name)
-			buf.WriteByte('=')
-			buf.WriteString(m.Value)
-			h.Reset()
-			h.Write(buf.Bytes())
-			label := h.Sum64()
-
-			if m.Type == labels.MatchEqual {
-				yes.Add(label)
-			} else {
-				no.Add(label)
-			}
-		default:
-			regex = append(regex, m)
-		}
-	}
-	return
 }

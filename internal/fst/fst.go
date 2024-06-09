@@ -33,6 +33,25 @@ func MatchRe(txn *badger.Txn, key []byte, yes, no *roaring64.Bitmap, matchers ..
 					}
 					err = itr.Next()
 				}
+			case labels.MatchEqual, labels.MatchNotEqual:
+				buf.Reset()
+				buf.WriteString(m.Name)
+				buf.WriteByte('=')
+				buf.WriteString(m.Value)
+				value, ok, err := fst.Get(buf.Bytes())
+				if err != nil {
+					return fmt.Errorf("get fst value %w", err)
+				}
+				if !ok {
+					yes.Clear()
+					no.Clear()
+					return nil
+				}
+				if m.Type == labels.MatchEqual {
+					yes.Add(value)
+				} else {
+					no.Add(value)
+				}
 			}
 		}
 		return nil
