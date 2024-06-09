@@ -18,6 +18,14 @@ func NewSequence(db *badger.DB) (*Seq, error) {
 	return &Seq{seq: seq}, nil
 }
 
+func NewBlobSequence(db *badger.DB) (*Seq, error) {
+	seq, err := db.GetSequence(keys.BlobSeq{}.Key(), 16<<10)
+	if err != nil {
+		return nil, err
+	}
+	return &Seq{seq: seq}, nil
+}
+
 func (s *Seq) Release() error {
 	return s.seq.Release()
 }

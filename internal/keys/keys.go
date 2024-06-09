@@ -7,7 +7,9 @@ import (
 
 const (
 	seq uint64 = iota + (1 << 10)
-	blob
+	blobSeq
+	blobID
+	blobKey
 	fstBitmap
 	fst
 	metadata
@@ -23,15 +25,37 @@ func (e Seq) Key() []byte {
 	return Encode(nil, e.Slice())
 }
 
-type Blob struct {
-	BlobID uint64
+type BlobSeq struct{}
+
+func (e BlobSeq) Slice() []uint64 {
+	return []uint64{blobSeq}
 }
 
-func (e *Blob) Slice() []uint64 {
-	return []uint64{blob, e.BlobID}
+func (e BlobSeq) Key() []byte {
+	return Encode(nil, e.Slice())
 }
 
-func (e *Blob) Key() []byte {
+type BlobID struct {
+	Seq uint64
+}
+
+func (e *BlobID) Slice() []uint64 {
+	return []uint64{blobID, e.Seq}
+}
+
+func (e *BlobID) Key() []byte {
+	return Encode(nil, e.Slice())
+}
+
+type BlobKey struct {
+	Hash uint64
+}
+
+func (e *BlobKey) Slice() []uint64 {
+	return []uint64{blobKey, e.Hash}
+}
+
+func (e *BlobKey) Key() []byte {
 	return Encode(nil, e.Slice())
 }
 

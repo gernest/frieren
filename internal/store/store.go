@@ -13,9 +13,10 @@ type Value interface {
 }
 
 type Store struct {
-	DB    *badger.DB
-	Index *rbf.DB
-	Seq   *Seq
+	DB      *badger.DB
+	Index   *rbf.DB
+	Seq     *Seq
+	BlobSeq *Seq
 }
 
 func New(path string) (*Store, error) {
@@ -36,11 +37,15 @@ func New(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Store{DB: db, Index: idx, Seq: seq}, nil
+	blob, err := NewBlobSequence(db)
+	if err != nil {
+		return nil, err
+	}
+	return &Store{DB: db, Index: idx, Seq: seq, BlobSeq: blob}, nil
 }
 
 func (s *Store) Close() error {
 	return errors.Join(
-		s.Seq.Release(), s.Index.Close(), s.DB.Close(),
+		s.Seq.Release(), s.BlobSeq.Release(), s.Index.Close(), s.DB.Close(),
 	)
 }
