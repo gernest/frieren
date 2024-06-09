@@ -5,21 +5,25 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/blevesearch/vellum"
 	re "github.com/blevesearch/vellum/regexp"
 	"github.com/dgraph-io/badger/v4"
+	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/store"
+	"github.com/gernest/rbf"
+	"github.com/gernest/roaring"
 	"github.com/prometheus/prometheus/model/labels"
 )
 
-// Match process matchers and builds yes/no bitmaps of label keys. Where yes is
-// for labels with equal matchers and no is for labels with **not equal** matchers.
-//
-// key refers to the fst to load.
-func Match(txn *badger.Txn, key []byte, yes, no *roaring64.Bitmap, matchers ...*labels.Matcher) error {
+// Match returns label IDs that match all matchers.
+func Match(txn *badger.Txn, tx *rbf.Tx, fra *fields.Fragment, matchers ...*labels.Matcher) (result []uint64, err error) {
 	var buf bytes.Buffer
-	return Read(txn, key, func(fst *vellum.FST) error {
+	err = Read(txn, []byte(fra.String()), func(fst *vellum.FST) error {
+		all, err := tx.RoaringBitmap((&fields.Fragment{ID: fields.MetricsFSTBitmap, Shard: fra.Shard, View: fra.View}).String())
+		if err != nil {
+			return fmt.Errorf("reading fst bitmap %w", err)
+		}
+		r := roaring.NewBitmap()
 		for _, m := range matchers {
 			switch m.Type {
 			case labels.MatchRegexp, labels.MatchNotRegexp:
@@ -27,15 +31,26 @@ func Match(txn *badger.Txn, key []byte, yes, no *roaring64.Bitmap, matchers ...*
 				if err != nil {
 					return fmt.Errorf("compiling matcher %q %w", m.String(), err)
 				}
+				b := roaring.NewBitmap()
 				itr, err := fst.Search(rx, nil, nil)
 				for err == nil {
 					_, value := itr.Current()
-					if m.Type == labels.MatchRegexp {
-						yes.Add(value)
-					} else {
-						no.Add(value)
-					}
+					b.Add(value)
 					err = itr.Next()
+				}
+				if m.Type == labels.MatchRegexp {
+					if r.Count() == 0 {
+						r = b
+					} else {
+						r = r.Intersect(b)
+					}
+				} else {
+					clone := all.Clone().Difference(b)
+					if clone.Count() == 0 {
+						r = clone
+					} else {
+						r = r.Intersect(clone)
+					}
 				}
 			case labels.MatchEqual, labels.MatchNotEqual:
 				buf.Reset()
@@ -47,19 +62,35 @@ func Match(txn *badger.Txn, key []byte, yes, no *roaring64.Bitmap, matchers ...*
 					return fmt.Errorf("get fst value %w", err)
 				}
 				if !ok {
-					yes.Clear()
-					no.Clear()
 					return nil
 				}
 				if m.Type == labels.MatchEqual {
-					yes.Add(value)
+					if !all.Contains(value) {
+						return nil
+					}
+					if r.Count() == 0 {
+						r.Add(value)
+					} else {
+						r = r.Intersect(roaring.NewBitmap(value))
+					}
 				} else {
-					no.Add(value)
+					clone := all.Clone()
+					clone.Remove(value)
+					if r.Count() == 0 {
+						r = clone
+					} else {
+						r = r.Intersect(clone)
+					}
 				}
 			}
+			if r.Count() == 0 {
+				return nil
+			}
 		}
+		result = r.Slice()
 		return nil
 	})
+	return
 }
 
 var eql = []byte("=")

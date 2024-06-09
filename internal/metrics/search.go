@@ -7,7 +7,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/fields"
@@ -157,23 +156,20 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 	txn := s.db.NewTransaction(false)
 	defer txn.Discard()
 
-	yes, no := roaring64.New(), roaring64.New()
 	m := make(MapSet)
 
 	for i := range s.views {
 		view := s.views[i]
 		for _, shard := range s.shards[i] {
 			fra := fields.Fragment{ID: fields.MetricsFST, Shard: shard, View: view}
-			yes.Clear()
-			no.Clear()
-			err := fst.Match(txn, []byte(fra.String()), yes, no, matchers...)
+			filters, err := fst.Match(txn, tx, &fra, matchers...)
 			if err != nil {
 				return storage.ErrSeriesSet(err)
 			}
-			if yes.IsEmpty() && no.IsEmpty() {
+			if len(filters) == 0 {
 				continue
 			}
-			r, err := tags.Filter(tx, fields.Fragment{ID: fields.MetricsLabels, Shard: shard, View: view}, yes, no)
+			r, err := tags.Filter(tx, fields.Fragment{ID: fields.MetricsLabels, Shard: shard, View: view}, filters)
 			if err != nil {
 				return storage.ErrSeriesSet(err)
 			}
