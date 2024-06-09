@@ -39,7 +39,7 @@ func (q *Queryable) Querier(mints, maxts int64) (storage.Querier, error) {
 		// Same day generate a single view
 		views = []string{quantum.ViewByTimeUnit("", time.UnixMilli(mints), 'D')}
 	} else {
-		// We wantview that might contain maxts to be included too, we need to add
+		// We want view that might contain maxts to be included too, we need to add
 		// extra date
 		views = quantum.ViewsByTimeRange("",
 			time.UnixMilli(mints), time.UnixMilli(maxts).AddDate(0, 0, 1),
