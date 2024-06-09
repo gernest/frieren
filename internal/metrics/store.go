@@ -20,10 +20,10 @@ import (
 	"github.com/prometheus/prometheus/prompb"
 )
 
-func Save(db *badger.DB, idx *rbf.DB, b *Batch, ts time.Time) error {
-	txn := db.NewTransaction(true)
+func Save(db *store.Store, b *Batch, ts time.Time) error {
+	txn := db.DB.NewTransaction(true)
 	defer txn.Discard()
-	return store.UpdateIndex(idx, func(tx *rbf.Tx) error {
+	return store.UpdateIndex(db.Index, func(tx *rbf.Tx) error {
 		view := quantum.ViewByTimeUnit("", ts, 'D')
 		err := apply(tx, fields.Fragment{ID: fields.MetricsValue, View: view}, b.values)
 		if err != nil {
@@ -57,7 +57,7 @@ func Save(db *badger.DB, idx *rbf.DB, b *Batch, ts time.Time) error {
 		if err != nil {
 			return err
 		}
-		err = applyFST(txn, fields.Fragment{ID: fields.MetricsFST, View: view}, b.fst)
+		err = applyFST(txn, blob.Translate(txn), fields.Fragment{ID: fields.MetricsFST, View: view}, b.fst)
 		if err != nil {
 			return err
 		}
@@ -65,12 +65,12 @@ func Save(db *badger.DB, idx *rbf.DB, b *Batch, ts time.Time) error {
 	})
 }
 
-func applyFST(txn *badger.Txn, view fields.Fragment, data map[uint64]*roaring64.Bitmap) error {
+func applyFST(txn *badger.Txn, tr blob.Tr, view fields.Fragment, data map[uint64]*roaring64.Bitmap) error {
 	var buf bytes.Buffer
 	tmpBitmap := roaring64.New()
 	for shard, m := range data {
 		key := view.WithShard(shard).String()
-		err := UpsertFST(txn, &buf, tmpBitmap, m, shard, []byte(key))
+		err := UpsertFST(txn, tr, &buf, tmpBitmap, m, shard, []byte(key))
 		if err != nil {
 			return fmt.Errorf("inserting exists bsi %w", err)
 		}
@@ -98,7 +98,7 @@ func applyShards(tx *rbf.Tx, view fields.Fragment, m *roaring64.Bitmap) error {
 	return nil
 }
 
-func UpsertFST(txn *badger.Txn, buf *bytes.Buffer, tmp, b *roaring64.Bitmap, shard uint64, key []byte) error {
+func UpsertFST(txn *badger.Txn, tr blob.Tr, buf *bytes.Buffer, tmp, b *roaring64.Bitmap, shard uint64, key []byte) error {
 	if store.Has(txn, key) {
 		tmp.Clear()
 		err := store.Get(txn, key, tmp.UnmarshalBinary)
@@ -110,17 +110,15 @@ func UpsertFST(txn *badger.Txn, buf *bytes.Buffer, tmp, b *roaring64.Bitmap, sha
 
 	// Build FST
 	o := make([][]byte, 0, b.GetCardinality())
-
-	slice := (&keys.Blob{}).Slice()
-	kb := make([]byte, 0, len(slice)*7)
 	it := b.Iterator()
 	if it.HasNext() {
-		slice[1] = it.Next()
-		value := value(txn, keys.Encode(kb, slice))
-		if len(value) == 0 {
-			util.Exit("cannot find translated label")
+		err := tr(it.Next(), func(val []byte) error {
+			o = append(o, bytes.Clone(val))
+			return nil
+		})
+		if err != nil {
+			util.Exit("translating label", "err", err)
 		}
-		o = append(o, value)
 	}
 	slices.SortFunc(o, bytes.Compare)
 
@@ -154,14 +152,6 @@ func UpsertFST(txn *badger.Txn, buf *bytes.Buffer, tmp, b *roaring64.Bitmap, sha
 		return fmt.Errorf("closing fst builder %w", err)
 	}
 	return txn.Set((&keys.FST{ShardID: shard}).Key(), bytes.Clone(buf.Bytes()))
-}
-
-func value(txn *badger.Txn, key []byte) (o []byte) {
-	store.Get(txn, key, func(val []byte) error {
-		o = bytes.Clone(val)
-		return nil
-	})
-	return
 }
 
 func UpsertLabels(b blob.Func) LabelFunc {

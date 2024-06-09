@@ -126,7 +126,7 @@ func AppendBatch(store *store.Store, batch *Batch, mets pmetric.Metrics) error {
 		return err
 	}
 	return store.DB.Update(func(txn *badger.Txn) error {
-		blob := blob.Upsert(txn)
+		blob := blob.Upsert(txn, store.BlobSeq)
 		label := UpsertLabels(blob)
 		for _, series := range ts {
 			batch.Append(series, label, blob, store.Seq)
