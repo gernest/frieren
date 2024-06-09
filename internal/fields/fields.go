@@ -15,12 +15,11 @@ type ID uint
 
 const (
 	MetricsValue = iota + (1 << 10)
-	MetricsKind
+	MetricsHistogram
 	MetricsTimestamp
 	MetricsSeries
 	MetricsLabels
 	MetricsExemplars
-	MetricsExists
 	MetricsShards
 	MetricsFSTBitmap
 	MetricsFST
@@ -71,6 +70,10 @@ func (f *Fragment) EqBSI(tx *rbf.Tx, value uint64) (*rows.Row, error) {
 
 func (f *Fragment) False(tx *rbf.Tx) (*rows.Row, error) {
 	return f.Row(tx, falseRowOffset)
+}
+
+func (f *Fragment) True(tx *rbf.Tx) (*rows.Row, error) {
+	return f.Row(tx, trueRowOffset)
 }
 
 func (f *Fragment) Exists(tx *rbf.Tx) (*rows.Row, error) {

@@ -29,7 +29,7 @@ func Save(db *store.Store, b *Batch, ts time.Time) error {
 		if err != nil {
 			return err
 		}
-		err = apply(tx, fields.Fragment{ID: fields.MetricsKind, View: view}, b.kind)
+		err = apply(tx, fields.Fragment{ID: fields.MetricsHistogram, View: view}, b.histogram)
 		if err != nil {
 			return err
 		}
@@ -46,10 +46,6 @@ func Save(db *store.Store, b *Batch, ts time.Time) error {
 			return err
 		}
 		err = apply(tx, fields.Fragment{ID: fields.MetricsExemplars, View: view}, b.exemplars)
-		if err != nil {
-			return err
-		}
-		err = apply(tx, fields.Fragment{ID: fields.MetricsExists, View: view}, b.exists)
 		if err != nil {
 			return err
 		}

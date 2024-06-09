@@ -22,12 +22,11 @@ type ID interface {
 
 type Batch struct {
 	values    map[uint64]*roaring64.Bitmap
-	kind      map[uint64]*roaring64.Bitmap
+	histogram map[uint64]*roaring64.Bitmap
 	timestamp map[uint64]*roaring64.Bitmap
 	series    map[uint64]*roaring64.Bitmap
 	labels    map[uint64]*roaring64.Bitmap
 	exemplars map[uint64]*roaring64.Bitmap
-	exists    map[uint64]*roaring64.Bitmap
 	fst       map[uint64]*roaring64.Bitmap
 	shards    roaring64.Bitmap
 }
@@ -35,24 +34,22 @@ type Batch struct {
 func NewBatch() *Batch {
 	return &Batch{
 		values:    make(map[uint64]*roaring64.Bitmap),
-		kind:      make(map[uint64]*roaring64.Bitmap),
+		histogram: make(map[uint64]*roaring64.Bitmap),
 		timestamp: make(map[uint64]*roaring64.Bitmap),
 		series:    make(map[uint64]*roaring64.Bitmap),
 		labels:    make(map[uint64]*roaring64.Bitmap),
 		exemplars: make(map[uint64]*roaring64.Bitmap),
-		exists:    make(map[uint64]*roaring64.Bitmap),
 		fst:       make(map[uint64]*roaring64.Bitmap),
 	}
 }
 
 func (b *Batch) Reset() *Batch {
 	clear(b.values)
-	clear(b.kind)
+	clear(b.histogram)
 	clear(b.timestamp)
 	clear(b.series)
 	clear(b.labels)
 	clear(b.exemplars)
-	clear(b.exists)
 	clear(b.fst)
 	b.shards.Clear()
 	return b
@@ -80,7 +77,6 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob
 		ro.BSI(bitmap(shard, b.timestamp), id, uint64(s.Timestamp))
 		ro.BSI(bitmap(shard, b.values), id, math.Float64bits(s.Value))
 		ro.BSISet(bitmap(shard, b.series), id, labels)
-		bitmap(shard, b.exists).Add(id % shardwidth.ShardWidth)
 		if exemplars != 0 {
 			ro.BSI(bitmap(shard, b.exemplars), id, exemplars)
 		}
@@ -101,8 +97,7 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob
 		ro.BSI(bitmap(shard, b.timestamp), id, uint64(s.Timestamp))
 		ro.BSI(bitmap(shard, b.values), id, value)
 		ro.BSISet(bitmap(shard, b.series), id, labels)
-		ro.Bool(bitmap(shard, b.kind), id, false)
-		bitmap(shard, b.exists).Add(id % shardwidth.ShardWidth)
+		ro.Bool(bitmap(shard, b.histogram), id, true)
 		if exemplars != 0 {
 			ro.BSI(bitmap(shard, b.exemplars), id, exemplars)
 		}

@@ -196,7 +196,7 @@ func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, start, end int64,
 	}
 	// fragments
 	sf := fields.Fragment{ID: fields.MetricsSeries, Shard: shard, View: view}
-	kf := fields.Fragment{ID: fields.MetricsKind, Shard: shard, View: view}
+	hf := fields.Fragment{ID: fields.MetricsHistogram, Shard: shard, View: view}
 	vf := fields.Fragment{ID: fields.MetricsValue, Shard: shard, View: view}
 	tf := fields.Fragment{ID: fields.MetricsTimestamp, Shard: shard, View: view}
 	lf := fields.Fragment{ID: fields.MetricsLabels, Shard: shard, View: view}
@@ -226,9 +226,9 @@ func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, start, end int64,
 	it := series.Iterator()
 
 	// Filter to check if series is of histogram type
-	kind, err := kf.False(tx)
+	hsSet, err := hf.True(tx)
 	if err != nil {
-		return fmt.Errorf("reading kind %w", err)
+		return fmt.Errorf("reading histogram %w", err)
 	}
 	mapping := map[uint64]int{}
 	for it.HasNext() {
@@ -249,7 +249,7 @@ func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, start, end int64,
 
 		chunks := make([]chunks.Sample, len(columns))
 
-		if !kind.Includes(columns[0]) {
+		if !hsSet.Includes(columns[0]) {
 			// This is a float series
 			for i := range chunks {
 				chunks[i] = &V{}
