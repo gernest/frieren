@@ -13,7 +13,7 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 )
 
-func MatchRe(txn *badger.Txn, key []byte, yes, no *roaring64.Bitmap, matchers ...*labels.Matcher) error {
+func Match(txn *badger.Txn, key []byte, yes, no *roaring64.Bitmap, matchers ...*labels.Matcher) error {
 	var buf bytes.Buffer
 	return Read(txn, key, func(fst *vellum.FST) error {
 		for _, m := range matchers {

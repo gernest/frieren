@@ -112,7 +112,7 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 			fra := fields.Fragment{ID: fields.MetricsFST, Shard: shard, View: view}
 			yes.Clear()
 			no.Clear()
-			err := fst.MatchRe(txn, []byte(fra.String()), yes, no, matchers...)
+			err := fst.Match(txn, []byte(fra.String()), yes, no, matchers...)
 			if err != nil {
 				return storage.ErrSeriesSet(err)
 			}
