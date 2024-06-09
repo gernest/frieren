@@ -1,14 +1,17 @@
 package fields
 
 import (
+	"bytes"
 	"fmt"
 	"math/bits"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
+	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/shardwidth"
 	"github.com/gernest/rbf"
 	"github.com/gernest/roaring"
 	"github.com/gernest/rows"
+	"github.com/prometheus/prometheus/model/labels"
 )
 
 type ID uint
@@ -23,7 +26,6 @@ const (
 	MetricsShards
 	MetricsFSTBitmap
 	MetricsFST
-	sep
 )
 
 type Fragment struct {
@@ -42,6 +44,33 @@ func (v *Fragment) WithShard(shard uint64) *Fragment {
 
 func (v *Fragment) String() string {
 	return fmt.Sprintf("%d%s_%d", v.ID, v.View, v.Shard)
+}
+
+var eql = []byte("=")
+
+func (f *Fragment) Labels(tx *rbf.Tx, tr blob.Tr, column uint64) (labels.Labels, error) {
+	rows, err := f.ReadSetValue(tx, column)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return labels.EmptyLabels(), nil
+	}
+	o := make(labels.Labels, 0, len(rows))
+	for i := range rows {
+		err = tr(rows[i], func(val []byte) error {
+			key, value, _ := bytes.Cut(val, eql)
+			o = append(o, labels.Label{
+				Name:  string(key),
+				Value: string(value),
+			})
+			return nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("translating  series labels %w", err)
+		}
+	}
+	return o, nil
 }
 
 func (f *Fragment) ReadSetValue(tx *rbf.Tx, column uint64) ([]uint64, error) {

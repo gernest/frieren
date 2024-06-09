@@ -1,7 +1,6 @@
 package metrics
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"math"
@@ -159,10 +158,6 @@ func (s *SeriesSet) Warnings() annotations.Annotations {
 
 type MapSet map[uint64]*S
 
-var (
-	sep = []byte("=")
-)
-
 func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, start, end int64, view string, shard uint64, filter *rows.Row) error {
 	add := func(lf *fields.Fragment, seriesID, validID uint64, samples []chunks.Sample) error {
 		sx, ok := s[seriesID]
@@ -170,28 +165,14 @@ func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, start, end int64,
 			sx.Samples = append(sx.Samples, samples...)
 			return nil
 		}
-		lbl, err := lf.ReadSetValue(tx, validID)
+		lbl, err := lf.Labels(tx, tr, validID)
 		if err != nil {
 			return fmt.Errorf("reading labels %w", err)
 		}
-		sx = &S{
-			Labels:  make(labels.Labels, 0, len(lbl)),
+		s[seriesID] = &S{
+			Labels:  lbl,
 			Samples: samples,
 		}
-		for i := range lbl {
-			err = tr(lbl[i], func(val []byte) error {
-				key, value, _ := bytes.Cut(val, sep)
-				sx.Labels = append(sx.Labels, labels.Label{
-					Name:  string(key),
-					Value: string(value),
-				})
-				return nil
-			})
-			if err != nil {
-				return fmt.Errorf("reading series labels %w", err)
-			}
-		}
-		s[seriesID] = sx
 		return nil
 	}
 	// fragments
