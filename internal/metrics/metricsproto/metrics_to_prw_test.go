@@ -21,6 +21,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dgraph-io/badger/v4"
+	"github.com/gernest/frieren/internal/blob"
+	"github.com/gernest/frieren/internal/store"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
@@ -28,6 +31,12 @@ import (
 )
 
 func BenchmarkPrometheusConverter_FromMetrics(b *testing.B) {
+	db, err := badger.Open(badger.DefaultOptions("").WithInMemory(true).WithLogger(nil))
+	require.NoError(b, err)
+	defer db.Close()
+	seq, err := store.NewSequence(db)
+	require.NoError(b, err)
+	defer seq.Release()
 	for _, resourceAttributeCount := range []int{0, 5, 50} {
 		b.Run(fmt.Sprintf("resource attribute count: %v", resourceAttributeCount), func(b *testing.B) {
 			for _, histogramCount := range []int{0, 1000} {
@@ -48,9 +57,10 @@ func BenchmarkPrometheusConverter_FromMetrics(b *testing.B) {
 											payload := createExportRequest(resourceAttributeCount, histogramCount, nonHistogramCount, labelsPerMetric, exemplarsPerSeries)
 
 											for i := 0; i < b.N; i++ {
-												converter := NewPrometheusConverter()
+												txn := db.NewTransaction(true)
+												converter := NewPrometheusConverter(blob.Upsert(txn, seq))
 												require.NoError(b, converter.FromMetrics(payload.Metrics(), Settings{}))
-												require.NotNil(b, converter.TimeSeries())
+												require.NoError(b, txn.Commit())
 											}
 										})
 									}

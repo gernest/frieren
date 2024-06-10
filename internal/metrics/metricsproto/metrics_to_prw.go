@@ -18,16 +18,21 @@ package prometheusremotewrite
 
 import (
 	"bytes"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
+	"unicode/utf8"
 
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.uber.org/multierr"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
+	"github.com/cespare/xxhash/v2"
 	"github.com/gernest/frieren/internal/blob"
+	"github.com/prometheus/prometheus/model/timestamp"
 	"github.com/prometheus/prometheus/prompb"
 	prometheustranslator "github.com/prometheus/prometheus/storage/remote/otlptranslator/prometheus"
 )
@@ -43,17 +48,17 @@ type Settings struct {
 
 // PrometheusConverter converts from OTel write format to Prometheus remote write format.
 type PrometheusConverter struct {
-	buf       bytes.Buffer
-	bm        roaring64.Bitmap
-	tr        blob.Func
-	unique    map[uint64]*prompb.TimeSeries
-	conflicts map[uint64][]*prompb.TimeSeries
+	buf    bytes.Buffer
+	bm     roaring64.Bitmap
+	tr     blob.Func
+	h      xxhash.Digest
+	unique map[uint64]*TimeSeries
 }
 
-func NewPrometheusConverter() *PrometheusConverter {
+func NewPrometheusConverter(tr blob.Func) *PrometheusConverter {
 	return &PrometheusConverter{
-		unique:    map[uint64]*prompb.TimeSeries{},
-		conflicts: map[uint64][]*prompb.TimeSeries{},
+		tr:     tr,
+		unique: map[uint64]*TimeSeries{},
 	}
 }
 
@@ -130,22 +135,8 @@ func (c *PrometheusConverter) FromMetrics(md pmetric.Metrics, settings Settings)
 				}
 			}
 		}
-		addResourceTargetInfo(resource, settings, mostRecentTimestamp, c)
 	}
-
 	return
-}
-
-func isSameMetric(ts *prompb.TimeSeries, lbls []prompb.Label) bool {
-	if len(ts.Labels) != len(lbls) {
-		return false
-	}
-	for i, l := range ts.Labels {
-		if l.Name != ts.Labels[i].Name || l.Value != ts.Labels[i].Value {
-			return false
-		}
-	}
-	return true
 }
 
 // addExemplars adds exemplars for the dataPoint. For each exemplar, if it can find a bucket bound corresponding to its value,
@@ -154,17 +145,63 @@ func (c *PrometheusConverter) addExemplars(dataPoint pmetric.HistogramDataPoint,
 	if len(bucketBounds) == 0 {
 		return
 	}
-
-	exemplars := getPromExemplars(dataPoint)
-	if len(exemplars) == 0 {
-		return
-	}
-
 	sort.Sort(byBucketBoundsData(bucketBounds))
-	for _, exemplar := range exemplars {
+	getPromExemplarsBound(c, bucketBounds, dataPoint)
+}
+
+func getPromExemplarsBound[T exemplarType](c *PrometheusConverter, bucketBounds []bucketBoundsData, pt T) {
+	promExemplar := &prompb.Exemplar{}
+	for i := 0; i < pt.Exemplars().Len(); i++ {
+		exemplar := pt.Exemplars().At(i)
+		exemplarRunes := 0
+		promExemplar.Reset()
+
+		promExemplar.Value = exemplar.DoubleValue()
+		promExemplar.Timestamp = timestamp.FromTime(exemplar.Timestamp().AsTime())
+
+		if traceID := exemplar.TraceID(); !traceID.IsEmpty() {
+			val := hex.EncodeToString(traceID[:])
+			exemplarRunes += utf8.RuneCountInString(traceIDKey) + utf8.RuneCountInString(val)
+			promLabel := prompb.Label{
+				Name:  traceIDKey,
+				Value: val,
+			}
+			promExemplar.Labels = append(promExemplar.Labels, promLabel)
+		}
+		if spanID := exemplar.SpanID(); !spanID.IsEmpty() {
+			val := hex.EncodeToString(spanID[:])
+			exemplarRunes += utf8.RuneCountInString(spanIDKey) + utf8.RuneCountInString(val)
+			promLabel := prompb.Label{
+				Name:  spanIDKey,
+				Value: val,
+			}
+			promExemplar.Labels = append(promExemplar.Labels, promLabel)
+		}
+
+		attrs := exemplar.FilteredAttributes()
+		labelsFromAttributes := make([]prompb.Label, 0, attrs.Len())
+		attrs.Range(func(key string, value pcommon.Value) bool {
+			val := value.AsString()
+			exemplarRunes += utf8.RuneCountInString(key) + utf8.RuneCountInString(val)
+			promLabel := prompb.Label{
+				Name:  key,
+				Value: val,
+			}
+
+			labelsFromAttributes = append(labelsFromAttributes, promLabel)
+
+			return true
+		})
+		if exemplarRunes <= maxExemplarRunes {
+			// only append filtered attributes if it does not cause exemplar
+			// labels to exceed the max number of runes
+			promExemplar.Labels = append(promExemplar.Labels, labelsFromAttributes...)
+		}
+		data, _ := promExemplar.Marshal()
+		x := c.tr(data)
 		for _, bound := range bucketBounds {
-			if len(bound.ts.Samples) > 0 && exemplar.Value <= bound.bound {
-				bound.ts.Exemplars = append(bound.ts.Exemplars, exemplar)
+			if len(bound.ts.SampleValue) > 0 && promExemplar.Value <= bound.bound {
+				bound.ts.Exemplars = append(bound.ts.Exemplars, x)
 				break
 			}
 		}
@@ -175,13 +212,14 @@ func (c *PrometheusConverter) addExemplars(dataPoint pmetric.HistogramDataPoint,
 // If there is no corresponding TimeSeries already, it's created.
 // The corresponding TimeSeries is returned.
 // If either lbls is nil/empty or sample is nil, nothing is done.
-func (c *PrometheusConverter) addSample(sample *prompb.Sample, lbls []prompb.Label) *prompb.TimeSeries {
-	if sample == nil || len(lbls) == 0 {
+func (c *PrometheusConverter) addSample(value float64, timestamp int64, lbls []uint64) *TimeSeries {
+	if len(lbls) == 0 {
 		// This shouldn't happen
 		return nil
 	}
 
 	ts, _ := c.getOrCreateTimeSeries(lbls)
-	ts.Samples = append(ts.Samples, *sample)
+	ts.SampleTimestamp = append(ts.SampleTimestamp, uint64(timestamp))
+	ts.SampleValue = append(ts.SampleValue, math.Float64bits(value))
 	return ts
 }

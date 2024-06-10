@@ -34,7 +34,7 @@ func (c *PrometheusConverter) addExponentialHistogramDataPoints(dataPoints pmetr
 	resource pcommon.Resource, settings Settings, baseName string) error {
 	for x := 0; x < dataPoints.Len(); x++ {
 		pt := dataPoints.At(x)
-		lbls := createAttributes(
+		lbls := c.createAttributes(
 			resource,
 			pt.Attributes(),
 			settings.ExternalLabels,
@@ -49,9 +49,11 @@ func (c *PrometheusConverter) addExponentialHistogramDataPoints(dataPoints pmetr
 		if err != nil {
 			return err
 		}
-		ts.Histograms = append(ts.Histograms, histogram)
+		data, _ := histogram.Marshal()
+		ts.HistValue = append(ts.HistValue, c.tr(data))
+		ts.HistTimestamp = append(ts.HistTimestamp, uint64(histogram.Timestamp))
 
-		exemplars := getPromExemplars[pmetric.ExponentialHistogramDataPoint](pt)
+		exemplars := getPromExemplars[pmetric.ExponentialHistogramDataPoint](c, pt)
 		ts.Exemplars = append(ts.Exemplars, exemplars...)
 	}
 
