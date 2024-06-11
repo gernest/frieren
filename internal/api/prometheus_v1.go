@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/gernest/frieren/internal/metrics"
+	"github.com/gernest/frieren/internal/self"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/go-kit/log"
 	"github.com/grafana/regexp"
@@ -204,11 +205,13 @@ func invalidParamError(err error, parameter string) apiFuncResult {
 }
 
 func (api *API) query(r *http.Request) (result apiFuncResult) {
+	ctx := r.Context()
+	ctx, span := self.Start(ctx, "PROMETHEUS.query")
+	defer span.End()
 	ts, err := parseTimeParam(r, "time", api.now())
 	if err != nil {
 		return invalidParamError(err, "time")
 	}
-	ctx := r.Context()
 	if to := r.FormValue("timeout"); to != "" {
 		var cancel context.CancelFunc
 		timeout, err := parseDuration(to)
@@ -253,6 +256,10 @@ func (api *API) query(r *http.Request) (result apiFuncResult) {
 }
 
 func (api *API) queryRange(r *http.Request) (result apiFuncResult) {
+	ctx := r.Context()
+	ctx, span := self.Start(ctx, "PROMETHEUS.queryRange")
+	defer span.End()
+
 	start, err := parseTime(r.FormValue("start"))
 	if err != nil {
 		return invalidParamError(err, "start")
@@ -281,7 +288,6 @@ func (api *API) queryRange(r *http.Request) (result apiFuncResult) {
 		return apiFuncResult{nil, &apiError{errorBadData, err}, nil, nil}
 	}
 
-	ctx := r.Context()
 	if to := r.FormValue("timeout"); to != "" {
 		var cancel context.CancelFunc
 		timeout, err := parseDuration(to)
@@ -356,6 +362,10 @@ func returnAPIError(err error) *apiError {
 }
 
 func (api *API) labelNames(r *http.Request) apiFuncResult {
+	ctx := r.Context()
+	_, span := self.Start(ctx, "PROMETHEUS.labelNames")
+	defer span.End()
+
 	limit, err := parseLimitParam(r.FormValue("limit"))
 	if err != nil {
 		return invalidParamError(err, "limit")
@@ -430,6 +440,9 @@ func (api *API) labelNames(r *http.Request) apiFuncResult {
 
 func (api *API) labelValues(r *http.Request) (result apiFuncResult) {
 	ctx := r.Context()
+	ctx, span := self.Start(ctx, "PROMETHEUS.labelValues")
+	defer span.End()
+
 	name := route.Param(ctx, "name")
 
 	if !model.LabelNameRE.MatchString(name) {
@@ -520,6 +533,8 @@ func (api *API) labelValues(r *http.Request) (result apiFuncResult) {
 
 func (api *API) series(r *http.Request) (result apiFuncResult) {
 	ctx := r.Context()
+	ctx, span := self.Start(ctx, "PROMETHEUS.series")
+	defer span.End()
 
 	if err := r.ParseForm(); err != nil {
 		return apiFuncResult{nil, &apiError{errorBadData, fmt.Errorf("error parsing form values: %w", err)}, nil, nil}
@@ -687,7 +702,7 @@ func parseTimeParam(r *http.Request, paramName string, defaultValue time.Time) (
 	}
 	result, err := parseTime(val)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("Invalid time value for '%s': %w", paramName, err)
+		return time.Time{}, fmt.Errorf("invalid time value for '%s': %w", paramName, err)
 	}
 	return result, nil
 }
