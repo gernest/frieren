@@ -112,18 +112,21 @@ type apiFuncResult struct {
 
 type apiFunc func(r *http.Request) apiFuncResult
 
-type API struct {
+type prometheusAPI struct {
 	cors *regexp.Regexp
 	qe   promql.QueryEngine
 	qs   ps.Queryable
 	now  func() time.Time
 }
 
-func Add(r *route.Router, db *store.Store) {
-	New(db).Register(r)
+func Add(mux *http.ServeMux, db *store.Store) {
+	apiPath := "/api"
+	av1 := route.New()
+	newPrometheusAPI(db).Register(av1)
+	mux.Handle(apiPath+"/v1/", http.StripPrefix(apiPath+"/v1", av1))
 }
 
-func New(db *store.Store) *API {
+func newPrometheusAPI(db *store.Store) *prometheusAPI {
 
 	query := metrics.NewQueryable(db.DB, db.Index)
 
@@ -143,7 +146,7 @@ func New(db *store.Store) *API {
 		EnableNegativeOffset:     true,
 	}
 	queryEngine := promql.NewEngine(eo)
-	return &API{
+	return &prometheusAPI{
 		cors: cors,
 		qe:   queryEngine,
 		qs:   query,
@@ -158,7 +161,7 @@ func compileCORSRegexString(s string) (*regexp.Regexp, error) {
 	}
 	return r.Regexp, nil
 }
-func (api *API) Register(r *route.Router) {
+func (api *prometheusAPI) Register(r *route.Router) {
 	wrap := func(f apiFunc) http.HandlerFunc {
 		hf := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			httputil.SetCORS(w, api.cors, r)
@@ -204,7 +207,7 @@ func invalidParamError(err error, parameter string) apiFuncResult {
 	}, nil, nil}
 }
 
-func (api *API) query(r *http.Request) (result apiFuncResult) {
+func (api *prometheusAPI) query(r *http.Request) (result apiFuncResult) {
 	ctx := r.Context()
 	ctx, span := self.Start(ctx, "PROMETHEUS.query")
 	defer span.End()
@@ -255,7 +258,7 @@ func (api *API) query(r *http.Request) (result apiFuncResult) {
 	}, nil, res.Warnings, qry.Close}
 }
 
-func (api *API) queryRange(r *http.Request) (result apiFuncResult) {
+func (api *prometheusAPI) queryRange(r *http.Request) (result apiFuncResult) {
 	ctx := r.Context()
 	ctx, span := self.Start(ctx, "PROMETHEUS.queryRange")
 	defer span.End()
@@ -361,7 +364,7 @@ func returnAPIError(err error) *apiError {
 	return &apiError{errorExec, err}
 }
 
-func (api *API) labelNames(r *http.Request) apiFuncResult {
+func (api *prometheusAPI) labelNames(r *http.Request) apiFuncResult {
 	ctx := r.Context()
 	_, span := self.Start(ctx, "PROMETHEUS.labelNames")
 	defer span.End()
@@ -438,7 +441,7 @@ func (api *API) labelNames(r *http.Request) apiFuncResult {
 	return apiFuncResult{names, nil, warnings, nil}
 }
 
-func (api *API) labelValues(r *http.Request) (result apiFuncResult) {
+func (api *prometheusAPI) labelValues(r *http.Request) (result apiFuncResult) {
 	ctx := r.Context()
 	ctx, span := self.Start(ctx, "PROMETHEUS.labelValues")
 	defer span.End()
@@ -531,7 +534,7 @@ func (api *API) labelValues(r *http.Request) (result apiFuncResult) {
 	return apiFuncResult{vals, nil, warnings, closer}
 }
 
-func (api *API) series(r *http.Request) (result apiFuncResult) {
+func (api *prometheusAPI) series(r *http.Request) (result apiFuncResult) {
 	ctx := r.Context()
 	ctx, span := self.Start(ctx, "PROMETHEUS.series")
 	defer span.End()
@@ -633,7 +636,7 @@ func extractQueryOpts(r *http.Request) (promql.QueryOpts, error) {
 
 	return promql.NewPrometheusQueryOpts(r.FormValue("stats") == "all", duration), nil
 }
-func (api *API) respond(w http.ResponseWriter, req *http.Request, data interface{}) {
+func (api *prometheusAPI) respond(w http.ResponseWriter, req *http.Request, data interface{}) {
 	statusMessage := statusSuccess
 
 	resp := &Response{
@@ -655,7 +658,7 @@ func (api *API) respond(w http.ResponseWriter, req *http.Request, data interface
 	}
 }
 
-func (api *API) respondError(w http.ResponseWriter, apiErr *apiError, data interface{}) {
+func (api *prometheusAPI) respondError(w http.ResponseWriter, apiErr *apiError, data interface{}) {
 	b, err := json.Marshal(&Response{
 		Status:    statusError,
 		ErrorType: apiErr.typ,

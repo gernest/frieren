@@ -13,7 +13,6 @@ import (
 	"github.com/gernest/frieren/internal/metrics"
 	"github.com/gernest/frieren/internal/self"
 	"github.com/gernest/frieren/internal/store"
-	"github.com/prometheus/common/route"
 	"github.com/urfave/cli/v3"
 	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
 	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
@@ -105,10 +104,10 @@ func Main() *cli.Command {
 
 			self.Setup()
 
-			svc := route.New()
+			mux := http.NewServeMux()
 
 			// register http api
-			api.Add(svc, db)
+			api.Add(mux, db)
 
 			gs := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()))
 			defer gs.Stop()
@@ -126,7 +125,7 @@ func Main() *cli.Command {
 				}
 			}()
 
-			oh := otelhttp.NewHandler(svc, "fri_API")
+			oh := otelhttp.NewHandler(mux, "fri_API")
 			go func() {
 				defer cancel()
 				slog.Info("starting http api server", "address", otlp)
