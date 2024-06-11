@@ -93,6 +93,84 @@ func Match(txn *badger.Txn, tx *rbf.Tx, fra *fields.Fragment, matchers ...*label
 	return
 }
 
+func MatchSet(txn *badger.Txn, tx *rbf.Tx, fra *fields.Fragment, matchers ...[]*labels.Matcher) (result []uint64, err error) {
+	var buf bytes.Buffer
+	err = Read(txn, []byte(fra.String()), func(fst *vellum.FST) error {
+		all, err := tx.RoaringBitmap((&fields.Fragment{ID: fields.MetricsFSTBitmap, Shard: fra.Shard, View: fra.View}).String())
+		if err != nil {
+			return fmt.Errorf("reading fst bitmap %w", err)
+		}
+		rs := roaring.NewBitmap()
+		for _, ms := range matchers {
+			r := roaring.NewBitmap()
+			for _, m := range ms {
+				switch m.Type {
+				case labels.MatchRegexp, labels.MatchNotRegexp:
+					rx, err := compile(&buf, m.Name, m.Value)
+					if err != nil {
+						return fmt.Errorf("compiling matcher %q %w", m.String(), err)
+					}
+					b := roaring.NewBitmap()
+					itr, err := fst.Search(rx, nil, nil)
+					for err == nil {
+						_, value := itr.Current()
+						b.Add(value)
+						err = itr.Next()
+					}
+					if m.Type == labels.MatchRegexp {
+						if r.Count() == 0 {
+							r = b
+						} else {
+							r = r.Intersect(b)
+						}
+					} else {
+						clone := all.Clone().Difference(b)
+						if r.Count() == 0 {
+							r = clone
+						} else {
+							r = r.Intersect(clone)
+						}
+					}
+				case labels.MatchEqual, labels.MatchNotEqual:
+					buf.Reset()
+					buf.WriteString(m.Name)
+					buf.WriteByte('=')
+					buf.WriteString(m.Value)
+					value, ok, err := fst.Get(buf.Bytes())
+					if err != nil {
+						return fmt.Errorf("get fst value %w", err)
+					}
+					if !ok {
+						return nil
+					}
+					if m.Type == labels.MatchEqual {
+						if !all.Contains(value) {
+							return nil
+						}
+						if r.Count() == 0 {
+							r.Add(value)
+						} else {
+							r = r.Intersect(roaring.NewBitmap(value))
+						}
+					} else {
+						clone := all.Clone()
+						clone.Remove(value)
+						if r.Count() == 0 {
+							r = clone
+						} else {
+							r = r.Intersect(clone)
+						}
+					}
+				}
+			}
+			rs = rs.Union(r)
+		}
+		result = rs.Slice()
+		return nil
+	})
+	return
+}
+
 var eql = []byte("=")
 
 func Labels(txn *badger.Txn, key []byte, f func(name, value []byte)) error {
