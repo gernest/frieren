@@ -30,6 +30,10 @@ type Queryable struct {
 	idx *rbf.DB
 }
 
+func NewQueryable(db *badger.DB, idx *rbf.DB) *Queryable {
+	return &Queryable{db: db, idx: idx}
+}
+
 var _ storage.Queryable = (*Queryable)(nil)
 
 func (q *Queryable) Querier(mints, maxts int64) (storage.Querier, error) {

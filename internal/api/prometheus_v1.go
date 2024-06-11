@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package v1
+package api
 
 import (
 	"context"
@@ -27,6 +27,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gernest/frieren/internal/metrics"
+	"github.com/gernest/frieren/internal/store"
 	"github.com/go-kit/log"
 	"github.com/grafana/regexp"
 	"github.com/prometheus/client_golang/prometheus"
@@ -116,12 +118,15 @@ type API struct {
 	now  func() time.Time
 }
 
-func Add(r *route.Router, q ps.Queryable, dataPath string) {
-	New(dataPath, q).Register(r)
+func Add(r *route.Router, db *store.Store) {
+	New(db).Register(r)
 }
 
-func New(dataPath string, query ps.Queryable) *API {
-	trackPath := filepath.Join(dataPath, "prometheus", "track")
+func New(db *store.Store) *API {
+
+	query := metrics.NewQueryable(db.DB, db.Index)
+
+	trackPath := filepath.Join(db.Path, "prometheus", "track")
 	os.MkdirAll(trackPath, 0755)
 	logger := promlog.New(&promlog.Config{})
 	cors, _ := compileCORSRegexString(".*")

@@ -13,6 +13,7 @@ type Value interface {
 }
 
 type Store struct {
+	Path    string
 	DB      *badger.DB
 	Index   *rbf.DB
 	Seq     *Seq
@@ -41,7 +42,7 @@ func New(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Store{DB: db, Index: idx, Seq: seq, BlobSeq: blob}, nil
+	return &Store{Path: path, DB: db, Index: idx, Seq: seq, BlobSeq: blob}, nil
 }
 
 func (s *Store) Close() error {
