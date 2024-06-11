@@ -25,17 +25,10 @@ import (
 )
 
 func main() {
-	ls, err := net.Listen("tcp", ":4317")
+	err := Main().Run(context.Background(), os.Args)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer ls.Close()
-
-	svr := grpc.NewServer()
-	plogotlp.RegisterGRPCServer(svr, &Logs{})
-	pmetricotlp.RegisterGRPCServer(svr, &Metrics{})
-	ptraceotlp.RegisterGRPCServer(svr, &Trace{})
-	svr.Serve(ls)
 }
 
 type Metrics struct {
