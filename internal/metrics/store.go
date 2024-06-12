@@ -7,6 +7,7 @@ import (
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/gernest/frieren/internal/batch"
 	"github.com/gernest/frieren/internal/blob"
+	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/rbf"
@@ -68,7 +69,7 @@ func UpsertLabels(b blob.Func) LabelFunc {
 			h.WriteString(l[i].Name)
 			h.WriteByte('=')
 			h.WriteString(l[i].Value)
-			m.Add(b(bytes.Clone(h.Bytes())))
+			m.Add(b(constants.MetricsLabels, bytes.Clone(h.Bytes())))
 		}
 		return m.ToArray()
 	}

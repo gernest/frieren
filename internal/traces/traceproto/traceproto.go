@@ -5,6 +5,7 @@ import (
 
 	v1 "github.com/gernest/frieren/gen/go/fri/v1"
 	"github.com/gernest/frieren/internal/blob"
+	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/px"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/ptrace"
@@ -36,11 +37,11 @@ func From(td ptrace.Traces, tr blob.Func, f func(span *Span)) {
 		return
 	}
 	rls := td.ResourceSpans()
-	streamCtx := px.New(tr)
-	rsCtx := px.New(tr)
-	scopeCtx := px.New(tr)
-	attrCtx := px.New(tr)
-	eventsCtx := px.New(tr)
+	streamCtx := px.New(constants.TracesLabels, tr)
+	rsCtx := px.New(constants.TracesLabels, tr)
+	scopeCtx := px.New(constants.TracesLabels, tr)
+	attrCtx := px.New(constants.TracesLabels, tr)
+	eventsCtx := px.New(constants.TracesLabels, tr)
 	o := &Span{}
 	for i := 0; i < rls.Len(); i++ {
 		sls := rls.At(i).ScopeSpans()

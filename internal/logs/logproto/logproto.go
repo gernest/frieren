@@ -7,6 +7,7 @@ import (
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/gernest/frieren/internal/blob"
+	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/px"
 	"github.com/gernest/frieren/internal/util"
 	"github.com/prometheus/prometheus/storage/remote/otlptranslator/prometheus"
@@ -58,10 +59,10 @@ func FromLogs(ld plog.Logs, tr blob.Func) map[uint64]*Stream {
 	rls := ld.ResourceLogs()
 	var h xxhash.Digest
 	pushRequestsByStream := make(map[uint64]*Stream, rls.Len())
-	streamCtx := px.New(tr)
-	rsCtx := px.New(tr)
-	scopeCtx := px.New(tr)
-	attrCtx := px.New(tr)
+	streamCtx := px.New(constants.LogsLabels, tr)
+	rsCtx := px.New(constants.LogsLabels, tr)
+	scopeCtx := px.New(constants.LogsLabels, tr)
+	attrCtx := px.New(constants.LogsLabels, tr)
 	for i := 0; i < rls.Len(); i++ {
 		sls := rls.At(i).ScopeLogs()
 		res := rls.At(i).Resource()

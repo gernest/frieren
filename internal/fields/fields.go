@@ -7,6 +7,7 @@ import (
 
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/gernest/frieren/internal/blob"
+	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/shardwidth"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/short_txkey"
@@ -15,18 +16,19 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 )
 
-type ID uint
+type ID = constants.ID
 
 const (
-	MetricsValue = iota + 1
-	MetricsHistogram
-	MetricsTimestamp
-	MetricsSeries
-	MetricsLabels
-	MetricsExemplars
-	MetricsShards
-	MetricsFSTBitmap
-	MetricsFST
+	MetricsRow       = constants.MetricsRow
+	MetricsValue     = constants.MetricsValue
+	MetricsHistogram = constants.MetricsHistogram
+	MetricsTimestamp = constants.MetricsTimestamp
+	MetricsSeries    = constants.MetricsSeries
+	MetricsLabels    = constants.MetricsLabels
+	MetricsExemplars = constants.MetricsExemplars
+	MetricsShards    = constants.MetricsShards
+	MetricsFSTBitmap = constants.MetricsFSTBitmap
+	MetricsFST       = constants.MetricsFST
 )
 
 type Fragment struct {
@@ -71,7 +73,7 @@ func (f *Fragment) Labels(tx *rbf.Tx, tr blob.Tr, column uint64) (labels.Labels,
 	}
 	o := make(labels.Labels, 0, len(rows))
 	for i := range rows {
-		err = tr(rows[i], func(val []byte) error {
+		err = tr(MetricsLabels, rows[i], func(val []byte) error {
 			key, value, _ := bytes.Cut(val, eql)
 			o = append(o, labels.Label{
 				Name:  string(key),

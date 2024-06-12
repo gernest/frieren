@@ -7,14 +7,15 @@ import (
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
+	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/keys"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/internal/util"
 )
 
-type Func func([]byte) uint64
+type Func func(id constants.ID, value []byte) uint64
 
-type Tr func(id uint64, f func([]byte) error) error
+type Tr func(id constants.ID, key uint64, f func([]byte) error) error
 
 func Upsert(txn *badger.Txn, seq *store.Seq) Func {
 	h := xxhash.New()
@@ -22,19 +23,21 @@ func Upsert(txn *badger.Txn, seq *store.Seq) Func {
 	blobHash := (&keys.BlobID{}).Slice()
 	buf := make([]byte, len(blobID)*8)
 
-	return func(b []byte) uint64 {
+	return func(field constants.ID, b []byte) uint64 {
 		h.Reset()
 		h.Write(b)
 		hash := h.Sum64()
 		blobHash[len(blobHash)-1] = hash
+		blobHash[len(blobHash)-2] = uint64(field)
 		bhk := keys.Encode(buf, blobHash)
 		it, err := txn.Get(bhk)
 		if err != nil {
 			if !errors.Is(err, badger.ErrKeyNotFound) {
 				util.Exit("unexpected badger error", "err", err)
 			}
-			id := seq.NextID()
+			id := seq.NextID(field)
 			blobID[len(blobID)-1] = id
+			blobID[len(blobID)-2] = uint64(field)
 			err = txn.Set(bytes.Clone(bhk),
 				binary.BigEndian.AppendUint64(make([]byte, 0), id),
 			)
@@ -62,8 +65,9 @@ func Upsert(txn *badger.Txn, seq *store.Seq) Func {
 func Translate(txn *badger.Txn) Tr {
 	slice := (&keys.BlobID{}).Slice()
 	buf := make([]byte, 0, len(slice)*8)
-	return func(u uint64, f func([]byte) error) error {
+	return func(field constants.ID, u uint64, f func([]byte) error) error {
 		slice[len(slice)-1] = u
+		slice[len(slice)-2] = uint64(field)
 		it, err := txn.Get(keys.Encode(buf, slice))
 		if err != nil {
 			return err

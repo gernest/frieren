@@ -2,13 +2,13 @@ package metrics
 
 import (
 	"crypto/sha512"
-	"fmt"
 	"math"
 	"time"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/blob"
+	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/ro"
 	"github.com/gernest/frieren/internal/shardwidth"
 	"github.com/gernest/frieren/internal/store"
@@ -17,10 +17,6 @@ import (
 	"github.com/prometheus/prometheus/storage/remote/otlptranslator/prometheusremotewrite"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 )
-
-type ID interface {
-	NextID() uint64
-}
 
 type Batch struct {
 	values    map[uint64]*roaring64.Bitmap
@@ -59,18 +55,18 @@ func (b *Batch) Reset() *Batch {
 
 type LabelFunc func([]prompb.Label) []uint64
 
-func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob.Func, id ID) {
+func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob.Func, seq *store.Seq) {
 	labels := labelFunc(ts.Labels)
 	checksum := sha512.Sum512(util.Uint64ToBytes(labels))
-	series := blobFunc(checksum[:])
+	series := blobFunc(fields.MetricsSeries, checksum[:])
 	currentShard := ^uint64(0)
 	var exemplars uint64
 	if len(ts.Exemplars) > 0 {
 		data, _ := EncodeExemplars(ts.Exemplars)
-		exemplars = blobFunc(data)
+		exemplars = blobFunc(fields.MetricsExemplars, data)
 	}
 	for _, s := range ts.Samples {
-		id := id.NextID()
+		id := seq.NextID(fields.MetricsRow)
 		shard := id / shardwidth.ShardWidth
 		if shard != currentShard {
 			currentShard = shard
@@ -88,15 +84,14 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob
 
 	for j := range ts.Histograms {
 		s := &ts.Histograms[j]
-		id := id.NextID()
-		fmt.Println("{", id, ",", series, "},")
+		id := seq.NextID(fields.MetricsRow)
 		shard := id / shardwidth.ShardWidth
 		if shard != currentShard {
 			currentShard = shard
 			b.shards.Add(shard)
 		}
 		data, _ := s.Marshal()
-		value := blobFunc(data)
+		value := blobFunc(fields.MetricsHistogram, data)
 		ro.BSI(bitmap(shard, b.series), id, series)
 		ro.BSI(bitmap(shard, b.timestamp), id, uint64(s.Timestamp))
 		ro.BSI(bitmap(shard, b.values), id, value)
@@ -127,7 +122,7 @@ func AppendBatch(store *store.Store, batch *Batch, mets pmetric.Metrics, ts time
 	}
 	meta := prometheusremotewrite.OtelMetricsToMetadata(mets, true)
 	return store.DB.Update(func(txn *badger.Txn) error {
-		blob := blob.Upsert(txn, store.BlobSeq)
+		blob := blob.Upsert(txn, store.Seq)
 		label := UpsertLabels(blob)
 		series := conv.TimeSeries()
 		for i := range series {

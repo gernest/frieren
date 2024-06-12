@@ -15,32 +15,25 @@ const (
 	metadata
 )
 
-type Seq struct{}
+type Seq struct {
+	ID uint64
+}
 
-func (e Seq) Slice() []uint64 {
-	return []uint64{seq}
+func (e *Seq) Slice() []uint64 {
+	return []uint64{seq, e.ID}
 }
 
 func (e Seq) Key() []byte {
 	return Encode(nil, e.Slice())
 }
 
-type BlobSeq struct{}
-
-func (e BlobSeq) Slice() []uint64 {
-	return []uint64{blobSeq}
-}
-
-func (e BlobSeq) Key() []byte {
-	return Encode(nil, e.Slice())
-}
-
 type BlobID struct {
-	Seq uint64
+	FieldID uint64
+	Seq     uint64
 }
 
 func (e *BlobID) Slice() []uint64 {
-	return []uint64{blobID, e.Seq}
+	return []uint64{blobID, e.FieldID, e.Seq}
 }
 
 func (e *BlobID) Key() []byte {
@@ -48,11 +41,12 @@ func (e *BlobID) Key() []byte {
 }
 
 type BlobKey struct {
-	Hash uint64
+	FieldID uint64
+	Hash    uint64
 }
 
 func (e *BlobKey) Slice() []uint64 {
-	return []uint64{blobKey, e.Hash}
+	return []uint64{blobKey, e.FieldID, e.Hash}
 }
 
 func (e *BlobKey) Key() []byte {

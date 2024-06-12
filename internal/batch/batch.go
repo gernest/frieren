@@ -57,7 +57,7 @@ func updateFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, fra, bitmapFra *fields.F
 	itr.Seek(0)
 
 	for v, eof := itr.Next(); !eof; v, eof = itr.Next() {
-		err := tr(v, func(val []byte) error {
+		err := tr(fields.MetricsFST, v, func(val []byte) error {
 			o = append(o, bytes.Clone(val))
 			return nil
 		})

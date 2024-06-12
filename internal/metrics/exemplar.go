@@ -106,7 +106,7 @@ func (e *ExemplarQueryable) Select(start, end int64, matchers ...[]*labels.Match
 		it := e.Exemplars.Iterator()
 		for it.HasNext() {
 			ts.Reset()
-			tr(it.Next(), ts.Unmarshal)
+			tr(fields.MetricsExemplars, it.Next(), ts.Unmarshal)
 			x.Exemplars = slices.Grow(x.Exemplars, len(ts.Exemplars))
 			for i := range ts.Exemplars {
 				ex := &ts.Exemplars[i]

@@ -310,7 +310,7 @@ func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, start, end int64,
 			hs := &prompb.Histogram{}
 			err := vf.ExtractBSI(tx, sr, mapping, func(i int, v uint64) error {
 				hs.Reset()
-				err := tr(v, hs.Unmarshal)
+				err := tr(fields.MetricsHistogram, v, hs.Unmarshal)
 				if err != nil {
 					return fmt.Errorf("reading histogram blob %w", err)
 				}
