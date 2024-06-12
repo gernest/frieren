@@ -27,7 +27,7 @@ func (s *Seq) NextID(id constants.ID) uint64 {
 	sq, ok := s.seq[id]
 	if !ok {
 		var err error
-		sq, err = s.db.GetSequence((&keys.Seq{}).Key(), 1<<10)
+		sq, err = s.db.GetSequence((&keys.Seq{ID: uint64(id)}).Key(), 1<<10)
 		if err != nil {
 			util.Exit("creating new sequence", "id", id, "err", err)
 		}

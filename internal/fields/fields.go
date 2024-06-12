@@ -38,6 +38,10 @@ type Fragment struct {
 	full  string
 }
 
+func New(id ID, shard uint64, view string) *Fragment {
+	return &Fragment{ID: id, Shard: shard, View: view}
+}
+
 func (v *Fragment) WithShard(shard uint64) *Fragment {
 	return &Fragment{
 		ID:    v.ID,
