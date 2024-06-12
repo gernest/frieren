@@ -1,11 +1,12 @@
 package metrics
 
 import (
+	"crypto/sha512"
+	"fmt"
 	"math"
 	"time"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
-	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/ro"
@@ -60,7 +61,8 @@ type LabelFunc func([]prompb.Label) []uint64
 
 func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob.Func, id ID) {
 	labels := labelFunc(ts.Labels)
-	series := xxhash.Sum64(util.Uint64ToBytes(labels))
+	checksum := sha512.Sum512(util.Uint64ToBytes(labels))
+	series := blobFunc(checksum[:])
 	currentShard := ^uint64(0)
 	var exemplars uint64
 	if len(ts.Exemplars) > 0 {
@@ -87,6 +89,7 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob
 	for j := range ts.Histograms {
 		s := &ts.Histograms[j]
 		id := id.NextID()
+		fmt.Println("{", id, ",", series, "},")
 		shard := id / shardwidth.ShardWidth
 		if shard != currentShard {
 			currentShard = shard

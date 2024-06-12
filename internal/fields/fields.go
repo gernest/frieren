@@ -131,7 +131,9 @@ func (f *Fragment) transposeBSI(tx *rbf.Tx, columns *rows.Row) (*roaring64.Bitma
 	if err != nil {
 		return nil, err
 	}
-	exists = exists.Intersect(columns)
+	if columns != nil {
+		exists = exists.Intersect(columns)
+	}
 	if !exists.Any() {
 		// No relevant BSI values are present in this fragment.
 		return roaring64.New(), nil
