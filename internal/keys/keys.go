@@ -13,6 +13,7 @@ const (
 	fstBitmap
 	fst
 	metadata
+	field
 )
 
 type Seq struct {
@@ -82,6 +83,17 @@ func (e *Metadata) Slice() []uint64 {
 }
 
 func (e *Metadata) Key() []byte {
+	return Encode(nil, e.Slice())
+}
+
+type Fields struct {
+}
+
+func (e *Fields) Slice() []uint64 {
+	return []uint64{field}
+}
+
+func (e *Fields) Key() []byte {
 	return Encode(nil, e.Slice())
 }
 
