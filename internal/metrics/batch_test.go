@@ -18,7 +18,7 @@ func TestBach_Append(t *testing.T) {
 
 	batch := NewBatch()
 	m := generateOTLPWriteRequest()
-	err = AppendBatch(db, batch, m.Metrics())
+	err = AppendBatch(db, batch, m.Metrics(), time.Now().UTC())
 	require.NoError(t, err)
 }
 

@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"math"
+	"time"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/cespare/xxhash/v2"
@@ -113,7 +114,7 @@ func bitmap(u uint64, m map[uint64]*roaring64.Bitmap) *roaring64.Bitmap {
 	return b
 }
 
-func AppendBatch(store *store.Store, batch *Batch, mets pmetric.Metrics) error {
+func AppendBatch(store *store.Store, batch *Batch, mets pmetric.Metrics, ts time.Time) error {
 	conv := prometheusremotewrite.NewPrometheusConverter()
 	err := conv.FromMetrics(mets, prometheusremotewrite.Settings{
 		AddMetricSuffixes: true,
@@ -125,9 +126,13 @@ func AppendBatch(store *store.Store, batch *Batch, mets pmetric.Metrics) error {
 	return store.DB.Update(func(txn *badger.Txn) error {
 		blob := blob.Upsert(txn, store.BlobSeq)
 		label := UpsertLabels(blob)
-		ts := conv.TimeSeries()
-		for i := range ts {
-			batch.Append(&ts[i], label, blob, store.Seq)
+		series := conv.TimeSeries()
+		for i := range series {
+			batch.Append(&series[i], label, blob, store.Seq)
+		}
+		err := Save(store, batch, ts)
+		if err != nil {
+			return err
 		}
 		return StoreMetadata(txn, meta)
 	})

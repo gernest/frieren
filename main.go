@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"time"
 
 	"github.com/gernest/frieren/internal/api"
 	"github.com/gernest/frieren/internal/metrics"
@@ -39,7 +40,7 @@ func (m *Metrics) Export(ctx context.Context, req pmetricotlp.ExportRequest) (pm
 	_, span := self.Start(ctx, "metrics/Export")
 	defer span.End()
 
-	err := metrics.AppendBatch(m.db, metrics.NewBatch(), req.Metrics())
+	err := metrics.AppendBatch(m.db, metrics.NewBatch(), req.Metrics(), time.Now().UTC())
 	if err != nil {
 		return pmetricotlp.ExportResponse{}, err
 	}
