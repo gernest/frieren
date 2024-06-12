@@ -5,6 +5,7 @@ import (
 
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/gernest/frieren/internal/shardwidth"
+	"github.com/gernest/frieren/internal/util"
 )
 
 const (
@@ -20,6 +21,9 @@ func BSI(m *roaring64.Bitmap, id uint64, value uint64) {
 	fragmentColumn := id % shardwidth.ShardWidth
 	m.Add(fragmentColumn)
 	lz := bits.LeadingZeros64(value)
+	if lz == 0 {
+		util.Exit("illegal negative value")
+	}
 	row := uint64(2)
 	for mask := uint64(0x1); mask <= 1<<(64-lz) && mask != 0; mask = mask << 1 {
 		if value&mask > 0 {
