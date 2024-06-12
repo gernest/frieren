@@ -9,6 +9,7 @@ import (
 	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/shardwidth"
 	"github.com/gernest/rbf"
+	"github.com/gernest/rbf/short_txkey"
 	"github.com/gernest/roaring"
 	"github.com/gernest/rows"
 	"github.com/prometheus/prometheus/model/labels"
@@ -17,7 +18,7 @@ import (
 type ID uint
 
 const (
-	MetricsValue = iota + (1 << 10)
+	MetricsValue = iota + 1
 	MetricsHistogram
 	MetricsTimestamp
 	MetricsSeries
@@ -45,7 +46,8 @@ func (v *Fragment) WithShard(shard uint64) *Fragment {
 
 func (v *Fragment) String() string {
 	if v.full == "" {
-		v.full = fmt.Sprintf("%d%s_%d", v.ID, v.View, v.Shard)
+		key := short_txkey.Prefix("", fmt.Sprint(v.ID), v.View, v.Shard)
+		v.full = string(key)
 	}
 	return v.full
 }

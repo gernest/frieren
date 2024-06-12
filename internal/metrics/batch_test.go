@@ -2,9 +2,10 @@ package metrics
 
 import (
 	"testing"
-	"time"
 
 	"github.com/gernest/frieren/internal/store"
+	"github.com/gernest/frieren/internal/util"
+	"github.com/gernest/rbf/short_txkey"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
@@ -18,8 +19,26 @@ func TestBach_Append(t *testing.T) {
 
 	batch := NewBatch()
 	m := generateOTLPWriteRequest()
-	err = AppendBatch(db, batch, m.Metrics(), time.Now().UTC())
+	err = AppendBatch(db, batch, m.Metrics(), util.TS())
 	require.NoError(t, err)
+	tx, err := db.Index.Begin(false)
+	require.NoError(t, err)
+	defer tx.Rollback()
+
+	t.Run("check views", func(t *testing.T) {
+		want := []short_txkey.FieldView{
+			{Field: "1", View: "_20060102"},
+			{Field: "2", View: "_20060102"},
+			{Field: "3", View: "_20060102"},
+			{Field: "4", View: "_20060102"},
+			{Field: "5", View: "_20060102"},
+			{Field: "6", View: "_20060102"},
+			{Field: "7", View: "_20060102"},
+		}
+		vs, err := tx.GetSortedFieldViewList()
+		require.NoError(t, err)
+		require.Equal(t, want, vs)
+	})
 }
 
 func generateOTLPWriteRequest() pmetricotlp.ExportRequest {
@@ -29,7 +48,7 @@ func generateOTLPWriteRequest() pmetricotlp.ExportRequest {
 	// with resource attributes: service.name="test-service", service.instance.id="test-instance", host.name="test-host"
 	// with metric attribute: foo.bar="baz"
 
-	timestamp := time.Now()
+	timestamp := util.TS()
 
 	resourceMetric := d.ResourceMetrics().AppendEmpty()
 	resourceMetric.Resource().Attributes().PutStr("service.name", "test-service")
