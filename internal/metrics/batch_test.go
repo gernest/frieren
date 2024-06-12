@@ -3,6 +3,7 @@ package metrics
 import (
 	"testing"
 
+	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/internal/util"
 	"github.com/gernest/rbf/short_txkey"
@@ -38,6 +39,12 @@ func TestBach_Append(t *testing.T) {
 		vs, err := tx.GetSortedFieldViewList()
 		require.NoError(t, err)
 		require.Equal(t, want, vs)
+	})
+	t.Run("shards", func(t *testing.T) {
+		fra := fields.Fragment{ID: fields.MetricsShards, View: "_20060102"}
+		shards, err := fra.Shards(tx)
+		require.NoError(t, err)
+		require.Equal(t, []uint64{0}, shards)
 	})
 }
 

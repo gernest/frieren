@@ -54,6 +54,13 @@ func (v *Fragment) String() string {
 
 var eql = []byte("=")
 
+func (f *Fragment) Shards(tx *rbf.Tx) ([]uint64, error) {
+	r, err := tx.RoaringBitmap(f.String())
+	if err != nil {
+		return nil, err
+	}
+	return r.Slice(), nil
+}
 func (f *Fragment) Labels(tx *rbf.Tx, tr blob.Tr, column uint64) (labels.Labels, error) {
 	rows, err := f.ReadSetValue(tx, column)
 	if err != nil {
