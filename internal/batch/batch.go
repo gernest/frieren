@@ -11,7 +11,7 @@ import (
 	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/fields"
-	"github.com/gernest/frieren/util"
+	"github.com/gernest/frieren/internal/util"
 	"github.com/gernest/rbf"
 )
 

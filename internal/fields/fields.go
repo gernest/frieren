@@ -7,7 +7,7 @@ import (
 
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/gernest/frieren/internal/blob"
-	"github.com/gernest/frieren/shardwidth"
+	"github.com/gernest/frieren/internal/shardwidth"
 	"github.com/gernest/rbf"
 	"github.com/gernest/roaring"
 	"github.com/gernest/rows"

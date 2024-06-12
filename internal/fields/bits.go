@@ -4,13 +4,10 @@ import (
 	"math"
 	"math/bits"
 
-	"github.com/gernest/frieren/shardwidth"
+	"github.com/gernest/frieren/internal/shardwidth"
 )
 
 const (
-	// Row ids used for boolean fields.
-	falseRowID = uint64(0)
-	trueRowID  = uint64(1)
 
 	// BSI bits used to check existence & sign.
 	bsiExistsBit = 0

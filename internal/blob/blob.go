@@ -9,7 +9,7 @@ import (
 	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/keys"
 	"github.com/gernest/frieren/internal/store"
-	"github.com/gernest/frieren/util"
+	"github.com/gernest/frieren/internal/util"
 )
 
 type Func func([]byte) uint64

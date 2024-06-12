@@ -4,7 +4,7 @@ import (
 	"math/bits"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
-	"github.com/gernest/frieren/shardwidth"
+	"github.com/gernest/frieren/internal/shardwidth"
 )
 
 const (

@@ -7,8 +7,8 @@ import (
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/gernest/frieren/internal/blob"
-	"github.com/gernest/frieren/px"
-	"github.com/gernest/frieren/util"
+	"github.com/gernest/frieren/internal/px"
+	"github.com/gernest/frieren/internal/util"
 	"github.com/prometheus/prometheus/storage/remote/otlptranslator/prometheus"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"

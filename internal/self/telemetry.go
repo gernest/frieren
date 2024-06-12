@@ -3,7 +3,7 @@ package self
 import (
 	"context"
 
-	"github.com/gernest/frieren/util"
+	"github.com/gernest/frieren/internal/util"
 	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"

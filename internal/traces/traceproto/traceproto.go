@@ -5,7 +5,7 @@ import (
 
 	v1 "github.com/gernest/frieren/gen/go/fri/v1"
 	"github.com/gernest/frieren/internal/blob"
-	"github.com/gernest/frieren/px"
+	"github.com/gernest/frieren/internal/px"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"google.golang.org/protobuf/proto"
