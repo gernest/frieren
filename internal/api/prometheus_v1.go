@@ -113,10 +113,11 @@ type apiFuncResult struct {
 type apiFunc func(r *http.Request) apiFuncResult
 
 type prometheusAPI struct {
-	cors *regexp.Regexp
-	qe   promql.QueryEngine
-	qs   ps.Queryable
-	now  func() time.Time
+	cors     *regexp.Regexp
+	qe       promql.QueryEngine
+	qs       ps.Queryable
+	examplar ps.ExemplarQueryable
+	now      func() time.Time
 }
 
 func Add(mux *http.ServeMux, db *store.Store) {
@@ -147,10 +148,11 @@ func newPrometheusAPI(db *store.Store) *prometheusAPI {
 	}
 	queryEngine := promql.NewEngine(eo)
 	return &prometheusAPI{
-		cors: cors,
-		qe:   queryEngine,
-		qs:   query,
-		now:  func() time.Time { return time.Now().UTC() },
+		cors:     cors,
+		qe:       queryEngine,
+		qs:       query,
+		examplar: metrics.NewExemplarQueryable(db.DB, db.Index),
+		now:      func() time.Time { return time.Now().UTC() },
 	}
 }
 
@@ -188,6 +190,9 @@ func (api *prometheusAPI) Register(r *route.Router) {
 	r.Post("/query", wrap(api.query))
 	r.Get("/query_range", wrap(api.queryRange))
 	r.Post("/query_range", wrap(api.queryRange))
+	r.Get("/query_exemplars", wrap(api.queryExemplars))
+	r.Post("/query_exemplars", wrap(api.queryExemplars))
+
 	r.Get("/labels", wrap(api.labelNames))
 	r.Post("/labels", wrap(api.labelNames))
 	r.Get("/label/:name/values", wrap(api.labelValues))
@@ -331,6 +336,44 @@ func (api *prometheusAPI) queryRange(r *http.Request) (result apiFuncResult) {
 		Result:     res.Value,
 		Stats:      defaultStatsRenderer(qry.Stats(), r.FormValue("stats")),
 	}, nil, res.Warnings, qry.Close}
+}
+
+func (api *prometheusAPI) queryExemplars(r *http.Request) apiFuncResult {
+	start, err := parseTimeParam(r, "start", MinTime)
+	if err != nil {
+		return invalidParamError(err, "start")
+	}
+	end, err := parseTimeParam(r, "end", MaxTime)
+	if err != nil {
+		return invalidParamError(err, "end")
+	}
+	if end.Before(start) {
+		err := errors.New("end timestamp must not be before start timestamp")
+		return apiFuncResult{nil, &apiError{errorBadData, err}, nil, nil}
+	}
+
+	expr, err := parser.ParseExpr(r.FormValue("query"))
+	if err != nil {
+		return apiFuncResult{nil, &apiError{errorBadData, err}, nil, nil}
+	}
+
+	selectors := parser.ExtractSelectors(expr)
+	if len(selectors) < 1 {
+		return apiFuncResult{nil, nil, nil, nil}
+	}
+
+	ctx := r.Context()
+	eq, err := api.examplar.ExemplarQuerier(ctx)
+	if err != nil {
+		return apiFuncResult{nil, returnAPIError(err), nil, nil}
+	}
+
+	res, err := eq.Select(timestamp.FromTime(start), timestamp.FromTime(end), selectors...)
+	if err != nil {
+		return apiFuncResult{nil, returnAPIError(err), nil, nil}
+	}
+
+	return apiFuncResult{res, nil, nil, nil}
 }
 
 func defaultStatsRenderer(s *stats.Statistics, param string) stats.QueryStats {

@@ -32,6 +32,10 @@ type ExemplarQueryable struct {
 	idx *rbf.DB
 }
 
+func NewExemplarQueryable(db *badger.DB, idx *rbf.DB) *ExemplarQueryable {
+	return &ExemplarQueryable{db: db, idx: idx}
+}
+
 var _ storage.ExemplarQueryable = (*ExemplarQueryable)(nil)
 
 func (e *ExemplarQueryable) ExemplarQuerier(ctx context.Context) (storage.ExemplarQuerier, error) {
