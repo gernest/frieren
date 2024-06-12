@@ -3,11 +3,13 @@ package metrics
 import (
 	"crypto/sha512"
 	"math"
+	"math/bits"
 	"time"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/blob"
+	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/ro"
 	"github.com/gernest/frieren/internal/shardwidth"
@@ -27,6 +29,7 @@ type Batch struct {
 	exemplars map[uint64]*roaring64.Bitmap
 	fst       map[uint64]*roaring64.Bitmap
 	shards    roaring64.Bitmap
+	bitDepth  map[constants.ID]int
 }
 
 func NewBatch() *Batch {
@@ -38,6 +41,7 @@ func NewBatch() *Batch {
 		labels:    make(map[uint64]*roaring64.Bitmap),
 		exemplars: make(map[uint64]*roaring64.Bitmap),
 		fst:       make(map[uint64]*roaring64.Bitmap),
+		bitDepth:  make(map[constants.ID]int),
 	}
 }
 
@@ -59,6 +63,9 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob
 	labels := labelFunc(ts.Labels)
 	checksum := sha512.Sum512(util.Uint64ToBytes(labels))
 	series := blobFunc(fields.MetricsSeries, checksum[:])
+
+	b.depth(constants.MetricsSeries, bits.Len64(series))
+
 	currentShard := ^uint64(0)
 	var exemplars uint64
 	if len(ts.Exemplars) > 0 {
@@ -74,10 +81,16 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob
 		}
 		ro.BSI(bitmap(shard, b.series), id, series)
 		ro.BSI(bitmap(shard, b.timestamp), id, uint64(s.Timestamp))
-		ro.BSI(bitmap(shard, b.values), id, math.Float64bits(s.Value))
+		value := math.Float64bits(s.Value)
+		ro.BSI(bitmap(shard, b.values), id, value)
 		ro.BSISet(bitmap(shard, b.labels), id, labels)
+
+		b.depth(constants.MetricsTimestamp, bits.Len64(uint64(s.Timestamp)))
+		b.depth(constants.MetricsValue, bits.Len64(value))
+
 		if exemplars != 0 {
 			ro.BSI(bitmap(shard, b.exemplars), id, exemplars)
+			b.depth(constants.MetricsExemplars, bits.Len64(exemplars))
 		}
 	}
 	currentShard = ^uint64(0)
@@ -97,10 +110,19 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob
 		ro.BSI(bitmap(shard, b.values), id, value)
 		ro.BSISet(bitmap(shard, b.labels), id, labels)
 		ro.Bool(bitmap(shard, b.histogram), id, true)
+
+		b.depth(constants.MetricsValue, bits.Len64(value))
+		b.depth(constants.MetricsTimestamp, bits.Len64(uint64(s.Timestamp)))
+
 		if exemplars != 0 {
 			ro.BSI(bitmap(shard, b.exemplars), id, exemplars)
+			b.depth(constants.MetricsExemplars, bits.Len64(exemplars))
 		}
 	}
+}
+
+func (b *Batch) depth(field constants.ID, depth int) {
+	b.bitDepth[field] = max(b.bitDepth[field], depth)
 }
 
 func bitmap(u uint64, m map[uint64]*roaring64.Bitmap) *roaring64.Bitmap {
