@@ -32,6 +32,7 @@ type Fragment struct {
 	ID    ID
 	Shard uint64
 	View  string
+	full  string
 }
 
 func (v *Fragment) WithShard(shard uint64) *Fragment {
@@ -43,7 +44,10 @@ func (v *Fragment) WithShard(shard uint64) *Fragment {
 }
 
 func (v *Fragment) String() string {
-	return fmt.Sprintf("%d%s_%d", v.ID, v.View, v.Shard)
+	if v.full == "" {
+		v.full = fmt.Sprintf("%d%s_%d", v.ID, v.View, v.Shard)
+	}
+	return v.full
 }
 
 var eql = []byte("=")
