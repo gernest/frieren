@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/metrics"
 	"github.com/gernest/frieren/internal/self"
 	"github.com/gernest/frieren/internal/store"
@@ -37,8 +38,10 @@ import (
 	"github.com/prometheus/common/promlog"
 	"github.com/prometheus/common/route"
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/model/metadata"
 	"github.com/prometheus/prometheus/model/relabel"
 	"github.com/prometheus/prometheus/model/timestamp"
+	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/promql"
 	"github.com/prometheus/prometheus/promql/parser"
 	ps "github.com/prometheus/prometheus/storage"
@@ -117,6 +120,7 @@ type prometheusAPI struct {
 	qe       promql.QueryEngine
 	qs       ps.Queryable
 	examplar ps.ExemplarQueryable
+	db       *store.Store
 	now      func() time.Time
 }
 
@@ -148,6 +152,7 @@ func newPrometheusAPI(db *store.Store) *prometheusAPI {
 	}
 	queryEngine := promql.NewEngine(eo)
 	return &prometheusAPI{
+		db:       db,
 		cors:     cors,
 		qe:       queryEngine,
 		qs:       query,
@@ -198,6 +203,8 @@ func (api *prometheusAPI) Register(r *route.Router) {
 	r.Get("/label/:name/values", wrap(api.labelValues))
 	r.Get("/series", wrap(api.series))
 	r.Post("/series", wrap(api.series))
+
+	r.Get("/metadata", wrap(api.metricMetadata))
 }
 
 type QueryData struct {
@@ -374,6 +381,42 @@ func (api *prometheusAPI) queryExemplars(r *http.Request) apiFuncResult {
 	}
 
 	return apiFuncResult{res, nil, nil, nil}
+}
+
+func (api *prometheusAPI) metricMetadata(r *http.Request) apiFuncResult {
+
+	metric := r.FormValue("metric")
+
+	// Put the elements from the pseudo-set into a slice for marshaling.
+	res := map[string][]metadata.Metadata{}
+
+	api.db.DB.View(func(txn *badger.Txn) error {
+		if metric != "" {
+			m, err := metrics.GetMetadata(txn, metric)
+			if err != nil {
+				return err
+			}
+			res[metric] = []metadata.Metadata{protoToMeta(m)}
+			return nil
+		}
+		ms, err := metrics.ListMetadata(txn)
+		if err != nil {
+			return err
+		}
+		for i := range ms {
+			res[ms[i].MetricFamilyName] = append(res[ms[i].MetricFamilyName], protoToMeta(ms[i]))
+		}
+		return nil
+	})
+	return apiFuncResult{res, nil, nil, nil}
+}
+
+func protoToMeta(m *prompb.MetricMetadata) metadata.Metadata {
+	return metadata.Metadata{
+		Type: model.MetricType(m.Type),
+		Unit: m.Unit,
+		Help: m.Help,
+	}
 }
 
 func defaultStatsRenderer(s *stats.Statistics, param string) stats.QueryStats {
@@ -679,7 +722,8 @@ func extractQueryOpts(r *http.Request) (promql.QueryOpts, error) {
 
 	return promql.NewPrometheusQueryOpts(r.FormValue("stats") == "all", duration), nil
 }
-func (api *prometheusAPI) respond(w http.ResponseWriter, req *http.Request, data interface{}) {
+
+func (api *prometheusAPI) respond(w http.ResponseWriter, _ *http.Request, data interface{}) {
 	statusMessage := statusSuccess
 
 	resp := &Response{
@@ -697,7 +741,7 @@ func (api *prometheusAPI) respond(w http.ResponseWriter, req *http.Request, data
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if n, err := w.Write(b); err != nil {
-		slog.Error("msg", "error writing response", "bytesWritten", n, "err", err)
+		slog.Error("error writing response", "bytesWritten", n, "err", err)
 	}
 }
 
@@ -737,7 +781,7 @@ func (api *prometheusAPI) respondError(w http.ResponseWriter, apiErr *apiError, 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	if n, err := w.Write(b); err != nil {
-		slog.Error("msg", "error writing response", "bytesWritten", n, "err", err)
+		slog.Error("error writing response", "bytesWritten", n, "err", err)
 	}
 }
 
