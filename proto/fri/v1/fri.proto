@@ -16,10 +16,10 @@ message Links {
 
 message Attr { repeated uint64 value = 1; }
 
-message Fields {
+message BitDepth {
   // Tracks last observed bitdepth for ingested values. Not all fields are
   // tracked so, only BSI fields use this.
   //
-  // Uppre bounnd is 63.
+  // Upper bounnd is 64.
   map<uint64, uint64> bit_depth = 1;
 }

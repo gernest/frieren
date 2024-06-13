@@ -9,11 +9,15 @@ import (
 	"github.com/blevesearch/vellum"
 	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
+	v1 "github.com/gernest/frieren/gen/go/fri/v1"
 	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/fields"
+	"github.com/gernest/frieren/internal/keys"
+	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/internal/util"
 	"github.com/gernest/rbf"
+	"google.golang.org/protobuf/proto"
 )
 
 func Apply(tx *rbf.Tx, view *fields.Fragment, data map[uint64]*roaring64.Bitmap) error {
@@ -85,4 +89,34 @@ func updateFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, fra, bitmapFra *fields.F
 		return fmt.Errorf("closing fst builder %w", err)
 	}
 	return txn.Set([]byte(fra.String()), buf.Bytes())
+}
+
+func UpsertBitDepth(txn *badger.Txn, depth map[uint64]map[uint64]uint64) error {
+	o := (&keys.BitDepth{}).Slice()
+	b := &v1.BitDepth{}
+	buf := make([]byte, 0, len(o)*8)
+	for shard, set := range depth {
+		b.Reset()
+		o[len(o)-1] = shard
+		key := keys.Encode(buf, o)
+		store.Get(txn, key, func(val []byte) error {
+			return proto.Unmarshal(val, b)
+		})
+		if b.BitDepth == nil {
+			b.BitDepth = set
+		} else {
+			for k, v := range set {
+				b.BitDepth[k] = max(b.BitDepth[k], v)
+			}
+		}
+		data, err := proto.Marshal(b)
+		if err != nil {
+			return err
+		}
+		err = txn.Set(bytes.Clone(key), data)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

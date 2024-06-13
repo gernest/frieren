@@ -28,7 +28,7 @@ type Batch struct {
 	exemplars map[uint64]*roaring64.Bitmap
 	fst       map[uint64]*roaring64.Bitmap
 	shards    roaring64.Bitmap
-	bitDepth  map[constants.ID]int
+	bitDepth  map[uint64]map[uint64]uint64
 }
 
 func NewBatch() *Batch {
@@ -40,7 +40,7 @@ func NewBatch() *Batch {
 		labels:    make(map[uint64]*roaring64.Bitmap),
 		exemplars: make(map[uint64]*roaring64.Bitmap),
 		fst:       make(map[uint64]*roaring64.Bitmap),
-		bitDepth:  make(map[constants.ID]int),
+		bitDepth:  make(map[uint64]map[uint64]uint64),
 	}
 }
 
@@ -52,6 +52,7 @@ func (b *Batch) Reset() *Batch {
 	clear(b.labels)
 	clear(b.exemplars)
 	clear(b.fst)
+	clear(b.bitDepth)
 	b.shards.Clear()
 	return b
 }
@@ -62,8 +63,6 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob
 	labels := labelFunc(ts.Labels)
 	checksum := sha512.Sum512(util.Uint64ToBytes(labels))
 	series := blobFunc(constants.MetricsSeries, checksum[:])
-
-	b.depth(constants.MetricsSeries, bits.Len64(series))
 
 	currentShard := ^uint64(0)
 	var exemplars uint64
@@ -77,6 +76,8 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob
 		if shard != currentShard {
 			currentShard = shard
 			b.shards.Add(shard)
+			b.depth(constants.MetricsSeries, shard, bits.Len64(series))
+			b.depth(constants.MetricsExemplars, shard, bits.Len64(exemplars))
 		}
 		ro.BSI(bitmap(shard, b.series), id, series)
 		ro.BSI(bitmap(shard, b.timestamp), id, uint64(s.Timestamp))
@@ -84,12 +85,11 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob
 		ro.BSI(bitmap(shard, b.values), id, value)
 		ro.BSISet(bitmap(shard, b.labels), id, labels)
 
-		b.depth(constants.MetricsTimestamp, bits.Len64(uint64(s.Timestamp)))
-		b.depth(constants.MetricsValue, bits.Len64(value))
+		b.depth(constants.MetricsTimestamp, shard, bits.Len64(uint64(s.Timestamp)))
+		b.depth(constants.MetricsValue, shard, bits.Len64(value))
 
 		if len(ts.Exemplars) > 0 {
 			ro.BSI(bitmap(shard, b.exemplars), id, exemplars)
-			b.depth(constants.MetricsExemplars, bits.Len64(exemplars))
 		}
 	}
 	currentShard = ^uint64(0)
@@ -101,6 +101,10 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob
 		if shard != currentShard {
 			currentShard = shard
 			b.shards.Add(shard)
+			b.depth(constants.MetricsSeries, shard, bits.Len64(series))
+			if len(ts.Exemplars) > 0 {
+				b.depth(constants.MetricsExemplars, shard, bits.Len64(exemplars))
+			}
 		}
 		data, _ := s.Marshal()
 		value := blobFunc(constants.MetricsHistogram, data)
@@ -110,18 +114,22 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob
 		ro.BSISet(bitmap(shard, b.labels), id, labels)
 		ro.Bool(bitmap(shard, b.histogram), id, true)
 
-		b.depth(constants.MetricsValue, bits.Len64(value))
-		b.depth(constants.MetricsTimestamp, bits.Len64(uint64(s.Timestamp)))
+		b.depth(constants.MetricsValue, shard, bits.Len64(value))
+		b.depth(constants.MetricsTimestamp, shard, bits.Len64(uint64(s.Timestamp)))
 
 		if len(ts.Exemplars) > 0 {
 			ro.BSI(bitmap(shard, b.exemplars), id, exemplars)
-			b.depth(constants.MetricsExemplars, bits.Len64(exemplars))
 		}
 	}
 }
 
-func (b *Batch) depth(field constants.ID, depth int) {
-	b.bitDepth[field] = max(b.bitDepth[field], depth)
+func (b *Batch) depth(field constants.ID, shard uint64, depth int) {
+	m, ok := b.bitDepth[shard]
+	if !ok {
+		m = make(map[uint64]uint64)
+		b.bitDepth[shard] = m
+	}
+	m[uint64(field)] = max(m[uint64(field)], uint64(depth))
 }
 
 func bitmap(u uint64, m map[uint64]*roaring64.Bitmap) *roaring64.Bitmap {

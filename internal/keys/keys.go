@@ -13,7 +13,7 @@ const (
 	fstBitmap
 	fst
 	metadata
-	field
+	depth
 )
 
 type Seq struct {
@@ -86,14 +86,15 @@ func (e *Metadata) Key() []byte {
 	return Encode(nil, e.Slice())
 }
 
-type Fields struct {
+type BitDepth struct {
+	ShardID uint64
 }
 
-func (e *Fields) Slice() []uint64 {
-	return []uint64{field}
+func (e *BitDepth) Slice() []uint64 {
+	return []uint64{depth, e.ShardID}
 }
 
-func (e *Fields) Key() []byte {
+func (e *BitDepth) Key() []byte {
 	return Encode(nil, e.Slice())
 }
 

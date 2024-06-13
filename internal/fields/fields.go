@@ -52,6 +52,7 @@ func (f *Fragment) Shards(tx *rbf.Tx) ([]uint64, error) {
 	}
 	return r.Slice(), nil
 }
+
 func (f *Fragment) Labels(tx *rbf.Tx, tr blob.Tr, column uint64) (labels.Labels, error) {
 	rows, err := f.ReadSetValue(tx, column)
 	if err != nil {
