@@ -10,6 +10,7 @@ import (
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/blob"
+	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/fst"
 	"github.com/gernest/frieren/internal/tags"
@@ -70,7 +71,7 @@ func (e *ExemplarQueryable) Select(start, end int64, matchers ...[]*labels.Match
 	tr := blob.Translate(txn)
 	for _, view := range views {
 		// read the shards observed per view
-		shardsView := fields.Fragment{ID: fields.MetricsShards, View: view}
+		shardsView := fields.New(constants.MetricsShards, 0, view)
 		r, err := tx.RoaringBitmap(shardsView.String())
 		if err != nil {
 			return nil, fmt.Errorf("reading shards bitmap %w", err)
@@ -78,15 +79,15 @@ func (e *ExemplarQueryable) Select(start, end int64, matchers ...[]*labels.Match
 		shards := r.Slice()
 
 		for _, shard := range shards {
-			fra := fields.Fragment{ID: fields.MetricsFST, Shard: shard, View: view}
-			filters, err := fst.MatchSet(txn, tx, &fra, matchers...)
+			fra := fields.New(constants.MetricsFST, shard, view)
+			filters, err := fst.MatchSet(txn, tx, fra, matchers...)
 			if err != nil {
 				return nil, err
 			}
 			if len(filters) == 0 {
 				continue
 			}
-			r, err := tags.Filter(tx, fields.Fragment{ID: fields.MetricsLabels, Shard: shard, View: view}, filters)
+			r, err := tags.Filter(tx, fields.New(constants.MetricsLabels, shard, view), filters)
 			if err != nil {
 				return nil, err
 			}
@@ -106,7 +107,7 @@ func (e *ExemplarQueryable) Select(start, end int64, matchers ...[]*labels.Match
 		it := e.Exemplars.Iterator()
 		for it.HasNext() {
 			ts.Reset()
-			tr(fields.MetricsExemplars, it.Next(), ts.Unmarshal)
+			tr(constants.MetricsExemplars, it.Next(), ts.Unmarshal)
 			x.Exemplars = slices.Grow(x.Exemplars, len(ts.Exemplars))
 			for i := range ts.Exemplars {
 				ex := &ts.Exemplars[i]
@@ -154,10 +155,10 @@ func (s ExemplarSet) Build(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, start, end i
 		return nil
 	}
 	// fragments
-	sf := fields.Fragment{ID: fields.MetricsSeries, Shard: shard, View: view}
-	ef := fields.Fragment{ID: fields.MetricsExemplars, Shard: shard, View: view}
-	tf := fields.Fragment{ID: fields.MetricsTimestamp, Shard: shard, View: view}
-	lf := fields.Fragment{ID: fields.MetricsLabels, Shard: shard, View: view}
+	sf := fields.New(constants.MetricsSeries, shard, view)
+	ef := fields.New(constants.MetricsExemplars, shard, view)
+	tf := fields.New(constants.MetricsTimestamp, shard, view)
+	lf := fields.New(constants.MetricsLabels, shard, view)
 
 	// find matching timestamps
 	r, err := tf.Between(tx, uint64(start), uint64(end))
@@ -201,7 +202,7 @@ func (s ExemplarSet) Build(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, start, end i
 		if err != nil {
 			return err
 		}
-		err = add(&lf, shard, active, o)
+		err = add(lf, shard, active, o)
 		if err != nil {
 			return err
 		}

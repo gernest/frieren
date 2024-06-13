@@ -8,7 +8,7 @@ import (
 	"github.com/gernest/rows"
 )
 
-func Filter(tx *rbf.Tx, fra fields.Fragment, labels []uint64) (*rows.Row, error) {
+func Filter(tx *rbf.Tx, fra *fields.Fragment, labels []uint64) (*rows.Row, error) {
 	r := rows.NewRow()
 	for i := range labels {
 		rw, err := fra.EqSet(tx, labels[i])

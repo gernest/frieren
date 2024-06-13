@@ -9,6 +9,7 @@ import (
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/blob"
+	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/fst"
 	"github.com/gernest/frieren/internal/tags"
@@ -58,7 +59,7 @@ func (q *Queryable) Querier(mints, maxts int64) (storage.Querier, error) {
 	shards := make([][]uint64, 0, len(views))
 	for i := range views {
 		// read the shards observed per view
-		view := fields.Fragment{ID: fields.MetricsShards, View: views[i]}
+		view := fields.New(constants.MetricsShards, 0, views[i])
 		r, err := tx.RoaringBitmap(view.String())
 		if err != nil {
 			return nil, fmt.Errorf("reading shards bitmap %w", err)
@@ -108,7 +109,7 @@ func (s *Querier) LabelValues(ctx context.Context, name string, matchers ...*lab
 	for i := range s.views {
 		view := s.views[i]
 		for _, shard := range s.shards[i] {
-			fra := fields.Fragment{ID: fields.MetricsFST, Shard: shard, View: view}
+			fra := fields.New(constants.MetricsFST, shard, view)
 			fst.LabelNames(txn, []byte(fra.String()), name, func(name, value []byte) {
 				names[string(value)] = struct{}{}
 			})
@@ -133,7 +134,7 @@ func (s *Querier) LabelNames(ctx context.Context, matchers ...*labels.Matcher) (
 	for i := range s.views {
 		view := s.views[i]
 		for _, shard := range s.shards[i] {
-			fra := fields.Fragment{ID: fields.MetricsFST, Shard: shard, View: view}
+			fra := fields.New(constants.MetricsFST, shard, view)
 			fst.Labels(txn, []byte(fra.String()), func(name, value []byte) {
 				names[string(name)] = struct{}{}
 			})
@@ -165,15 +166,15 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 	for i := range s.views {
 		view := s.views[i]
 		for _, shard := range s.shards[i] {
-			fra := fields.Fragment{ID: fields.MetricsFST, Shard: shard, View: view}
-			filters, err := fst.Match(txn, tx, &fra, matchers...)
+			fra := fields.New(constants.MetricsFST, shard, view)
+			filters, err := fst.Match(txn, tx, fra, matchers...)
 			if err != nil {
 				return storage.ErrSeriesSet(err)
 			}
 			if len(filters) == 0 {
 				continue
 			}
-			r, err := tags.Filter(tx, fields.Fragment{ID: fields.MetricsLabels, Shard: shard, View: view}, filters)
+			r, err := tags.Filter(tx, fields.New(constants.MetricsLabels, shard, view), filters)
 			if err != nil {
 				return storage.ErrSeriesSet(err)
 			}
@@ -231,11 +232,11 @@ func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, start, end int64,
 		return nil
 	}
 	// fragments
-	sf := fields.Fragment{ID: fields.MetricsSeries, Shard: shard, View: view}
-	hf := fields.Fragment{ID: fields.MetricsHistogram, Shard: shard, View: view}
-	vf := fields.Fragment{ID: fields.MetricsValue, Shard: shard, View: view}
-	tf := fields.Fragment{ID: fields.MetricsTimestamp, Shard: shard, View: view}
-	lf := fields.Fragment{ID: fields.MetricsLabels, Shard: shard, View: view}
+	sf := fields.New(constants.MetricsSeries, shard, view)
+	hf := fields.New(constants.MetricsHistogram, shard, view)
+	vf := fields.New(constants.MetricsValue, shard, view)
+	tf := fields.New(constants.MetricsTimestamp, shard, view)
+	lf := fields.New(constants.MetricsLabels, shard, view)
 
 	// find matching timestamps
 	r, err := tf.Between(tx, uint64(start), uint64(end))
@@ -310,7 +311,7 @@ func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, start, end int64,
 			hs := &prompb.Histogram{}
 			err := vf.ExtractBSI(tx, sr, mapping, func(i int, v uint64) error {
 				hs.Reset()
-				err := tr(fields.MetricsHistogram, v, hs.Unmarshal)
+				err := tr(constants.MetricsHistogram, v, hs.Unmarshal)
 				if err != nil {
 					return fmt.Errorf("reading histogram blob %w", err)
 				}
@@ -329,7 +330,7 @@ func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, start, end int64,
 				return fmt.Errorf("extracting values %w", err)
 			}
 		}
-		err = add(&lf, shard, columns[0], chunks)
+		err = add(lf, shard, columns[0], chunks)
 		if err != nil {
 			return err
 		}

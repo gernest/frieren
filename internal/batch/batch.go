@@ -10,12 +10,13 @@ import (
 	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/blob"
+	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/util"
 	"github.com/gernest/rbf"
 )
 
-func Apply(tx *rbf.Tx, view fields.Fragment, data map[uint64]*roaring64.Bitmap) error {
+func Apply(tx *rbf.Tx, view *fields.Fragment, data map[uint64]*roaring64.Bitmap) error {
 	for shard, m := range data {
 		key := view.WithShard(shard).String()
 		_, err := tx.Add(key, m.ToArray()...)
@@ -26,7 +27,7 @@ func Apply(tx *rbf.Tx, view fields.Fragment, data map[uint64]*roaring64.Bitmap) 
 	return nil
 }
 
-func ApplyShards(tx *rbf.Tx, view fields.Fragment, m *roaring64.Bitmap) error {
+func ApplyShards(tx *rbf.Tx, view *fields.Fragment, m *roaring64.Bitmap) error {
 	key := view.WithShard(0).String()
 	_, err := tx.Add(key, m.ToArray()...)
 	if err != nil {
@@ -35,7 +36,7 @@ func ApplyShards(tx *rbf.Tx, view fields.Fragment, m *roaring64.Bitmap) error {
 	return nil
 }
 
-func ApplyFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, fra, fstBitmap fields.Fragment, data map[uint64]*roaring64.Bitmap) error {
+func ApplyFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, fra, fstBitmap *fields.Fragment, data map[uint64]*roaring64.Bitmap) error {
 	for shard := range data {
 		fst := fra.WithShard(shard)
 		fstBm := fstBitmap.WithShard(shard)
@@ -55,9 +56,8 @@ func updateFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, fra, bitmapFra *fields.F
 	o := make([][]byte, 0, r.Count())
 	itr := r.Iterator()
 	itr.Seek(0)
-
 	for v, eof := itr.Next(); !eof; v, eof = itr.Next() {
-		err := tr(fields.MetricsFST, v, func(val []byte) error {
+		err := tr(constants.MetricsFST, v, func(val []byte) error {
 			o = append(o, bytes.Clone(val))
 			return nil
 		})

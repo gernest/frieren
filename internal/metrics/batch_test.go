@@ -3,6 +3,7 @@ package metrics
 import (
 	"testing"
 
+	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/internal/util"
@@ -41,14 +42,14 @@ func TestBach_Append(t *testing.T) {
 		require.Equal(t, want, vs)
 	})
 	t.Run("series", func(t *testing.T) {
-		fra := fields.New(fields.MetricsSeries, 0, "_20060102")
+		fra := fields.New(constants.MetricsSeries, 0, "_20060102")
 		all, err := fra.TransposeBSI(tx, nil)
 		require.NoError(t, err)
 		want := []uint64{0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc}
 		require.Equal(t, want, all.ToArray())
 	})
 	t.Run("shards", func(t *testing.T) {
-		fra := fields.Fragment{ID: fields.MetricsShards, View: "_20060102"}
+		fra := fields.New(constants.MetricsShards, 0, "_20060102")
 		shards, err := fra.Shards(tx)
 		require.NoError(t, err)
 		require.Equal(t, []uint64{0}, shards)

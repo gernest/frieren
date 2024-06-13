@@ -16,29 +16,14 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 )
 
-type ID = constants.ID
-
-const (
-	MetricsRow       = constants.MetricsRow
-	MetricsValue     = constants.MetricsValue
-	MetricsHistogram = constants.MetricsHistogram
-	MetricsTimestamp = constants.MetricsTimestamp
-	MetricsSeries    = constants.MetricsSeries
-	MetricsLabels    = constants.MetricsLabels
-	MetricsExemplars = constants.MetricsExemplars
-	MetricsShards    = constants.MetricsShards
-	MetricsFSTBitmap = constants.MetricsFSTBitmap
-	MetricsFST       = constants.MetricsFST
-)
-
 type Fragment struct {
-	ID    ID
+	ID    constants.ID
 	Shard uint64
 	View  string
 	full  string
 }
 
-func New(id ID, shard uint64, view string) *Fragment {
+func New(id constants.ID, shard uint64, view string) *Fragment {
 	return &Fragment{ID: id, Shard: shard, View: view}
 }
 
@@ -77,7 +62,7 @@ func (f *Fragment) Labels(tx *rbf.Tx, tr blob.Tr, column uint64) (labels.Labels,
 	}
 	o := make(labels.Labels, 0, len(rows))
 	for i := range rows {
-		err = tr(MetricsLabels, rows[i], func(val []byte) error {
+		err = tr(constants.MetricsLabels, rows[i], func(val []byte) error {
 			key, value, _ := bytes.Cut(val, eql)
 			o = append(o, labels.Label{
 				Name:  string(key),

@@ -20,42 +20,42 @@ func Save(db *store.Store, b *Batch, ts time.Time) error {
 	defer txn.Discard()
 	return store.UpdateIndex(db.Index, func(tx *rbf.Tx) error {
 		view := quantum.ViewByTimeUnit("", ts, 'D')
-		err := batch.Apply(tx, fields.Fragment{ID: fields.MetricsValue, View: view}, b.values)
+		err := batch.Apply(tx, fields.New(constants.MetricsValue, 0, view), b.values)
 		if err != nil {
 			return err
 		}
-		err = batch.Apply(tx, fields.Fragment{ID: fields.MetricsHistogram, View: view}, b.histogram)
+		err = batch.Apply(tx, fields.New(constants.MetricsHistogram, 0, view), b.histogram)
 		if err != nil {
 			return err
 		}
-		err = batch.Apply(tx, fields.Fragment{ID: fields.MetricsTimestamp, View: view}, b.timestamp)
+		err = batch.Apply(tx, fields.New(constants.MetricsTimestamp, 0, view), b.timestamp)
 		if err != nil {
 			return err
 		}
-		err = batch.Apply(tx, fields.Fragment{ID: fields.MetricsSeries, View: view}, b.series)
+		err = batch.Apply(tx, fields.New(constants.MetricsSeries, 0, view), b.series)
 		if err != nil {
 			return err
 		}
-		err = batch.Apply(tx, fields.Fragment{ID: fields.MetricsLabels, View: view}, b.labels)
+		err = batch.Apply(tx, fields.New(constants.MetricsLabels, 0, view), b.labels)
 		if err != nil {
 			return err
 		}
-		err = batch.Apply(tx, fields.Fragment{ID: fields.MetricsExemplars, View: view}, b.exemplars)
+		err = batch.Apply(tx, fields.New(constants.MetricsExemplars, 0, view), b.exemplars)
 		if err != nil {
 			return err
 		}
-		err = batch.Apply(tx, fields.Fragment{ID: fields.MetricsFSTBitmap, View: view}, b.fst)
+		err = batch.Apply(tx, fields.New(constants.MetricsFSTBitmap, 0, view), b.fst)
 		if err != nil {
 			return err
 		}
 		err = batch.ApplyFST(txn, tx, blob.Translate(txn),
-			fields.Fragment{ID: fields.MetricsFST, View: view},
-			fields.Fragment{ID: fields.MetricsFSTBitmap, View: view},
+			fields.New(constants.MetricsFST, 0, view),
+			fields.New(constants.MetricsFSTBitmap, 0, view),
 			b.fst)
 		if err != nil {
 			return err
 		}
-		return batch.ApplyShards(tx, fields.Fragment{ID: fields.MetricsShards, View: view}, &b.shards)
+		return batch.ApplyShards(tx, fields.New(constants.MetricsShards, 0, view), &b.shards)
 	})
 }
 

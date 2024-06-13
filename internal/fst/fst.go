@@ -8,6 +8,7 @@ import (
 	"github.com/blevesearch/vellum"
 	re "github.com/blevesearch/vellum/regexp"
 	"github.com/dgraph-io/badger/v4"
+	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/rbf"
@@ -19,7 +20,7 @@ import (
 func Match(txn *badger.Txn, tx *rbf.Tx, fra *fields.Fragment, matchers ...*labels.Matcher) (result []uint64, err error) {
 	var buf bytes.Buffer
 	err = Read(txn, []byte(fra.String()), func(fst *vellum.FST) error {
-		all, err := tx.RoaringBitmap((&fields.Fragment{ID: fields.MetricsFSTBitmap, Shard: fra.Shard, View: fra.View}).String())
+		all, err := tx.RoaringBitmap(fields.New(constants.MetricsFSTBitmap, fra.Shard, fra.View).String())
 		if err != nil {
 			return fmt.Errorf("reading fst bitmap %w", err)
 		}
@@ -96,7 +97,7 @@ func Match(txn *badger.Txn, tx *rbf.Tx, fra *fields.Fragment, matchers ...*label
 func MatchSet(txn *badger.Txn, tx *rbf.Tx, fra *fields.Fragment, matchers ...[]*labels.Matcher) (result []uint64, err error) {
 	var buf bytes.Buffer
 	err = Read(txn, []byte(fra.String()), func(fst *vellum.FST) error {
-		all, err := tx.RoaringBitmap((&fields.Fragment{ID: fields.MetricsFSTBitmap, Shard: fra.Shard, View: fra.View}).String())
+		all, err := tx.RoaringBitmap(fields.New(constants.MetricsFSTBitmap, fra.Shard, fra.View).String())
 		if err != nil {
 			return fmt.Errorf("reading fst bitmap %w", err)
 		}

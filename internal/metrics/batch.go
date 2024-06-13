@@ -10,7 +10,6 @@ import (
 	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
-	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/ro"
 	"github.com/gernest/frieren/internal/shardwidth"
 	"github.com/gernest/frieren/internal/store"
@@ -62,7 +61,7 @@ type LabelFunc func([]prompb.Label) []uint64
 func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob.Func, seq *store.Seq) {
 	labels := labelFunc(ts.Labels)
 	checksum := sha512.Sum512(util.Uint64ToBytes(labels))
-	series := blobFunc(fields.MetricsSeries, checksum[:])
+	series := blobFunc(constants.MetricsSeries, checksum[:])
 
 	b.depth(constants.MetricsSeries, bits.Len64(series))
 
@@ -70,10 +69,10 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob
 	var exemplars uint64
 	if len(ts.Exemplars) > 0 {
 		data, _ := EncodeExemplars(ts.Exemplars)
-		exemplars = blobFunc(fields.MetricsExemplars, data)
+		exemplars = blobFunc(constants.MetricsExemplars, data)
 	}
 	for _, s := range ts.Samples {
-		id := seq.NextID(fields.MetricsRow)
+		id := seq.NextID(constants.MetricsRow)
 		shard := id / shardwidth.ShardWidth
 		if shard != currentShard {
 			currentShard = shard
@@ -88,7 +87,7 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob
 		b.depth(constants.MetricsTimestamp, bits.Len64(uint64(s.Timestamp)))
 		b.depth(constants.MetricsValue, bits.Len64(value))
 
-		if exemplars != 0 {
+		if len(ts.Exemplars) > 0 {
 			ro.BSI(bitmap(shard, b.exemplars), id, exemplars)
 			b.depth(constants.MetricsExemplars, bits.Len64(exemplars))
 		}
@@ -97,14 +96,14 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob
 
 	for j := range ts.Histograms {
 		s := &ts.Histograms[j]
-		id := seq.NextID(fields.MetricsRow)
+		id := seq.NextID(constants.MetricsRow)
 		shard := id / shardwidth.ShardWidth
 		if shard != currentShard {
 			currentShard = shard
 			b.shards.Add(shard)
 		}
 		data, _ := s.Marshal()
-		value := blobFunc(fields.MetricsHistogram, data)
+		value := blobFunc(constants.MetricsHistogram, data)
 		ro.BSI(bitmap(shard, b.series), id, series)
 		ro.BSI(bitmap(shard, b.timestamp), id, uint64(s.Timestamp))
 		ro.BSI(bitmap(shard, b.values), id, value)
@@ -114,7 +113,7 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob
 		b.depth(constants.MetricsValue, bits.Len64(value))
 		b.depth(constants.MetricsTimestamp, bits.Len64(uint64(s.Timestamp)))
 
-		if exemplars != 0 {
+		if len(ts.Exemplars) > 0 {
 			ro.BSI(bitmap(shard, b.exemplars), id, exemplars)
 			b.depth(constants.MetricsExemplars, bits.Len64(exemplars))
 		}
