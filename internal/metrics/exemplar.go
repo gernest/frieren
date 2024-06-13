@@ -5,17 +5,17 @@ import (
 	"fmt"
 	"io"
 	"slices"
-	"time"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/dgraph-io/badger/v4"
+	v1 "github.com/gernest/frieren/gen/go/fri/v1"
 	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/fst"
+	"github.com/gernest/frieren/internal/query"
 	"github.com/gernest/frieren/internal/tags"
 	"github.com/gernest/rbf"
-	"github.com/gernest/rbf/quantum"
 	"github.com/gernest/rows"
 	"github.com/prometheus/prometheus/model/exemplar"
 	"github.com/prometheus/prometheus/model/labels"
@@ -46,18 +46,6 @@ func (e *ExemplarQueryable) ExemplarQuerier(ctx context.Context) (storage.Exempl
 var _ storage.ExemplarQuerier = (*ExemplarQueryable)(nil)
 
 func (e *ExemplarQueryable) Select(start, end int64, matchers ...[]*labels.Matcher) ([]exemplar.QueryResult, error) {
-
-	var views []string
-	if date(start).Equal(date(end)) {
-		// Same day generate a single view
-		views = []string{quantum.ViewByTimeUnit("", time.UnixMilli(start), 'D')}
-	} else {
-		// We want view that might contain maxts to be included too, we need to add
-		// extra date
-		views = quantum.ViewsByTimeRange("",
-			time.UnixMilli(start), time.UnixMilli(end).AddDate(0, 0, 1),
-			quantum.TimeQuantum("D"))
-	}
 	tx, err := e.idx.Begin(false)
 	if err != nil {
 		return nil, err
@@ -67,35 +55,31 @@ func (e *ExemplarQueryable) Select(start, end int64, matchers ...[]*labels.Match
 	txn := e.db.NewTransaction(false)
 	defer txn.Discard()
 
+	view, err := query.New(txn, tx, start, end)
+	if err != nil {
+		return nil, err
+	}
+	if view.IsEmpty() {
+		return []exemplar.QueryResult{}, nil
+	}
 	m := make(ExemplarSet)
 	tr := blob.Translate(txn)
-	for _, view := range views {
-		// read the shards observed per view
-		shardsView := fields.New(constants.MetricsShards, 0, view)
-		r, err := tx.RoaringBitmap(shardsView.String())
+	err = view.Traverse(func(shard *v1.Shard, view string) error {
+		filters, err := fst.MatchSet(txn, tx, shard.Id, view, constants.MetricsFST, matchers...)
 		if err != nil {
-			return nil, fmt.Errorf("reading shards bitmap %w", err)
+			return err
 		}
-		shards := r.Slice()
-
-		for _, shard := range shards {
-			fra := fields.New(constants.MetricsFST, shard, view)
-			filters, err := fst.MatchSet(txn, tx, fra, matchers...)
-			if err != nil {
-				return nil, err
-			}
-			if len(filters) == 0 {
-				continue
-			}
-			r, err := tags.Filter(tx, fields.New(constants.MetricsLabels, shard, view), filters)
-			if err != nil {
-				return nil, err
-			}
-			err = m.Build(txn, tx, tr, start, end, view, shard, r)
-			if err != nil {
-				return nil, err
-			}
+		if len(filters) == 0 {
+			return nil
 		}
+		r, err := tags.Filter(tx, fields.New(constants.MetricsLabels, shard.Id, view), filters)
+		if err != nil {
+			return err
+		}
+		return m.Build(txn, tx, tr, start, end, view, shard.Id, r)
+	})
+	if err != nil {
+		return nil, err
 	}
 	o := make([]exemplar.QueryResult, 0, len(m))
 	ts := &prompb.TimeSeries{}

@@ -13,7 +13,7 @@ const (
 	fstBitmap
 	fst
 	metadata
-	depth
+	fieldView
 )
 
 type Seq struct {
@@ -56,10 +56,11 @@ func (e *BlobKey) Key() []byte {
 
 type FSTBitmap struct {
 	ShardID uint64
+	FieldID uint64
 }
 
 func (e *FSTBitmap) Slice() []uint64 {
-	return []uint64{fstBitmap, e.ShardID}
+	return []uint64{fstBitmap, e.FieldID, e.ShardID}
 }
 
 func (e *FSTBitmap) Key() []byte {
@@ -68,10 +69,11 @@ func (e *FSTBitmap) Key() []byte {
 
 type FST struct {
 	ShardID uint64
+	FieldID uint64
 }
 
 func (e *FST) Key() []byte {
-	return Encode(nil, []uint64{fst, e.ShardID})
+	return Encode(nil, []uint64{fst, e.FieldID, e.ShardID})
 }
 
 type Metadata struct {
@@ -86,15 +88,13 @@ func (e *Metadata) Key() []byte {
 	return Encode(nil, e.Slice())
 }
 
-type BitDepth struct {
-	ShardID uint64
+type FieldView struct{}
+
+func (e *FieldView) Slice() []uint64 {
+	return []uint64{fieldView}
 }
 
-func (e *BitDepth) Slice() []uint64 {
-	return []uint64{depth, e.ShardID}
-}
-
-func (e *BitDepth) Key() []byte {
+func (e *FieldView) Key() []byte {
 	return Encode(nil, e.Slice())
 }
 

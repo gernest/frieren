@@ -4,17 +4,19 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"time"
 
 	"github.com/dgraph-io/badger/v4"
+	v1 "github.com/gernest/frieren/gen/go/fri/v1"
 	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/fst"
+	"github.com/gernest/frieren/internal/query"
 	"github.com/gernest/frieren/internal/tags"
 	"github.com/gernest/rbf"
-	"github.com/gernest/rbf/quantum"
 	"github.com/gernest/rows"
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
@@ -38,43 +40,21 @@ func NewQueryable(db *badger.DB, idx *rbf.DB) *Queryable {
 var _ storage.Queryable = (*Queryable)(nil)
 
 func (q *Queryable) Querier(mints, maxts int64) (storage.Querier, error) {
-	var views []string
-	if date(mints).Equal(date(maxts)) {
-		// Same day generate a single view
-		views = []string{quantum.ViewByTimeUnit("", time.UnixMilli(mints), 'D')}
-	} else {
-		// We want view that might contain maxts to be included too, we need to add
-		// extra date
-		views = quantum.ViewsByTimeRange("",
-			time.UnixMilli(mints), time.UnixMilli(maxts).AddDate(0, 0, 1),
-			quantum.TimeQuantum("D"))
-	}
 	tx, err := q.idx.Begin(false)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
-
-	ids := make([]string, 0, len(views))
-	shards := make([][]uint64, 0, len(views))
-	for i := range views {
-		// read the shards observed per view
-		view := fields.New(constants.MetricsShards, 0, views[i])
-		r, err := tx.RoaringBitmap(view.String())
-		if err != nil {
-			return nil, fmt.Errorf("reading shards bitmap %w", err)
-		}
-		if r.Count() == 0 {
-			continue
-		}
-		ids = append(ids, views[i])
-		shards = append(shards, r.Slice())
+	txn := q.db.NewTransaction(false)
+	defer txn.Discard()
+	view, err := query.New(txn, tx, mints, maxts)
+	if err != nil {
+		return nil, err
 	}
 	return &Querier{
-		shards: shards,
-		views:  ids,
-		db:     q.db,
-		idx:    q.idx,
+		view: view,
+		db:   q.db,
+		idx:  q.idx,
 	}, nil
 
 }
@@ -85,10 +65,9 @@ func date(ts int64) time.Time {
 }
 
 type Querier struct {
-	shards [][]uint64
-	views  []string
-	db     *badger.DB
-	idx    *rbf.DB
+	view *query.View
+	db   *badger.DB
+	idx  *rbf.DB
 }
 
 var _ storage.Querier = (*Querier)(nil)
@@ -98,7 +77,7 @@ func (q *Querier) Close() error {
 
 }
 func (s *Querier) LabelValues(ctx context.Context, name string, matchers ...*labels.Matcher) ([]string, annotations.Annotations, error) {
-	if len(s.views) == 0 {
+	if s.view.IsEmpty() {
 		return []string{}, nil, nil
 	}
 	names := map[string]struct{}{}
@@ -106,14 +85,13 @@ func (s *Querier) LabelValues(ctx context.Context, name string, matchers ...*lab
 	txn := s.db.NewTransaction(false)
 	defer txn.Discard()
 
-	for i := range s.views {
-		view := s.views[i]
-		for _, shard := range s.shards[i] {
-			fra := fields.New(constants.MetricsFST, shard, view)
-			fst.LabelNames(txn, []byte(fra.String()), name, func(name, value []byte) {
-				names[string(value)] = struct{}{}
-			})
-		}
+	err := s.view.Traverse(func(info *v1.Shard, view string) error {
+		return fst.LabelNames(txn, info.Id, view, constants.MetricsFST, name, func(name, value []byte) {
+			names[string(value)] = struct{}{}
+		})
+	})
+	if err != nil {
+		return nil, nil, err
 	}
 	o := make([]string, 0, len(names))
 	for k := range names {
@@ -122,8 +100,9 @@ func (s *Querier) LabelValues(ctx context.Context, name string, matchers ...*lab
 	sort.Strings(o)
 	return o, nil, nil
 }
+
 func (s *Querier) LabelNames(ctx context.Context, matchers ...*labels.Matcher) ([]string, annotations.Annotations, error) {
-	if len(s.views) == 0 {
+	if s.view.IsEmpty() {
 		return []string{}, nil, nil
 	}
 	names := map[string]struct{}{}
@@ -131,14 +110,13 @@ func (s *Querier) LabelNames(ctx context.Context, matchers ...*labels.Matcher) (
 	txn := s.db.NewTransaction(false)
 	defer txn.Discard()
 
-	for i := range s.views {
-		view := s.views[i]
-		for _, shard := range s.shards[i] {
-			fra := fields.New(constants.MetricsFST, shard, view)
-			fst.Labels(txn, []byte(fra.String()), func(name, value []byte) {
-				names[string(name)] = struct{}{}
-			})
-		}
+	err := s.view.Traverse(func(info *v1.Shard, view string) error {
+		return fst.Labels(txn, info.Id, view, constants.MetricsFST, func(name, value []byte) {
+			names[string(name)] = struct{}{}
+		})
+	})
+	if err != nil {
+		return nil, nil, err
 	}
 	o := make([]string, 0, len(names))
 	for k := range names {
@@ -149,7 +127,7 @@ func (s *Querier) LabelNames(ctx context.Context, matchers ...*labels.Matcher) (
 }
 
 func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.SelectHints, matchers ...*labels.Matcher) storage.SeriesSet {
-	if len(matchers) == 0 || len(s.views) == 0 {
+	if len(matchers) == 0 || s.view.IsEmpty() {
 		return storage.EmptySeriesSet()
 	}
 	tx, err := s.idx.Begin(false)
@@ -163,34 +141,44 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 
 	m := make(MapSet)
 
-	for i := range s.views {
-		view := s.views[i]
-		for _, shard := range s.shards[i] {
-			fra := fields.New(constants.MetricsFST, shard, view)
-			filters, err := fst.Match(txn, tx, fra, matchers...)
-			if err != nil {
-				return storage.ErrSeriesSet(err)
-			}
-			if len(filters) == 0 {
-				continue
-			}
-			r, err := tags.Filter(tx, fields.New(constants.MetricsLabels, shard, view), filters)
-			if err != nil {
-				return storage.ErrSeriesSet(err)
-			}
-			err = m.Build(txn, tx, blob.Translate(txn), hints.Start, hints.End, view, shard, r)
-			if err != nil {
-				return storage.ErrSeriesSet(err)
-			}
+	err = s.view.Traverse(func(shard *v1.Shard, view string) error {
+		filters, err := fst.Match(txn, shard.Id, view, constants.MetricsFST, matchers...)
+		if err != nil {
+			return err
 		}
-
+		if len(filters) == 0 {
+			return nil
+		}
+		r, err := tags.Filter(tx, fields.New(constants.MetricsLabels, shard.Id, view), filters)
+		if err != nil {
+			return err
+		}
+		return m.Build(txn, tx, blob.Translate(txn), hints.Start, hints.End, view, shard.Id, r)
+	})
+	if err != nil {
+		return storage.ErrSeriesSet(err)
 	}
-	return nil
+	return NewSeriesSet(m)
 }
 
 type SeriesSet struct {
 	series []storage.Series
 	pos    int
+}
+
+func NewSeriesSet(m MapSet) *SeriesSet {
+	keys := make([]uint64, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	s := make([]storage.Series, 0, len(m))
+	for i := range keys {
+		s = append(s, storage.NewListSeries(m[keys[i]].Labels, m[keys[i]].Samples))
+	}
+	return &SeriesSet{
+		series: s, pos: -1,
+	}
 }
 
 var _ storage.SeriesSet = (*SeriesSet)(nil)

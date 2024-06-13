@@ -9,8 +9,6 @@ const (
 	MetricsSeries
 	MetricsLabels
 	MetricsExemplars
-	MetricsShards
-	MetricsFSTBitmap
 	MetricsFST
 	MetricsRow
 

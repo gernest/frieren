@@ -44,18 +44,11 @@ func Save(db *store.Store, b *Batch, ts time.Time) error {
 		if err != nil {
 			return err
 		}
-		err = batch.Apply(tx, fields.New(constants.MetricsFSTBitmap, 0, view), b.fst)
+		err = batch.ApplyFST(txn, tx, blob.Translate(txn), view, constants.MetricsFST, b.fst)
 		if err != nil {
 			return err
 		}
-		err = batch.ApplyFST(txn, tx, blob.Translate(txn),
-			fields.New(constants.MetricsFST, 0, view),
-			fields.New(constants.MetricsFSTBitmap, 0, view),
-			b.fst)
-		if err != nil {
-			return err
-		}
-		return batch.ApplyShards(tx, fields.New(constants.MetricsShards, 0, view), &b.shards)
+		return batch.ApplyBitDepth(txn, view, b.bitDepth)
 	})
 }
 

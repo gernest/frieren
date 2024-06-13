@@ -35,7 +35,6 @@ func TestBach_Append(t *testing.T) {
 			{Field: "4", View: "_20060102"},
 			{Field: "5", View: "_20060102"},
 			{Field: "6", View: "_20060102"},
-			{Field: "7", View: "_20060102"},
 		}
 		vs, err := tx.GetSortedFieldViewList()
 		require.NoError(t, err)
@@ -47,12 +46,6 @@ func TestBach_Append(t *testing.T) {
 		require.NoError(t, err)
 		want := []uint64{0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc}
 		require.Equal(t, want, all.ToArray())
-	})
-	t.Run("shards", func(t *testing.T) {
-		fra := fields.New(constants.MetricsShards, 0, "_20060102")
-		shards, err := fra.Shards(tx)
-		require.NoError(t, err)
-		require.Equal(t, []uint64{0}, shards)
 	})
 }
 

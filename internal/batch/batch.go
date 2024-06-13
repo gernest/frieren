@@ -2,6 +2,7 @@ package batch
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -31,20 +32,9 @@ func Apply(tx *rbf.Tx, view *fields.Fragment, data map[uint64]*roaring64.Bitmap)
 	return nil
 }
 
-func ApplyShards(tx *rbf.Tx, view *fields.Fragment, m *roaring64.Bitmap) error {
-	key := view.WithShard(0).String()
-	_, err := tx.Add(key, m.ToArray()...)
-	if err != nil {
-		return fmt.Errorf("adding to %s %w", key, err)
-	}
-	return nil
-}
-
-func ApplyFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, fra, fstBitmap *fields.Fragment, data map[uint64]*roaring64.Bitmap) error {
-	for shard := range data {
-		fst := fra.WithShard(shard)
-		fstBm := fstBitmap.WithShard(shard)
-		err := updateFST(txn, tx, tr, fst, fstBm)
+func ApplyFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, view string, id constants.ID, data map[uint64]*roaring64.Bitmap) error {
+	for shard, bm := range data {
+		err := updateFST(txn, tr, shard, view, id, bm)
 		if err != nil {
 			return fmt.Errorf("inserting exists bsi %w", err)
 		}
@@ -52,16 +42,24 @@ func ApplyFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, fra, fstBitmap *fields.Fr
 	return txn.Commit()
 }
 
-func updateFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, fra, bitmapFra *fields.Fragment) error {
-	r, err := tx.RoaringBitmap(bitmapFra.String())
+func updateFST(txn *badger.Txn, tr blob.Tr, shard uint64, view string, id constants.ID, bm *roaring64.Bitmap) error {
+	bitmapKey := (&keys.FSTBitmap{ShardID: shard, FieldID: uint64(id)}).Key()
+	bitmapKey = append(bitmapKey, []byte(view)...)
+
+	fstKey := (&keys.FST{ShardID: shard, FieldID: uint64(id)}).Key()
+	fstKey = append(fstKey, []byte(view)...)
+
+	b := roaring64.New()
+	err := store.Get(txn, bitmapKey, b.UnmarshalBinary)
 	if err != nil {
-		return fmt.Errorf("reading fst bitmap %w", err)
+		return err
 	}
-	o := make([][]byte, 0, r.Count())
-	itr := r.Iterator()
-	itr.Seek(0)
-	for v, eof := itr.Next(); !eof; v, eof = itr.Next() {
-		err := tr(constants.MetricsFST, v, func(val []byte) error {
+	b.Or(bm)
+
+	o := make([][]byte, 0, b.GetCardinality())
+	it := b.Iterator()
+	for it.HasNext() {
+		err := tr(constants.MetricsFST, it.Next(), func(val []byte) error {
 			o = append(o, bytes.Clone(val))
 			return nil
 		})
@@ -88,35 +86,67 @@ func updateFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, fra, bitmapFra *fields.F
 	if err != nil {
 		return fmt.Errorf("closing fst builder %w", err)
 	}
-	return txn.Set([]byte(fra.String()), buf.Bytes())
+	b.RunOptimize()
+	fstData := bytes.Clone(buf.Bytes())
+	buf.Reset()
+	b.WriteTo(buf)
+	return errors.Join(
+		txn.Set(fstKey, fstData),
+		txn.Set(bitmapKey, buf.Bytes()),
+	)
 }
 
-func UpsertBitDepth(txn *badger.Txn, depth map[uint64]map[uint64]uint64) error {
-	o := (&keys.BitDepth{}).Slice()
-	b := &v1.BitDepth{}
-	buf := make([]byte, 0, len(o)*8)
-	for shard, set := range depth {
-		b.Reset()
-		o[len(o)-1] = shard
-		key := keys.Encode(buf, o)
-		store.Get(txn, key, func(val []byte) error {
-			return proto.Unmarshal(val, b)
-		})
-		if b.BitDepth == nil {
-			b.BitDepth = set
-		} else {
-			for k, v := range set {
-				b.BitDepth[k] = max(b.BitDepth[k], v)
+func ApplyBitDepth(txn *badger.Txn, view string, depth map[uint64]map[uint64]uint64) error {
+	b := &v1.FieldViewInfo{}
+	key := (&keys.FieldView{}).Key()
+	key = append(key, []byte(view)...)
+	store.Get(txn, key, func(val []byte) error {
+		return proto.Unmarshal(val, b)
+	})
+	if b.Shards == nil {
+		b.Shards = make(map[uint64]*v1.Shard)
+		for shard, set := range depth {
+			b.Shards[shard] = &v1.Shard{
+				BitDepth: set,
 			}
 		}
-		data, err := proto.Marshal(b)
-		if err != nil {
-			return err
-		}
-		err = txn.Set(bytes.Clone(key), data)
-		if err != nil {
-			return err
+	} else {
+		for shard, set := range depth {
+			s, ok := b.Shards[shard]
+			if !ok {
+				s = &v1.Shard{
+					Id:       shard,
+					BitDepth: make(map[uint64]uint64),
+				}
+			}
+			for k, v := range set {
+				s.BitDepth[k] = max(s.BitDepth[k], v)
+			}
 		}
 	}
-	return nil
+	data, err := proto.Marshal(b)
+	if err != nil {
+		return err
+	}
+	return txn.Set(key, data)
+}
+
+func FieldViewInfo(txn *badger.Txn, view string) (*v1.FieldViewInfo, error) {
+	key := (&keys.FieldView{}).Key()
+	key = append(key, []byte(view)...)
+	it, err := txn.Get(key)
+	if err != nil {
+		if !errors.Is(err, badger.ErrKeyNotFound) {
+			return nil, err
+		}
+		return &v1.FieldViewInfo{}, nil
+	}
+	o := &v1.FieldViewInfo{}
+	err = it.Value(func(val []byte) error {
+		return proto.Unmarshal(val, o)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return o, nil
 }

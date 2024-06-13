@@ -5,26 +5,23 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/blevesearch/vellum"
 	re "github.com/blevesearch/vellum/regexp"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/constants"
-	"github.com/gernest/frieren/internal/fields"
+	"github.com/gernest/frieren/internal/keys"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/rbf"
-	"github.com/gernest/roaring"
 	"github.com/prometheus/prometheus/model/labels"
 )
 
 // Match returns label IDs that match all matchers.
-func Match(txn *badger.Txn, tx *rbf.Tx, fra *fields.Fragment, matchers ...*labels.Matcher) (result []uint64, err error) {
+func Match(txn *badger.Txn, shard uint64, view string, id constants.ID, matchers ...*labels.Matcher) (result []uint64, err error) {
 	var buf bytes.Buffer
-	err = Read(txn, []byte(fra.String()), func(fst *vellum.FST) error {
-		all, err := tx.RoaringBitmap(fields.New(constants.MetricsFSTBitmap, fra.Shard, fra.View).String())
-		if err != nil {
-			return fmt.Errorf("reading fst bitmap %w", err)
-		}
-		r := roaring.NewBitmap()
+	err = Read(txn, shard, view, id, func(fst *vellum.FST) error {
+		equal := roaring64.New()
+		notEqual := roaring64.New()
 		for _, m := range matchers {
 			switch m.Type {
 			case labels.MatchRegexp, labels.MatchNotRegexp:
@@ -32,25 +29,13 @@ func Match(txn *badger.Txn, tx *rbf.Tx, fra *fields.Fragment, matchers ...*label
 				if err != nil {
 					return fmt.Errorf("compiling matcher %q %w", m.String(), err)
 				}
-				b := roaring.NewBitmap()
 				itr, err := fst.Search(rx, nil, nil)
 				for err == nil {
 					_, value := itr.Current()
-					b.Add(value)
-					err = itr.Next()
-				}
-				if m.Type == labels.MatchRegexp {
-					if r.Count() == 0 {
-						r = b
+					if m.Type == labels.MatchRegexp {
+						equal.Add(value)
 					} else {
-						r = r.Intersect(b)
-					}
-				} else {
-					clone := all.Clone().Difference(b)
-					if r.Count() == 0 {
-						r = clone
-					} else {
-						r = r.Intersect(clone)
+						notEqual.Add(value)
 					}
 				}
 			case labels.MatchEqual, labels.MatchNotEqual:
@@ -66,44 +51,46 @@ func Match(txn *badger.Txn, tx *rbf.Tx, fra *fields.Fragment, matchers ...*label
 					return nil
 				}
 				if m.Type == labels.MatchEqual {
-					if !all.Contains(value) {
-						return nil
-					}
-					if r.Count() == 0 {
-						r.Add(value)
-					} else {
-						r = r.Intersect(roaring.NewBitmap(value))
-					}
+					equal.Add(value)
 				} else {
-					clone := all.Clone()
-					clone.Remove(value)
-					if r.Count() == 0 {
-						r = clone
-					} else {
-						r = r.Intersect(clone)
-					}
+					notEqual.Add(value)
 				}
 			}
-			if r.Count() == 0 {
-				return nil
+		}
+		if !notEqual.IsEmpty() {
+			if !equal.IsEmpty() {
+				equal.AndNot(notEqual)
+			} else {
+				// We only negation matchers
+				key := (&keys.FSTBitmap{ShardID: shard, FieldID: uint64(id)}).Key()
+				key = append(key, []byte(view)...)
+				err = store.Get(txn, key, equal.UnmarshalBinary)
+				if err != nil {
+					return fmt.Errorf("reading fst bitmap %w", err)
+				}
+				equal.AndNot(notEqual)
 			}
 		}
-		result = r.Slice()
+		result = equal.ToArray()
 		return nil
 	})
 	return
 }
 
-func MatchSet(txn *badger.Txn, tx *rbf.Tx, fra *fields.Fragment, matchers ...[]*labels.Matcher) (result []uint64, err error) {
+func MatchSet(txn *badger.Txn, tx *rbf.Tx, shard uint64, view string, id constants.ID, matchers ...[]*labels.Matcher) (result []uint64, err error) {
 	var buf bytes.Buffer
-	err = Read(txn, []byte(fra.String()), func(fst *vellum.FST) error {
-		all, err := tx.RoaringBitmap(fields.New(constants.MetricsFSTBitmap, fra.Shard, fra.View).String())
-		if err != nil {
-			return fmt.Errorf("reading fst bitmap %w", err)
-		}
-		rs := roaring.NewBitmap()
+	err = Read(txn, shard, view, id, func(fst *vellum.FST) error {
+
+		all := roaring64.New()
+
+		equal := roaring64.New()
+		notEqual := roaring64.New()
+		rs := roaring64.New()
+		var readAll bool
+
 		for _, ms := range matchers {
-			r := roaring.NewBitmap()
+			equal.Clear()
+			notEqual.Clear()
 			for _, m := range ms {
 				switch m.Type {
 				case labels.MatchRegexp, labels.MatchNotRegexp:
@@ -111,26 +98,15 @@ func MatchSet(txn *badger.Txn, tx *rbf.Tx, fra *fields.Fragment, matchers ...[]*
 					if err != nil {
 						return fmt.Errorf("compiling matcher %q %w", m.String(), err)
 					}
-					b := roaring.NewBitmap()
 					itr, err := fst.Search(rx, nil, nil)
 					for err == nil {
 						_, value := itr.Current()
-						b.Add(value)
+						if m.Type == labels.MatchRegexp {
+							equal.Add(value)
+						} else {
+							notEqual.Add(value)
+						}
 						err = itr.Next()
-					}
-					if m.Type == labels.MatchRegexp {
-						if r.Count() == 0 {
-							r = b
-						} else {
-							r = r.Intersect(b)
-						}
-					} else {
-						clone := all.Clone().Difference(b)
-						if r.Count() == 0 {
-							r = clone
-						} else {
-							r = r.Intersect(clone)
-						}
 					}
 				case labels.MatchEqual, labels.MatchNotEqual:
 					buf.Reset()
@@ -145,28 +121,33 @@ func MatchSet(txn *badger.Txn, tx *rbf.Tx, fra *fields.Fragment, matchers ...[]*
 						return nil
 					}
 					if m.Type == labels.MatchEqual {
-						if !all.Contains(value) {
-							return nil
-						}
-						if r.Count() == 0 {
-							r.Add(value)
-						} else {
-							r = r.Intersect(roaring.NewBitmap(value))
-						}
+						equal.Add(value)
 					} else {
-						clone := all.Clone()
-						clone.Remove(value)
-						if r.Count() == 0 {
-							r = clone
-						} else {
-							r = r.Intersect(clone)
-						}
+						notEqual.Add(value)
 					}
 				}
 			}
-			rs = rs.Union(r)
+			if !notEqual.IsEmpty() {
+				if !equal.IsEmpty() {
+					equal.AndNot(notEqual)
+				} else {
+					if !readAll {
+						// We only negation matchers
+						key := (&keys.FSTBitmap{ShardID: shard, FieldID: uint64(id)}).Key()
+						key = append(key, []byte(view)...)
+						err = store.Get(txn, key, equal.UnmarshalBinary)
+						if err != nil {
+							return fmt.Errorf("reading fst bitmap %w", err)
+						}
+						readAll = true
+					}
+					equal.Or(all)
+					equal.AndNot(notEqual)
+				}
+			}
+			rs.Or(equal)
 		}
-		result = rs.Slice()
+		result = rs.ToArray()
 		return nil
 	})
 	return
@@ -174,8 +155,8 @@ func MatchSet(txn *badger.Txn, tx *rbf.Tx, fra *fields.Fragment, matchers ...[]*
 
 var eql = []byte("=")
 
-func Labels(txn *badger.Txn, key []byte, f func(name, value []byte)) error {
-	return Read(txn, key, func(fst *vellum.FST) error {
+func Labels(txn *badger.Txn, shard uint64, view string, id constants.ID, f func(name, value []byte)) error {
+	return Read(txn, shard, view, id, func(fst *vellum.FST) error {
 		it, err := fst.Iterator(nil, nil)
 		for err == nil {
 			current, _ := it.Current()
@@ -187,12 +168,12 @@ func Labels(txn *badger.Txn, key []byte, f func(name, value []byte)) error {
 	})
 }
 
-func LabelNames(txn *badger.Txn, key []byte, name string, f func(name, value []byte)) error {
+func LabelNames(txn *badger.Txn, shard uint64, view string, id constants.ID, name string, f func(name, value []byte)) error {
 	rx, err := re.New(name + "=.*")
 	if err != nil {
 		return err
 	}
-	return Read(txn, key, func(fst *vellum.FST) error {
+	return Read(txn, shard, view, id, func(fst *vellum.FST) error {
 		it, err := fst.Search(rx, nil, nil)
 		for err == nil {
 			current, _ := it.Current()
@@ -205,7 +186,9 @@ func LabelNames(txn *badger.Txn, key []byte, name string, f func(name, value []b
 }
 
 // Read  loads vellum.FST from database and calls f with it.
-func Read(txn *badger.Txn, key []byte, f func(fst *vellum.FST) error) error {
+func Read(txn *badger.Txn, shard uint64, view string, id constants.ID, f func(fst *vellum.FST) error) error {
+	key := (&keys.FST{ShardID: shard, FieldID: uint64(id)}).Key()
+	key = append(key, []byte(view)...)
 	return store.Get(txn, key, func(val []byte) error {
 		fst, err := vellum.Load(val)
 		if err != nil {
