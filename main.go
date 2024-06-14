@@ -103,7 +103,7 @@ func Main() *cli.Command {
 			}
 			defer db.Close()
 
-			ctx = self.Setup(ctx)
+			self.Setup()
 
 			mux := http.NewServeMux()
 

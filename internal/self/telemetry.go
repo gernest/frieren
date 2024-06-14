@@ -18,29 +18,19 @@ const (
 	service = "frieren"
 )
 
-type M struct {
-	Tracer trace.Tracer
-	Meter  metric.Meter
+func Meter() metric.Meter {
+	return otel.Meter(service)
 }
 
-type mKey struct{}
-
-func Get(ctx context.Context) *M {
-	if v := ctx.Value(mKey{}); v != nil {
-		return v.(*M)
-	}
-	return nil
-}
-
-func (m *M) Start(ctx context.Context, name string) (context.Context, trace.Span) {
-	return m.Tracer.Start(ctx, name)
+func Tracer() trace.Tracer {
+	return otel.Tracer(service)
 }
 
 func Start(ctx context.Context, name string) (context.Context, trace.Span) {
-	return otel.Tracer(service).Start(ctx, name)
+	return Tracer().Start(ctx, name)
 }
 
-func Setup(ctx context.Context) context.Context {
+func Setup() {
 	spanExporter, err := newSpanExporter()
 	if err != nil {
 		util.Exit("creating span exporter", "err", err)
@@ -70,11 +60,6 @@ func Setup(ctx context.Context) context.Context {
 	)
 
 	otel.SetMeterProvider(provider)
-	m := &M{
-		Tracer: tp.Tracer(service),
-		Meter:  provider.Meter(service),
-	}
-	return context.WithValue(ctx, mKey{}, m)
 }
 
 func newMetricReader() (sdkmetric.Reader, error) {
