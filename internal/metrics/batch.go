@@ -224,14 +224,25 @@ func AppendBatch(ctx context.Context, store *store.Store, mets pmetric.Metrics, 
 		return err
 	}
 	meta := prometheusremotewrite.OtelMetricsToMetadata(mets, true)
-	err = store.DB.Update(func(txn *badger.Txn) error {
+
+	// wrap everything in a single transaction
+	store.DB.Update(func(txn *badger.Txn) error {
 		blob := blob.Upsert(txn, store.Seq)
 		label := UpsertLabels(blob)
 		series := conv.TimeSeries()
 		for i := range series {
 			batch.Append(&series[i], label, blob, store.Seq)
 		}
-		err := Save(ctx, store, batch, ts)
+		tx, err := store.Index.Begin(true)
+		if err != nil {
+			return err
+		}
+		err = Save(ctx, tx, txn, batch, ts)
+		if err != nil {
+			tx.Rollback()
+			return err
+		}
+		err = tx.Commit()
 		if err != nil {
 			return err
 		}

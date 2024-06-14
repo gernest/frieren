@@ -40,7 +40,7 @@ func ApplyFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, view string, id constants
 			return fmt.Errorf("inserting exists bsi %w", err)
 		}
 	}
-	return txn.Commit()
+	return nil
 }
 
 func updateFST(buf *bytes.Buffer, txn *badger.Txn, tr blob.Tr, shard uint64, view string, id constants.ID, bm *roaring64.Bitmap) error {
@@ -83,6 +83,7 @@ func updateFST(buf *bytes.Buffer, txn *badger.Txn, tr blob.Tr, shard uint64, vie
 			return fmt.Errorf("inserting fst key key=%q %w", string(o[i]), err)
 		}
 	}
+
 	err = bs.Close()
 	if err != nil {
 		return fmt.Errorf("closing fst builder %w", err)
@@ -91,10 +92,15 @@ func updateFST(buf *bytes.Buffer, txn *badger.Txn, tr blob.Tr, shard uint64, vie
 	fstData := bytes.Clone(buf.Bytes())
 	buf.Reset()
 	b.WriteTo(buf)
-	return errors.Join(
-		txn.Set(fstKey, fstData),
-		txn.Set(bitmapKey, buf.Bytes()),
-	)
+	err = txn.Set(fstKey, fstData)
+	if err != nil {
+		return fmt.Errorf("saving fst %w", err)
+	}
+	err = txn.Set(bitmapKey, buf.Bytes())
+	if err != nil {
+		return fmt.Errorf("saving fst bitmap %w", err)
+	}
+	return nil
 }
 
 func ApplyBitDepth(txn *badger.Txn, view string, depth map[uint64]map[uint64]uint64) error {
