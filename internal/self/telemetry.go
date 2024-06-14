@@ -50,8 +50,6 @@ func Setup() {
 		util.Exit("creating metrics exporter", "err", err)
 	}
 
-	// use prometheus libraries and we want the stats to  be collected with the rest of otel metrics
-
 	provider := sdkmetric.NewMeterProvider(
 		sdkmetric.WithReader(
 			metricsReader,
