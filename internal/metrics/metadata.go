@@ -13,13 +13,13 @@ import (
 
 func StoreMetadata(txn *badger.Txn, meta []*prompb.MetricMetadata) error {
 	slice := (&keys.Metadata{}).Slice()
-	key := make([]byte, 0, len(slice)*8)
+	buf := new(bytes.Buffer)
 	var h xxhash.Digest
 	for _, m := range meta {
 		h.Reset()
 		h.WriteString(m.MetricFamilyName)
 		slice[len(slice)-1] = h.Sum64()
-		key = keys.Encode(key, slice)
+		key := keys.Encode(buf, slice)
 		if store.Has(txn, key) {
 			continue
 		}

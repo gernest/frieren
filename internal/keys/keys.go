@@ -1,15 +1,15 @@
 package keys
 
 import (
-	"encoding/binary"
-	"slices"
+	"bytes"
+	"fmt"
 )
 
 const (
-	seq uint64 = iota + (1 << 10)
+	seq uint64 = iota
 	blobSeq
 	blobID
-	blobKey
+	blobHash
 	fstBitmap
 	fst
 	metadata
@@ -41,16 +41,16 @@ func (e *BlobID) Key() []byte {
 	return Encode(nil, e.Slice())
 }
 
-type BlobKey struct {
+type BlobHash struct {
 	FieldID uint64
 	Hash    uint64
 }
 
-func (e *BlobKey) Slice() []uint64 {
-	return []uint64{blobKey, e.FieldID, e.Hash}
+func (e *BlobHash) Slice() []uint64 {
+	return []uint64{blobHash, e.FieldID, e.Hash}
 }
 
-func (e *BlobKey) Key() []byte {
+func (e *BlobHash) Key() []byte {
 	return Encode(nil, e.Slice())
 }
 
@@ -98,14 +98,17 @@ func (e *FieldView) Key() []byte {
 	return Encode(nil, e.Slice())
 }
 
-func Encode(b []byte, value []uint64) []byte {
+func Encode(b *bytes.Buffer, value []uint64) []byte {
 	if b == nil {
-		b = make([]byte, 0, len(value)*8)
+		b = new(bytes.Buffer)
 	} else {
-		b = slices.Grow(b[:0], len(value)*8)
+		b.Reset()
 	}
 	for i := range value {
-		b = binary.BigEndian.AppendUint64(b, value[i])
+		if i != 0 {
+			b.WriteByte(':')
+		}
+		fmt.Fprint(b, value[i])
 	}
-	return b
+	return b.Bytes()
 }

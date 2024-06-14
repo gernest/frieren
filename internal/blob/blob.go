@@ -20,8 +20,8 @@ type Tr func(id constants.ID, key uint64, f func([]byte) error) error
 func Upsert(txn *badger.Txn, seq *store.Seq) Func {
 	h := xxhash.New()
 	blobID := (&keys.BlobID{}).Slice()
-	blobHash := (&keys.BlobID{}).Slice()
-	buf := make([]byte, len(blobID)*8)
+	blobHash := (&keys.BlobHash{}).Slice()
+	buf := new(bytes.Buffer)
 
 	return func(field constants.ID, b []byte) uint64 {
 		h.Reset()
@@ -63,12 +63,8 @@ func Upsert(txn *badger.Txn, seq *store.Seq) Func {
 }
 
 func Translate(txn *badger.Txn) Tr {
-	slice := (&keys.BlobID{}).Slice()
-	buf := make([]byte, 0, len(slice)*8)
 	return func(field constants.ID, u uint64, f func([]byte) error) error {
-		slice[len(slice)-1] = u
-		slice[len(slice)-2] = uint64(field)
-		it, err := txn.Get(keys.Encode(buf, slice))
+		it, err := txn.Get((&keys.BlobID{FieldID: uint64(field), Seq: u}).Key())
 		if err != nil {
 			return err
 		}
