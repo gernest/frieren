@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"context"
 	"testing"
 
 	"github.com/gernest/frieren/internal/constants"
@@ -19,9 +20,8 @@ func TestBach_Append(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	batch := NewBatch()
 	m := generateOTLPWriteRequest()
-	err = AppendBatch(db, batch, m.Metrics(), util.TS())
+	err = AppendBatch(context.TODO(), db, m.Metrics(), util.TS())
 	require.NoError(t, err)
 	tx, err := db.Index.Begin(false)
 	require.NoError(t, err)

@@ -22,6 +22,38 @@ func Meter() metric.Meter {
 	return otel.Meter(service)
 }
 
+func Counter(name string, options ...metric.Int64CounterOption) metric.Int64Counter {
+	v, err := Meter().Int64Counter(name, options...)
+	if err != nil {
+		util.Exit("creating counter metric", "name", name)
+	}
+	return v
+}
+
+func Gauge(name string, options ...metric.Int64GaugeOption) metric.Int64Gauge {
+	v, err := Meter().Int64Gauge(name, options...)
+	if err != nil {
+		util.Exit("creating gauge metric", "name", name)
+	}
+	return v
+}
+
+func Histogram(name string, options ...metric.Int64HistogramOption) metric.Int64Histogram {
+	v, err := Meter().Int64Histogram(name, options...)
+	if err != nil {
+		util.Exit("creating histogram metric", "name", name)
+	}
+	return v
+}
+
+func FloatHistogram(name string, options ...metric.Float64HistogramOption) metric.Float64Histogram {
+	v, err := Meter().Float64Histogram(name, options...)
+	if err != nil {
+		util.Exit("creating float histogram metric", "name", name)
+	}
+	return v
+}
+
 func Tracer() trace.Tracer {
 	return otel.Tracer(service)
 }

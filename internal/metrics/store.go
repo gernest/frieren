@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"bytes"
+	"context"
 	"time"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
@@ -9,13 +10,17 @@ import (
 	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/fields"
+	"github.com/gernest/frieren/internal/self"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/quantum"
 	"github.com/prometheus/prometheus/prompb"
 )
 
-func Save(db *store.Store, b *Batch, ts time.Time) error {
+func Save(ctx context.Context, db *store.Store, b *Batch, ts time.Time) error {
+	_, span := self.Start(ctx, "METRICS.batch.save")
+	defer span.End()
+
 	txn := db.DB.NewTransaction(true)
 	defer txn.Discard()
 	return store.UpdateIndex(db.Index, func(tx *rbf.Tx) error {
@@ -62,7 +67,8 @@ func UpsertLabels(b blob.Func) LabelFunc {
 			h.WriteString(l[i].Name)
 			h.WriteByte('=')
 			h.WriteString(l[i].Value)
-			m.Add(b(constants.MetricsLabels, bytes.Clone(h.Bytes())))
+			id := b(constants.MetricsLabels, bytes.Clone(h.Bytes()))
+			m.Add(id)
 		}
 		return m.ToArray()
 	}

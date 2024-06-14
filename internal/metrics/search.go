@@ -6,7 +6,6 @@ import (
 	"math"
 	"slices"
 	"sort"
-	"time"
 
 	"github.com/dgraph-io/badger/v4"
 	v1 "github.com/gernest/frieren/gen/go/fri/v1"
@@ -57,11 +56,6 @@ func (q *Queryable) Querier(mints, maxts int64) (storage.Querier, error) {
 		idx:  q.idx,
 	}, nil
 
-}
-
-func date(ts int64) time.Time {
-	y, m, d := time.UnixMilli(ts).Date()
-	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }
 
 type Querier struct {

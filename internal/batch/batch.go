@@ -52,19 +52,22 @@ func updateFST(txn *badger.Txn, tr blob.Tr, shard uint64, view string, id consta
 	b := roaring64.New()
 	err := store.Get(txn, bitmapKey, b.UnmarshalBinary)
 	if err != nil {
-		return err
+		if !errors.Is(err, badger.ErrKeyNotFound) {
+			return err
+		}
 	}
 	b.Or(bm)
 
 	o := make([][]byte, 0, b.GetCardinality())
 	it := b.Iterator()
 	for it.HasNext() {
-		err := tr(constants.MetricsFST, it.Next(), func(val []byte) error {
+		id := it.Next()
+		err := tr(constants.MetricsLabels, id, func(val []byte) error {
 			o = append(o, bytes.Clone(val))
 			return nil
 		})
 		if err != nil {
-			util.Exit("translating label", "err", err)
+			util.Exit("translating label", "id", id, "err", err)
 		}
 	}
 	slices.SortFunc(o, bytes.Compare)
