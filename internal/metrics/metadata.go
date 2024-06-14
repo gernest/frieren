@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/keys"
 	"github.com/gernest/frieren/internal/store"
@@ -12,14 +11,9 @@ import (
 )
 
 func StoreMetadata(txn *badger.Txn, meta []*prompb.MetricMetadata) error {
-	slice := (&keys.Metadata{}).Slice()
 	buf := new(bytes.Buffer)
-	var h xxhash.Digest
 	for _, m := range meta {
-		h.Reset()
-		h.WriteString(m.MetricFamilyName)
-		slice[len(slice)-1] = h.Sum64()
-		key := keys.Encode(buf, slice)
+		key := keys.Metadata(buf, m.MetricFamilyName)
 		if store.Has(txn, key) {
 			continue
 		}
@@ -36,18 +30,16 @@ func StoreMetadata(txn *badger.Txn, meta []*prompb.MetricMetadata) error {
 }
 
 func GetMetadata(txn *badger.Txn, name string) (*prompb.MetricMetadata, error) {
-	var p prompb.MetricMetadata
-	key := (&keys.Metadata{MetricID: xxhash.Sum64String(name)}).Key()
-	err := store.Get(txn, key, p.Unmarshal)
+	p := &prompb.MetricMetadata{}
+	err := store.Get(txn, keys.Metadata(new(bytes.Buffer), name), p.Unmarshal)
 	if err != nil {
 		return nil, err
 	}
-	return &p, nil
+	return p, nil
 }
 
 func ListMetadata(txn *badger.Txn) (o []*prompb.MetricMetadata, err error) {
-	key := (&keys.Metadata{}).Key()
-	err = store.Prefix(txn, key[:len(key)-8], func(key []byte, value store.Value) error {
+	err = store.Prefix(txn, keys.Metadata(new(bytes.Buffer), ""), func(key []byte, value store.Value) error {
 		var p prompb.MetricMetadata
 		err := value.Value(p.Unmarshal)
 		if err != nil {

@@ -3,6 +3,8 @@ package keys
 import (
 	"bytes"
 	"fmt"
+
+	"github.com/gernest/frieren/internal/constants"
 )
 
 const (
@@ -16,99 +18,44 @@ const (
 	fieldView
 )
 
-type Seq struct {
-	ID uint64
+func Seq(b *bytes.Buffer, field constants.ID) []byte {
+	b.Reset()
+	fmt.Fprintf(b, "%d:%d:", blobID, field)
+	return b.Bytes()
 }
 
-func (e *Seq) Slice() []uint64 {
-	return []uint64{seq, e.ID}
+func BlobID(b *bytes.Buffer, field constants.ID, id uint64) []byte {
+	b.Reset()
+	fmt.Fprintf(b, "%d:%d:%d", blobID, field, id)
+	return b.Bytes()
 }
 
-func (e Seq) Key() []byte {
-	return Encode(nil, e.Slice())
+func BlobHash(b *bytes.Buffer, field constants.ID, hash uint64) []byte {
+	b.Reset()
+	fmt.Fprintf(b, "%d:%d:%d", blobHash, field, hash)
+	return b.Bytes()
 }
 
-type BlobID struct {
-	FieldID uint64
-	Seq     uint64
+func FSTBitmap(b *bytes.Buffer, field constants.ID, shard uint64, view string) []byte {
+	b.Reset()
+	fmt.Fprintf(b, "%d:%d:%d:%s", fstBitmap, field, shard, view)
+	return b.Bytes()
 }
 
-func (e *BlobID) Slice() []uint64 {
-	return []uint64{blobID, e.FieldID, e.Seq}
+func FST(b *bytes.Buffer, field constants.ID, shard uint64, view string) []byte {
+	b.Reset()
+	fmt.Fprintf(b, "%d:%d:%d:%s", fst, field, shard, view)
+	return b.Bytes()
 }
 
-func (e *BlobID) Key() []byte {
-	return Encode(nil, e.Slice())
+func Metadata(b *bytes.Buffer, name string) []byte {
+	b.Reset()
+	fmt.Fprintf(b, "%d:%s", metadata, name)
+	return b.Bytes()
 }
 
-type BlobHash struct {
-	FieldID uint64
-	Hash    uint64
-}
-
-func (e *BlobHash) Slice() []uint64 {
-	return []uint64{blobHash, e.FieldID, e.Hash}
-}
-
-func (e *BlobHash) Key() []byte {
-	return Encode(nil, e.Slice())
-}
-
-type FSTBitmap struct {
-	ShardID uint64
-	FieldID uint64
-}
-
-func (e *FSTBitmap) Slice() []uint64 {
-	return []uint64{fstBitmap, e.FieldID, e.ShardID}
-}
-
-func (e *FSTBitmap) Key() []byte {
-	return Encode(nil, e.Slice())
-}
-
-type FST struct {
-	ShardID uint64
-	FieldID uint64
-}
-
-func (e *FST) Key() []byte {
-	return Encode(nil, []uint64{fst, e.FieldID, e.ShardID})
-}
-
-type Metadata struct {
-	MetricID uint64
-}
-
-func (e *Metadata) Slice() []uint64 {
-	return []uint64{metadata, e.MetricID}
-}
-
-func (e *Metadata) Key() []byte {
-	return Encode(nil, e.Slice())
-}
-
-type FieldView struct{}
-
-func (e *FieldView) Slice() []uint64 {
-	return []uint64{fieldView}
-}
-
-func (e *FieldView) Key() []byte {
-	return Encode(nil, e.Slice())
-}
-
-func Encode(b *bytes.Buffer, value []uint64) []byte {
-	if b == nil {
-		b = new(bytes.Buffer)
-	} else {
-		b.Reset()
-	}
-	for i := range value {
-		if i != 0 {
-			b.WriteByte(':')
-		}
-		fmt.Fprint(b, value[i])
-	}
+func FieldView(b *bytes.Buffer, view string) []byte {
+	b.Reset()
+	fmt.Fprintf(b, "%d:%s", fieldView, view)
 	return b.Bytes()
 }

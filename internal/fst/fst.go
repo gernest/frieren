@@ -62,9 +62,7 @@ func Match(txn *badger.Txn, shard uint64, view string, id constants.ID, matchers
 				equal.AndNot(notEqual)
 			} else {
 				// We only negation matchers
-				key := (&keys.FSTBitmap{ShardID: shard, FieldID: uint64(id)}).Key()
-				key = append(key, []byte(view)...)
-				err = store.Get(txn, key, equal.UnmarshalBinary)
+				err = store.Get(txn, keys.FSTBitmap(&buf, id, shard, view), equal.UnmarshalBinary)
 				if err != nil {
 					return fmt.Errorf("reading fst bitmap %w", err)
 				}
@@ -133,9 +131,7 @@ func MatchSet(txn *badger.Txn, tx *rbf.Tx, shard uint64, view string, id constan
 				} else {
 					if !readAll {
 						// We only negation matchers
-						key := (&keys.FSTBitmap{ShardID: shard, FieldID: uint64(id)}).Key()
-						key = append(key, []byte(view)...)
-						err = store.Get(txn, key, equal.UnmarshalBinary)
+						err = store.Get(txn, keys.FSTBitmap(&buf, id, shard, view), equal.UnmarshalBinary)
 						if err != nil {
 							return fmt.Errorf("reading fst bitmap %w", err)
 						}
@@ -187,8 +183,7 @@ func LabelNames(txn *badger.Txn, shard uint64, view string, id constants.ID, nam
 
 // Read  loads vellum.FST from database and calls f with it.
 func Read(txn *badger.Txn, shard uint64, view string, id constants.ID, f func(fst *vellum.FST) error) error {
-	key := (&keys.FST{ShardID: shard, FieldID: uint64(id)}).Key()
-	key = append(key, []byte(view)...)
+	key := keys.FST(new(bytes.Buffer), id, shard, view)
 	return store.Get(txn, key, func(val []byte) error {
 		fst, err := vellum.Load(val)
 		if err != nil {

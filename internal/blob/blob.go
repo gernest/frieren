@@ -19,32 +19,26 @@ type Tr func(id constants.ID, key uint64, f func([]byte) error) error
 
 func Upsert(txn *badger.Txn, seq *store.Seq) Func {
 	h := xxhash.New()
-	blobID := (&keys.BlobID{}).Slice()
-	blobHash := (&keys.BlobHash{}).Slice()
 	buf := new(bytes.Buffer)
 
 	return func(field constants.ID, b []byte) uint64 {
 		h.Reset()
 		h.Write(b)
 		hash := h.Sum64()
-		blobHash[len(blobHash)-1] = hash
-		blobHash[len(blobHash)-2] = uint64(field)
-		bhk := keys.Encode(buf, blobHash)
+		bhk := keys.BlobHash(buf, field, hash)
 		it, err := txn.Get(bhk)
 		if err != nil {
 			if !errors.Is(err, badger.ErrKeyNotFound) {
 				util.Exit("unexpected badger error", "err", err)
 			}
 			id := seq.NextID(field)
-			blobID[len(blobID)-1] = id
-			blobID[len(blobID)-2] = uint64(field)
 			err = txn.Set(bytes.Clone(bhk),
-				binary.BigEndian.AppendUint64(make([]byte, 0), id),
+				binary.BigEndian.AppendUint64(make([]byte, 8), id),
 			)
 			if err != nil {
 				util.Exit("writing blob hash key", "err", err)
 			}
-			err = txn.Set(keys.Encode(nil, blobID), b)
+			err = txn.Set(bytes.Clone(keys.BlobID(buf, field, id)), b)
 			if err != nil {
 				util.Exit("writing blob id", "err", err)
 			}
@@ -63,8 +57,9 @@ func Upsert(txn *badger.Txn, seq *store.Seq) Func {
 }
 
 func Translate(txn *badger.Txn) Tr {
+	b := new(bytes.Buffer)
 	return func(field constants.ID, u uint64, f func([]byte) error) error {
-		it, err := txn.Get((&keys.BlobID{FieldID: uint64(field), Seq: u}).Key())
+		it, err := txn.Get(keys.BlobID(b, field, u))
 		if err != nil {
 			return err
 		}

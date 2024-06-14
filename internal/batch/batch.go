@@ -33,8 +33,9 @@ func Apply(tx *rbf.Tx, view *fields.Fragment, data map[uint64]*roaring64.Bitmap)
 }
 
 func ApplyFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, view string, id constants.ID, data map[uint64]*roaring64.Bitmap) error {
+	buf := new(bytes.Buffer)
 	for shard, bm := range data {
-		err := updateFST(txn, tr, shard, view, id, bm)
+		err := updateFST(buf, txn, tr, shard, view, id, bm)
 		if err != nil {
 			return fmt.Errorf("inserting exists bsi %w", err)
 		}
@@ -42,12 +43,10 @@ func ApplyFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, view string, id constants
 	return txn.Commit()
 }
 
-func updateFST(txn *badger.Txn, tr blob.Tr, shard uint64, view string, id constants.ID, bm *roaring64.Bitmap) error {
-	bitmapKey := (&keys.FSTBitmap{ShardID: shard, FieldID: uint64(id)}).Key()
-	bitmapKey = append(bitmapKey, []byte(view)...)
+func updateFST(buf *bytes.Buffer, txn *badger.Txn, tr blob.Tr, shard uint64, view string, id constants.ID, bm *roaring64.Bitmap) error {
 
-	fstKey := (&keys.FST{ShardID: shard, FieldID: uint64(id)}).Key()
-	fstKey = append(fstKey, []byte(view)...)
+	bitmapKey := bytes.Clone(keys.FSTBitmap(buf, id, shard, view))
+	fstKey := bytes.Clone(keys.FST(buf, id, shard, view))
 
 	b := roaring64.New()
 	err := store.Get(txn, bitmapKey, b.UnmarshalBinary)
@@ -71,7 +70,6 @@ func updateFST(txn *badger.Txn, tr blob.Tr, shard uint64, view string, id consta
 		}
 	}
 	slices.SortFunc(o, bytes.Compare)
-	buf := new(bytes.Buffer)
 	bs, err := vellum.New(buf, nil)
 	if err != nil {
 		return fmt.Errorf("opening fst builder %w", err)
@@ -101,8 +99,7 @@ func updateFST(txn *badger.Txn, tr blob.Tr, shard uint64, view string, id consta
 
 func ApplyBitDepth(txn *badger.Txn, view string, depth map[uint64]map[uint64]uint64) error {
 	b := &v1.FieldViewInfo{}
-	key := (&keys.FieldView{}).Key()
-	key = append(key, []byte(view)...)
+	key := keys.FieldView(new(bytes.Buffer), view)
 	store.Get(txn, key, func(val []byte) error {
 		return proto.Unmarshal(val, b)
 	})
@@ -135,8 +132,7 @@ func ApplyBitDepth(txn *badger.Txn, view string, depth map[uint64]map[uint64]uin
 }
 
 func FieldViewInfo(txn *badger.Txn, view string) (*v1.FieldViewInfo, error) {
-	key := (&keys.FieldView{}).Key()
-	key = append(key, []byte(view)...)
+	key := keys.FieldView(new(bytes.Buffer), view)
 	it, err := txn.Get(key)
 	if err != nil {
 		if !errors.Is(err, badger.ErrKeyNotFound) {

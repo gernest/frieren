@@ -1,6 +1,8 @@
 package store
 
 import (
+	"bytes"
+
 	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/keys"
@@ -27,7 +29,7 @@ func (s *Seq) NextID(id constants.ID) uint64 {
 	sq, ok := s.seq[id]
 	if !ok {
 		var err error
-		sq, err = s.db.GetSequence((&keys.Seq{ID: uint64(id)}).Key(), 1<<10)
+		sq, err = s.db.GetSequence((keys.Seq(new(bytes.Buffer), id)), 1<<10)
 		if err != nil {
 			util.Exit("creating new sequence", "id", id, "err", err)
 		}
