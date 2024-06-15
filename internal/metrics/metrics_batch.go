@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha512"
 	"math"
-	"sync"
 	"time"
 
 	"github.com/dgraph-io/badger/v4"
@@ -19,36 +18,9 @@ import (
 	"go.opentelemetry.io/collector/pdata/pmetric"
 )
 
-type Batch struct {
-	*batch.Batch
-	rowsAdded int64
-}
-
-func NewBatch() *Batch {
-	return batchPool.Get().(*Batch)
-}
-
-func newBatch() *Batch {
-	return &Batch{
-		Batch: batch.NewBatch(),
-	}
-}
-
-var batchPool = &sync.Pool{New: func() any { return newBatch() }}
-
-func (b *Batch) Release() {
-	b.Reset()
-	batchPool.Put(b)
-}
-
-func (b *Batch) Reset() {
-	b.Batch.Reset()
-	b.rowsAdded = 0
-}
-
 type LabelFunc func([]prompb.Label) []uint64
 
-func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob.Func, seq *store.Seq) {
+func Append(b *batch.Batch, ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob.Func, seq *store.Seq) {
 	labels := labelFunc(ts.Labels)
 	checksum := sha512.Sum512(util.Uint64ToBytes(labels))
 	series := blobFunc(constants.MetricsSeries, checksum[:])
@@ -61,7 +33,7 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob
 	}
 	for _, s := range ts.Samples {
 		id := seq.NextID(constants.MetricsRow)
-		b.rowsAdded++
+		b.Rows++
 		shard := id / shardwidth.ShardWidth
 		if shard != currentShard {
 			currentShard = shard
@@ -82,7 +54,7 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob
 	for j := range ts.Histograms {
 		s := &ts.Histograms[j]
 		id := seq.NextID(constants.MetricsRow)
-		b.rowsAdded++
+		b.Rows++
 		shard := id / shardwidth.ShardWidth
 		if shard != currentShard {
 			currentShard = shard
@@ -103,11 +75,9 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob
 }
 
 func AppendBatch(ctx context.Context, store *store.Store, mets pmetric.Metrics, ts time.Time) (err error) {
-	bx := NewBatch()
-	defer bx.Release()
 	return batch.Append(ctx, constants.METRICS, store, ts,
-		func() (*batch.Batch, int64, error) {
-			err := store.DB.Update(func(txn *badger.Txn) error {
+		func(bx *batch.Batch) error {
+			return store.DB.Update(func(txn *badger.Txn) error {
 				conv := prometheusremotewrite.NewPrometheusConverter()
 				err := conv.FromMetrics(mets, prometheusremotewrite.Settings{
 					AddMetricSuffixes: true,
@@ -120,14 +90,10 @@ func AppendBatch(ctx context.Context, store *store.Store, mets pmetric.Metrics, 
 
 				series := conv.TimeSeries()
 				for i := range series {
-					bx.Append(&series[i], label, blob, store.Seq)
+					Append(bx, &series[i], label, blob, store.Seq)
 				}
 				meta := prometheusremotewrite.OtelMetricsToMetadata(mets, true)
 				return StoreMetadata(txn, meta)
 			})
-			if err != nil {
-				return nil, 0, err
-			}
-			return bx.Batch, bx.rowsAdded, nil
 		})
 }

@@ -37,11 +37,22 @@ type Batch struct {
 	fields map[constants.ID]Mapping
 	depth  map[uint64]map[uint64]uint64
 	shards roaring64.Bitmap
+	Rows   int64
 }
 
 func NewBatch() *Batch {
+	return batchPool.Get().(*Batch)
+}
+
+var batchPool = &sync.Pool{New: func() any {
 	return &Batch{fields: make(map[constants.ID]Mapping),
 		depth: make(map[uint64]map[uint64]uint64)}
+}}
+
+func (b *Batch) Release() {
+	b.Reset()
+	batchPool.Put(b)
+	b.Rows = 0
 }
 
 func (b *Batch) Reset() {
@@ -317,7 +328,7 @@ func Append(
 	resource constants.Resource,
 	store *store.Store,
 	ts time.Time,
-	f func() (*Batch, int64, error),
+	f func(bx *Batch) error,
 ) error {
 	ctx, span := self.Start(ctx, fmt.Sprintf("%s.batch", strings.ToLower(resource.String())))
 	defer span.End()
@@ -326,18 +337,21 @@ func Append(
 	defer func() {
 		batchDuration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(res))
 	}()
-	b, rows, err := f()
+	bx := NewBatch()
+	defer bx.Release()
+
+	err := f(bx)
 	if err != nil {
 		return err
 	}
 	initMetrics()
 	view := quantum.ViewByTimeUnit("", ts, 'D')
 
-	err = b.Apply(store, view)
+	err = bx.Apply(store, view)
 	if err != nil {
 		batchFailure.Add(ctx, 1, metric.WithAttributes(res))
 		return err
 	}
-	batchRowsAdded.Add(ctx, rows, metric.WithAttributes(res))
+	batchRowsAdded.Add(ctx, bx.Rows, metric.WithAttributes(res))
 	return nil
 }
