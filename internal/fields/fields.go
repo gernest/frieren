@@ -63,13 +63,11 @@ func (f *Fragment) Labels(tx *rbf.Tx, tr blob.Tr, column uint64) (labels.Labels,
 	}
 	o := make(labels.Labels, 0, len(rows))
 	for i := range rows {
-		err = tr(constants.MetricsLabels, rows[i], func(val []byte) error {
-			key, value, _ := bytes.Cut(val, eql)
-			o = append(o, labels.Label{
-				Name:  string(key),
-				Value: string(value),
-			})
-			return nil
+		val := tr(constants.MetricsLabels, rows[i])
+		key, value, _ := bytes.Cut(val, eql)
+		o = append(o, labels.Label{
+			Name:  string(key),
+			Value: string(value),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("translating  series labels %w", err)

@@ -17,7 +17,7 @@ import (
 func AppendBatch(ctx context.Context, store *store.Store, ld plog.Logs, ts time.Time) error {
 	return batch.Append(ctx, constants.LOGS, store, ts, func(bx *batch.Batch) error {
 		return store.DB.Update(func(txn *badger.Txn) error {
-			all := logproto.FromLogs(ld, blob.Upsert(txn, store.Seq, store.Cache))
+			all := logproto.FromLogs(ld, blob.Upsert(txn, store))
 			for _, v := range all {
 				append(bx, store.Seq, v)
 			}

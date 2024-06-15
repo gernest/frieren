@@ -23,7 +23,6 @@ import (
 	"github.com/gernest/frieren/internal/ro"
 	"github.com/gernest/frieren/internal/self"
 	"github.com/gernest/frieren/internal/store"
-	"github.com/gernest/frieren/internal/util"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/quantum"
 	"go.opentelemetry.io/otel/attribute"
@@ -72,7 +71,7 @@ func (b *Batch) Apply(db *store.Store, resource constants.Resource, view string,
 		err = b.Range(func(field constants.ID, mapping map[uint64]*roaring64.Bitmap) error {
 			switch field {
 			case constants.MetricsFST, constants.TracesFST, constants.LogsFST:
-				return ApplyFST(txn, tx, blob.Translate(txn), view, field, mapping)
+				return ApplyFST(txn, tx, blob.Translate(txn, db), view, field, mapping)
 			default:
 				return Apply(tx, fields.New(field, 0, view), mapping)
 			}
@@ -206,13 +205,7 @@ func updateFST(buf *bytes.Buffer, txn *badger.Txn, tr blob.Tr, shard uint64, vie
 	it := b.Iterator()
 	for it.HasNext() {
 		id := it.Next()
-		err := tr(constants.MetricsLabels, id, func(val []byte) error {
-			o = append(o, bytes.Clone(val))
-			return nil
-		})
-		if err != nil {
-			util.Exit("translating label", "id", id, "err", err)
-		}
+		o = append(o, tr(constants.MetricsLabels, id))
 	}
 	slices.SortFunc(o, bytes.Compare)
 	bs, err := vellum.New(buf, nil)

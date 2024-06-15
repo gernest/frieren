@@ -31,7 +31,7 @@ func Append(ctx context.Context, store *store.Store, mets pmetric.Metrics, ts ti
 				if err != nil {
 					return err
 				}
-				blob := blob.Upsert(txn, store.Seq, store.Cache)
+				blob := blob.Upsert(txn, store)
 				label := UpsertLabels(blob)
 
 				series := conv.TimeSeries()

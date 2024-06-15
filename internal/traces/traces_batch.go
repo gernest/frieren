@@ -17,7 +17,7 @@ import (
 func AppendBatch(ctx context.Context, store *store.Store, td ptrace.Traces, ts time.Time) error {
 	return batch.Append(ctx, constants.TRACES, store, ts, func(bx *batch.Batch) error {
 		return store.DB.Update(func(txn *badger.Txn) error {
-			traceproto.From(td, blob.Upsert(txn, store.Seq, store.Cache),
+			traceproto.From(td, blob.Upsert(txn, store),
 				append(bx, store.Seq))
 			return nil
 		})

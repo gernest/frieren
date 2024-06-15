@@ -7,7 +7,6 @@ import (
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
-	"github.com/dgraph-io/ristretto"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/keys"
 	"github.com/gernest/frieren/internal/store"
@@ -16,9 +15,9 @@ import (
 
 type Func func(id constants.ID, value []byte) uint64
 
-type Tr func(id constants.ID, key uint64, f func([]byte) error) error
+type Tr func(id constants.ID, key uint64) []byte
 
-func Upsert(txn *badger.Txn, seq *store.Seq, cache *ristretto.Cache) Func {
+func Upsert(txn *badger.Txn, store *store.Store) Func {
 	h := xxhash.New()
 	buf := new(bytes.Buffer)
 
@@ -26,7 +25,7 @@ func Upsert(txn *badger.Txn, seq *store.Seq, cache *ristretto.Cache) Func {
 		h.Reset()
 		h.Write(b)
 		hash := h.Sum64()
-		if v, ok := cache.Get(hash); ok {
+		if v, ok := store.HashCache.Get(hash); ok {
 			return v.(uint64)
 		}
 		bhk := keys.BlobHash(buf, field, hash)
@@ -35,8 +34,8 @@ func Upsert(txn *badger.Txn, seq *store.Seq, cache *ristretto.Cache) Func {
 			if !errors.Is(err, badger.ErrKeyNotFound) {
 				util.Exit("unexpected badger error", "err", err)
 			}
-			id := seq.NextID(field)
-			cache.Set(hash, id, 1)
+			id := store.Seq.NextID(field)
+			store.HashCache.Set(hash, id, 1)
 			err = txn.Set(bytes.Clone(bhk),
 				binary.BigEndian.AppendUint64(make([]byte, 8), id),
 			)
@@ -47,6 +46,7 @@ func Upsert(txn *badger.Txn, seq *store.Seq, cache *ristretto.Cache) Func {
 			if err != nil {
 				util.Exit("writing blob id", "err", err)
 			}
+			store.ValueCache.Set(id, b, int64(len(b)))
 			return id
 		}
 		var id uint64
@@ -57,18 +57,26 @@ func Upsert(txn *badger.Txn, seq *store.Seq, cache *ristretto.Cache) Func {
 		if err != nil {
 			util.Exit("reading blob id", "err", err)
 		}
-		cache.Set(hash, id, 1)
+		store.HashCache.Set(hash, id, 1)
 		return id
 	}
 }
 
-func Translate(txn *badger.Txn) Tr {
+func Translate(txn *badger.Txn, store *store.Store) Tr {
 	b := new(bytes.Buffer)
-	return func(field constants.ID, u uint64, f func([]byte) error) error {
+	return func(field constants.ID, u uint64) []byte {
+		if v, ok := store.ValueCache.Get(u); ok {
+			return v.([]byte)
+		}
 		it, err := txn.Get(keys.BlobID(b, field, u))
 		if err != nil {
-			return err
+			util.Exit("BUG: reading translated blob", "key", b.String(), "err", err)
 		}
-		return it.Value(f)
+		data, err := it.ValueCopy(nil)
+		if err != nil {
+			return nil
+		}
+		store.ValueCache.Set(u, data, int64(len(data)))
+		return data
 	}
 }

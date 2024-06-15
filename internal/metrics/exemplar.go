@@ -14,6 +14,7 @@ import (
 	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/fst"
 	"github.com/gernest/frieren/internal/query"
+	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/internal/tags"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rows"
@@ -29,12 +30,11 @@ func EncodeExemplars(value []prompb.Exemplar) ([]byte, error) {
 }
 
 type ExemplarQueryable struct {
-	db  *badger.DB
-	idx *rbf.DB
+	store *store.Store
 }
 
-func NewExemplarQueryable(db *badger.DB, idx *rbf.DB) *ExemplarQueryable {
-	return &ExemplarQueryable{db: db, idx: idx}
+func NewExemplarQueryable(db *store.Store) *ExemplarQueryable {
+	return &ExemplarQueryable{store: db}
 }
 
 var _ storage.ExemplarQueryable = (*ExemplarQueryable)(nil)
@@ -46,13 +46,13 @@ func (e *ExemplarQueryable) ExemplarQuerier(ctx context.Context) (storage.Exempl
 var _ storage.ExemplarQuerier = (*ExemplarQueryable)(nil)
 
 func (e *ExemplarQueryable) Select(start, end int64, matchers ...[]*labels.Matcher) ([]exemplar.QueryResult, error) {
-	tx, err := e.idx.Begin(false)
+	tx, err := e.store.Index.Begin(false)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 
-	txn := e.db.NewTransaction(false)
+	txn := e.store.DB.NewTransaction(false)
 	defer txn.Discard()
 
 	view, err := query.New(txn, tx, constants.METRICS, start, end)
@@ -63,7 +63,7 @@ func (e *ExemplarQueryable) Select(start, end int64, matchers ...[]*labels.Match
 		return []exemplar.QueryResult{}, nil
 	}
 	m := make(ExemplarSet)
-	tr := blob.Translate(txn)
+	tr := blob.Translate(txn, e.store)
 	err = view.Traverse(func(shard *v1.Shard, view string) error {
 		filters, err := fst.MatchSet(txn, tx, shard.Id, view, constants.MetricsFST, matchers...)
 		if err != nil {
@@ -91,7 +91,7 @@ func (e *ExemplarQueryable) Select(start, end int64, matchers ...[]*labels.Match
 		it := e.Exemplars.Iterator()
 		for it.HasNext() {
 			ts.Reset()
-			tr(constants.MetricsExemplars, it.Next(), ts.Unmarshal)
+			ts.Unmarshal(tr(constants.MetricsExemplars, it.Next()))
 			x.Exemplars = slices.Grow(x.Exemplars, len(ts.Exemplars))
 			for i := range ts.Exemplars {
 				ex := &ts.Exemplars[i]

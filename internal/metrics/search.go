@@ -14,6 +14,7 @@ import (
 	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/fst"
 	"github.com/gernest/frieren/internal/query"
+	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/internal/tags"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rows"
@@ -28,40 +29,37 @@ import (
 )
 
 type Queryable struct {
-	db  *badger.DB
-	idx *rbf.DB
+	store *store.Store
 }
 
-func NewQueryable(db *badger.DB, idx *rbf.DB) *Queryable {
-	return &Queryable{db: db, idx: idx}
+func NewQueryable(db *store.Store) *Queryable {
+	return &Queryable{store: db}
 }
 
 var _ storage.Queryable = (*Queryable)(nil)
 
 func (q *Queryable) Querier(mints, maxts int64) (storage.Querier, error) {
-	tx, err := q.idx.Begin(false)
+	tx, err := q.store.Index.Begin(false)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
-	txn := q.db.NewTransaction(false)
+	txn := q.store.DB.NewTransaction(false)
 	defer txn.Discard()
 	view, err := query.New(txn, tx, constants.METRICS, mints, maxts)
 	if err != nil {
 		return nil, err
 	}
 	return &Querier{
-		view: view,
-		db:   q.db,
-		idx:  q.idx,
+		view:  view,
+		store: q.store,
 	}, nil
 
 }
 
 type Querier struct {
-	view *query.View
-	db   *badger.DB
-	idx  *rbf.DB
+	view  *query.View
+	store *store.Store
 }
 
 var _ storage.Querier = (*Querier)(nil)
@@ -76,7 +74,7 @@ func (s *Querier) LabelValues(ctx context.Context, name string, matchers ...*lab
 	}
 	names := map[string]struct{}{}
 
-	txn := s.db.NewTransaction(false)
+	txn := s.store.DB.NewTransaction(false)
 	defer txn.Discard()
 
 	err := s.view.Traverse(func(info *v1.Shard, view string) error {
@@ -101,7 +99,7 @@ func (s *Querier) LabelNames(ctx context.Context, matchers ...*labels.Matcher) (
 	}
 	names := map[string]struct{}{}
 
-	txn := s.db.NewTransaction(false)
+	txn := s.store.DB.NewTransaction(false)
 	defer txn.Discard()
 
 	err := s.view.Traverse(func(info *v1.Shard, view string) error {
@@ -124,13 +122,13 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 	if len(matchers) == 0 || s.view.IsEmpty() {
 		return storage.EmptySeriesSet()
 	}
-	tx, err := s.idx.Begin(false)
+	tx, err := s.store.Index.Begin(false)
 	if err != nil {
 		return storage.ErrSeriesSet(err)
 	}
 	defer tx.Rollback()
 
-	txn := s.db.NewTransaction(false)
+	txn := s.store.DB.NewTransaction(false)
 	defer txn.Discard()
 
 	m := make(MapSet)
@@ -147,7 +145,7 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 		if err != nil {
 			return err
 		}
-		return m.Build(txn, tx, blob.Translate(txn), hints.Start, hints.End, view, shard.Id, r)
+		return m.Build(txn, tx, blob.Translate(txn, s.store), hints.Start, hints.End, view, shard.Id, r)
 	})
 	if err != nil {
 		return storage.ErrSeriesSet(err)
@@ -293,7 +291,7 @@ func (s MapSet) Build(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, start, end int64,
 			hs := &prompb.Histogram{}
 			err := vf.ExtractBSI(tx, sr, mapping, func(i int, v uint64) error {
 				hs.Reset()
-				err := tr(constants.MetricsHistogram, v, hs.Unmarshal)
+				err := hs.Unmarshal(tr(constants.MetricsHistogram, v))
 				if err != nil {
 					return fmt.Errorf("reading histogram blob %w", err)
 				}

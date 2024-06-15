@@ -133,7 +133,7 @@ func Add(mux *http.ServeMux, db *store.Store) {
 
 func newPrometheusAPI(db *store.Store) *prometheusAPI {
 
-	query := metrics.NewQueryable(db.DB, db.Index)
+	query := metrics.NewQueryable(db)
 
 	trackPath := filepath.Join(db.Path, "prometheus", "track")
 	os.MkdirAll(trackPath, 0755)
@@ -156,7 +156,7 @@ func newPrometheusAPI(db *store.Store) *prometheusAPI {
 		cors:     cors,
 		qe:       queryEngine,
 		qs:       query,
-		examplar: metrics.NewExemplarQueryable(db.DB, db.Index),
+		examplar: metrics.NewExemplarQueryable(db),
 		now:      func() time.Time { return time.Now().UTC() },
 	}
 }

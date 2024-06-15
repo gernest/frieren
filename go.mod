@@ -7,6 +7,7 @@ require (
 	github.com/blevesearch/vellum v1.0.10
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/dgraph-io/badger/v4 v4.2.0
+	github.com/dgraph-io/ristretto v0.1.1
 	github.com/gernest/rbf v0.22.4
 	github.com/gernest/roaring v0.22.3
 	github.com/gernest/rows v1.22.9
@@ -44,7 +45,6 @@ require (
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dennwc/varint v1.0.0 // indirect
-	github.com/dgraph-io/ristretto v0.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.0 // indirect
 	github.com/edsrzf/mmap-go v1.1.0 // indirect
 	github.com/facette/natsort v0.0.0-20181210072756-2cd4dd1e2dcb // indirect

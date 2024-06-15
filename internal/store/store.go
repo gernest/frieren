@@ -14,11 +14,12 @@ type Value interface {
 }
 
 type Store struct {
-	Path  string
-	DB    *badger.DB
-	Index *rbf.DB
-	Seq   *Seq
-	Cache *ristretto.Cache
+	Path       string
+	DB         *badger.DB
+	Index      *rbf.DB
+	Seq        *Seq
+	HashCache  *ristretto.Cache
+	ValueCache *ristretto.Cache
 }
 
 const hashItems = (16 << 20) / 16
@@ -38,7 +39,7 @@ func New(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	cache, err := ristretto.NewCache(&ristretto.Config{
+	hashCache, err := ristretto.NewCache(&ristretto.Config{
 		NumCounters: hashItems * 10,
 		MaxCost:     hashItems,
 		BufferItems: 64,
@@ -48,11 +49,23 @@ func New(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	return &Store{Path: path, DB: db, Index: idx, Seq: NewSequence(db), Cache: cache}, nil
+	valueCache, err := ristretto.NewCache(&ristretto.Config{
+		NumCounters: 1e7,
+		MaxCost:     1 << 30,
+		BufferItems: 64,
+	})
+	if err != nil {
+		idx.Close()
+		db.Close()
+		hashCache.Close()
+		return nil, err
+	}
+	return &Store{Path: path, DB: db, Index: idx, Seq: NewSequence(db), HashCache: hashCache, ValueCache: valueCache}, nil
 }
 
 func (s *Store) Close() error {
-	s.Cache.Close()
+	s.HashCache.Close()
+	s.ValueCache.Close()
 	return errors.Join(
 		s.Seq.Release(), s.Index.Close(), s.DB.Close(),
 	)
