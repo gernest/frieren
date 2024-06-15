@@ -125,10 +125,12 @@ type prometheusAPI struct {
 }
 
 func Add(mux *http.ServeMux, db *store.Store) {
-	apiPath := "/api"
 	av1 := route.New()
 	newPrometheusAPI(db).Register(av1)
-	mux.Handle(apiPath+"/v1/", http.StripPrefix(apiPath+"/v1", av1))
+	mux.Handle("/api/v1/", http.StripPrefix("/api/v1", av1))
+	lokiV1 := route.New()
+	newLokiAPI(db).Register(lokiV1)
+	mux.Handle("/loki/api/v1/", http.StripPrefix("/loki/api/v1", av1))
 }
 
 func newPrometheusAPI(db *store.Store) *prometheusAPI {
