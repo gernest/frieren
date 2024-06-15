@@ -42,11 +42,14 @@ func Upsert(txn *badger.Txn, store *store.Store) Func {
 			if err != nil {
 				util.Exit("writing blob hash key", "err", err)
 			}
-			err = txn.Set(bytes.Clone(keys.BlobID(buf, field, id)), b)
+			idKey := keys.BlobID(buf, field, id)
+			err = txn.Set(bytes.Clone(idKey), b)
 			if err != nil {
 				util.Exit("writing blob id", "err", err)
 			}
-			store.ValueCache.Set(id, b, int64(len(b)))
+			h.Reset()
+			h.Write(idKey)
+			store.ValueCache.Set(h.Sum64(), b, int64(len(b)))
 			return id
 		}
 		var id uint64
@@ -64,11 +67,16 @@ func Upsert(txn *badger.Txn, store *store.Store) Func {
 
 func Translate(txn *badger.Txn, store *store.Store) Tr {
 	b := new(bytes.Buffer)
+	h := xxhash.Digest{}
 	return func(field constants.ID, u uint64) []byte {
-		if v, ok := store.ValueCache.Get(u); ok {
+		key := keys.BlobID(b, field, u)
+		h.Reset()
+		h.Write(key)
+		hash := h.Sum64()
+		if v, ok := store.ValueCache.Get(hash); ok {
 			return v.([]byte)
 		}
-		it, err := txn.Get(keys.BlobID(b, field, u))
+		it, err := txn.Get(key)
 		if err != nil {
 			util.Exit("BUG: reading translated blob", "key", b.String(), "err", err)
 		}
@@ -76,7 +84,7 @@ func Translate(txn *badger.Txn, store *store.Store) Tr {
 		if err != nil {
 			return nil
 		}
-		store.ValueCache.Set(u, data, int64(len(data)))
+		store.ValueCache.Set(hash, data, int64(len(data)))
 		return data
 	}
 }
