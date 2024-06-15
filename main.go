@@ -11,9 +11,11 @@ import (
 	"time"
 
 	"github.com/gernest/frieren/internal/api"
+	"github.com/gernest/frieren/internal/logs"
 	"github.com/gernest/frieren/internal/metrics"
 	"github.com/gernest/frieren/internal/self"
 	"github.com/gernest/frieren/internal/store"
+	"github.com/gernest/frieren/internal/traces"
 	"github.com/urfave/cli/v3"
 	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
 	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
@@ -37,7 +39,7 @@ type Metrics struct {
 }
 
 func (m *Metrics) Export(ctx context.Context, req pmetricotlp.ExportRequest) (pmetricotlp.ExportResponse, error) {
-	_, span := self.Start(ctx, "metrics/Export")
+	ctx, span := self.Start(ctx, "METRICS.export")
 	defer span.End()
 	err := metrics.Append(ctx, m.db, req.Metrics(), time.Now().UTC())
 	if err != nil {
@@ -47,11 +49,33 @@ func (m *Metrics) Export(ctx context.Context, req pmetricotlp.ExportRequest) (pm
 }
 
 type Trace struct {
+	db *store.Store
 	ptraceotlp.UnimplementedGRPCServer
 }
 
+func (tr *Trace) Export(ctx context.Context, req ptraceotlp.ExportRequest) (ptraceotlp.ExportResponse, error) {
+	ctx, span := self.Start(ctx, "TRACES.export")
+	defer span.End()
+	err := traces.AppendBatch(ctx, tr.db, req.Traces(), time.Now())
+	if err != nil {
+		return ptraceotlp.ExportResponse{}, err
+	}
+	return ptraceotlp.ExportResponse{}, nil
+}
+
 type Logs struct {
+	db *store.Store
 	plogotlp.UnimplementedGRPCServer
+}
+
+func (l *Logs) Export(ctx context.Context, req plogotlp.ExportRequest) (plogotlp.ExportResponse, error) {
+	ctx, span := self.Start(ctx, "LOGS.export")
+	defer span.End()
+	err := logs.AppendBatch(ctx, l.db, req.Logs(), time.Now())
+	if err != nil {
+		return plogotlp.ExportResponse{}, err
+	}
+	return plogotlp.ExportResponse{}, nil
 }
 
 func Main() *cli.Command {
