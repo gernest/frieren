@@ -227,7 +227,7 @@ func AppendBatch(ctx context.Context, store *store.Store, mets pmetric.Metrics, 
 
 	// wrap everything in a single transaction
 	store.DB.Update(func(txn *badger.Txn) error {
-		blob := blob.Upsert(txn, store.Seq)
+		blob := blob.Upsert(txn, store.Seq, store.Cache)
 		label := UpsertLabels(blob)
 		series := conv.TimeSeries()
 		for i := range series {

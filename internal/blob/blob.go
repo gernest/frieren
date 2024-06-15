@@ -7,6 +7,7 @@ import (
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
+	"github.com/dgraph-io/ristretto"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/keys"
 	"github.com/gernest/frieren/internal/store"
@@ -17,7 +18,7 @@ type Func func(id constants.ID, value []byte) uint64
 
 type Tr func(id constants.ID, key uint64, f func([]byte) error) error
 
-func Upsert(txn *badger.Txn, seq *store.Seq) Func {
+func Upsert(txn *badger.Txn, seq *store.Seq, cache *ristretto.Cache) Func {
 	h := xxhash.New()
 	buf := new(bytes.Buffer)
 
@@ -25,6 +26,9 @@ func Upsert(txn *badger.Txn, seq *store.Seq) Func {
 		h.Reset()
 		h.Write(b)
 		hash := h.Sum64()
+		if v, ok := cache.Get(hash); ok {
+			return v.(uint64)
+		}
 		bhk := keys.BlobHash(buf, field, hash)
 		it, err := txn.Get(bhk)
 		if err != nil {
@@ -32,6 +36,7 @@ func Upsert(txn *badger.Txn, seq *store.Seq) Func {
 				util.Exit("unexpected badger error", "err", err)
 			}
 			id := seq.NextID(field)
+			cache.Set(hash, id, 1)
 			err = txn.Set(bytes.Clone(bhk),
 				binary.BigEndian.AppendUint64(make([]byte, 8), id),
 			)
@@ -52,6 +57,7 @@ func Upsert(txn *badger.Txn, seq *store.Seq) Func {
 		if err != nil {
 			util.Exit("reading blob id", "err", err)
 		}
+		cache.Set(hash, id, 1)
 		return id
 	}
 }
