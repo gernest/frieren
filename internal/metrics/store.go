@@ -45,7 +45,7 @@ func Save(ctx context.Context, tx *rbf.Tx, txn *badger.Txn, b *Batch, ts time.Ti
 	if err != nil {
 		return err
 	}
-	err = batch.ApplyFST(txn, tx, blob.Translate(txn), view, constants.MetricsFST, b.fst)
+	err = batch.ApplyFST(txn, tx, blob.Translate(txn), view, constants.MetricsLabels, b.fst)
 	if err != nil {
 		return err
 	}

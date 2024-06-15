@@ -9,7 +9,7 @@ const (
 	MetricsSeries
 	MetricsLabels
 	MetricsExemplars
-	MetricsFST
+	// Used to generate unique row ID for metrics
 	MetricsRow
 
 	LogsLabels

@@ -80,7 +80,7 @@ func (s *Querier) LabelValues(ctx context.Context, name string, matchers ...*lab
 	defer txn.Discard()
 
 	err := s.view.Traverse(func(info *v1.Shard, view string) error {
-		return fst.LabelNames(txn, info.Id, view, constants.MetricsFST, name, func(name, value []byte) {
+		return fst.LabelNames(txn, info.Id, view, constants.MetricsLabels, name, func(name, value []byte) {
 			names[string(value)] = struct{}{}
 		})
 	})
@@ -105,7 +105,7 @@ func (s *Querier) LabelNames(ctx context.Context, matchers ...*labels.Matcher) (
 	defer txn.Discard()
 
 	err := s.view.Traverse(func(info *v1.Shard, view string) error {
-		return fst.Labels(txn, info.Id, view, constants.MetricsFST, func(name, value []byte) {
+		return fst.Labels(txn, info.Id, view, constants.MetricsLabels, func(name, value []byte) {
 			names[string(name)] = struct{}{}
 		})
 	})
@@ -136,7 +136,7 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 	m := make(MapSet)
 
 	err = s.view.Traverse(func(shard *v1.Shard, view string) error {
-		filters, err := fst.Match(txn, shard.Id, view, constants.MetricsFST, matchers...)
+		filters, err := fst.Match(txn, shard.Id, view, constants.MetricsLabels, matchers...)
 		if err != nil {
 			return err
 		}
