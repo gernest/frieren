@@ -7,21 +7,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/batch"
 	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
-	"github.com/gernest/frieren/internal/self"
 	"github.com/gernest/frieren/internal/shardwidth"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/internal/util"
-	"github.com/gernest/rbf/quantum"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/storage/remote/otlptranslator/prometheusremotewrite"
 	"go.opentelemetry.io/collector/pdata/pmetric"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
 )
 
 type Batch struct {
@@ -107,88 +102,32 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob
 	}
 }
 
-var (
-	batchRowsAdded metric.Int64Counter
-	batchDuration  metric.Float64Histogram
-	batchFailure   metric.Int64Counter
-	batchLabels    metric.Int64Histogram
-	batchSeries    metric.Int64Histogram
-	batchOnce      sync.Once
-)
-
 func AppendBatch(ctx context.Context, store *store.Store, mets pmetric.Metrics, ts time.Time) (err error) {
-	ctx, span := self.Start(ctx, "METRICS.batch")
-	defer span.End()
-	start := time.Now()
-
-	batch := NewBatch()
-	defer batch.Release()
-
-	batchOnce.Do(func() {
-		batchRowsAdded = self.Counter("metrics.batch.rows",
-			metric.WithDescription("Total number of rows added"),
-		)
-		batchDuration = self.FloatHistogram("metrics.batch.duration",
-			metric.WithDescription("Time in seconds of processing the batch"),
-			metric.WithUnit("s"),
-		)
-		batchFailure = self.Counter("metrics.batch.failure",
-			metric.WithDescription("Total number errored batch process"),
-		)
-		batchLabels = self.Histogram("metrics.batch.labels",
-			metric.WithDescription("Unique labels processed per batch"),
-		)
-		batchSeries = self.Histogram("metrics.batch.series",
-			metric.WithDescription("Unique series processed per batch"),
-		)
-	})
-	defer func() {
-		batchRowsAdded.Add(ctx, batch.rowsAdded)
-		duration := time.Since(start)
-		batchDuration.Record(ctx, duration.Seconds())
-		if err != nil {
-			batchFailure.Add(ctx, 1)
-		}
-		batch.Range(func(field constants.ID, mapping map[uint64]*roaring64.Bitmap) error {
-			switch field {
-			case constants.MetricsFST:
-				for k, v := range mapping {
-					batchLabels.Record(ctx, int64(v.GetCardinality()), metric.WithAttributes(
-						attribute.Int64("shard", int64(k)),
-					))
+	bx := NewBatch()
+	defer bx.Release()
+	return batch.Append(ctx, constants.METRICS, store, ts,
+		func() (*batch.Batch, int64, error) {
+			err := store.DB.Update(func(txn *badger.Txn) error {
+				conv := prometheusremotewrite.NewPrometheusConverter()
+				err := conv.FromMetrics(mets, prometheusremotewrite.Settings{
+					AddMetricSuffixes: true,
+				})
+				if err != nil {
+					return err
 				}
-			case constants.MetricsSeries:
-				for k, v := range mapping {
-					batchSeries.Record(ctx, int64(v.GetCardinality()), metric.WithAttributes(
-						attribute.Int64("shard", int64(k)),
-					))
+				blob := blob.Upsert(txn, store.Seq, store.Cache)
+				label := UpsertLabels(blob)
+
+				series := conv.TimeSeries()
+				for i := range series {
+					bx.Append(&series[i], label, blob, store.Seq)
 				}
+				meta := prometheusremotewrite.OtelMetricsToMetadata(mets, true)
+				return StoreMetadata(txn, meta)
+			})
+			if err != nil {
+				return nil, 0, err
 			}
-			return nil
+			return bx.Batch, bx.rowsAdded, nil
 		})
-	}()
-	conv := prometheusremotewrite.NewPrometheusConverter()
-	err = conv.FromMetrics(mets, prometheusremotewrite.Settings{
-		AddMetricSuffixes: true,
-	})
-	if err != nil {
-		return err
-	}
-	meta := prometheusremotewrite.OtelMetricsToMetadata(mets, true)
-
-	// wrap everything in a single transaction
-	err = store.DB.Update(func(txn *badger.Txn) error {
-		blob := blob.Upsert(txn, store.Seq, store.Cache)
-		label := UpsertLabels(blob)
-		series := conv.TimeSeries()
-		for i := range series {
-			batch.Append(&series[i], label, blob, store.Seq)
-		}
-		return StoreMetadata(txn, meta)
-	})
-	if err != nil {
-		return err
-	}
-	view := quantum.ViewByTimeUnit("", ts, 'D')
-	return batch.Apply(store, view)
 }

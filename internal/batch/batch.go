@@ -2,10 +2,14 @@ package batch
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"math/bits"
 	"slices"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/blevesearch/vellum"
@@ -17,9 +21,13 @@ import (
 	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/keys"
 	"github.com/gernest/frieren/internal/ro"
+	"github.com/gernest/frieren/internal/self"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/internal/util"
 	"github.com/gernest/rbf"
+	"github.com/gernest/rbf/quantum"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -280,4 +288,56 @@ func FieldViewInfo(txn *badger.Txn, view string) (*v1.FieldViewInfo, error) {
 		return nil, err
 	}
 	return o, nil
+}
+
+var (
+	batchRowsAdded metric.Int64Counter
+	batchDuration  metric.Float64Histogram
+	batchFailure   metric.Int64Counter
+	batchOnce      sync.Once
+)
+
+func initMetrics() {
+	batchOnce.Do(func() {
+		batchRowsAdded = self.Counter("batch.rows",
+			metric.WithDescription("Total number of rows added"),
+		)
+		batchDuration = self.FloatHistogram("batch.duration",
+			metric.WithDescription("Time in seconds of processing the batch"),
+			metric.WithUnit("s"),
+		)
+		batchFailure = self.Counter("batch.failure",
+			metric.WithDescription("Total number errored batch process"),
+		)
+	})
+}
+
+func Append(
+	ctx context.Context,
+	resource constants.Resource,
+	store *store.Store,
+	ts time.Time,
+	f func() (*Batch, int64, error),
+) error {
+	ctx, span := self.Start(ctx, fmt.Sprintf("%s.batch", strings.ToLower(resource.String())))
+	defer span.End()
+	start := time.Now()
+	res := attribute.String("otel.resource", resource.String())
+	defer func() {
+		batchDuration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(res))
+	}()
+	b, rows, err := f()
+	if err != nil {
+		return err
+	}
+	initMetrics()
+	view := quantum.ViewByTimeUnit("", ts, 'D')
+
+	err = b.Apply(store, view)
+	if err != nil {
+		batchFailure.Add(ctx, 1, metric.WithAttributes(res))
+		return err
+	}
+	batchRowsAdded.Add(ctx, rows, metric.WithAttributes(res))
+	return nil
 }
