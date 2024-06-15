@@ -4,19 +4,19 @@ import (
 	"context"
 	"crypto/sha512"
 	"math"
-	"math/bits"
 	"sync"
 	"time"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/dgraph-io/badger/v4"
+	"github.com/gernest/frieren/internal/batch"
 	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
-	"github.com/gernest/frieren/internal/ro"
 	"github.com/gernest/frieren/internal/self"
 	"github.com/gernest/frieren/internal/shardwidth"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/internal/util"
+	"github.com/gernest/rbf/quantum"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/storage/remote/otlptranslator/prometheusremotewrite"
 	"go.opentelemetry.io/collector/pdata/pmetric"
@@ -25,16 +25,7 @@ import (
 )
 
 type Batch struct {
-	values    map[uint64]*roaring64.Bitmap
-	histogram map[uint64]*roaring64.Bitmap
-	timestamp map[uint64]*roaring64.Bitmap
-	series    map[uint64]*roaring64.Bitmap
-	labels    map[uint64]*roaring64.Bitmap
-	exemplars map[uint64]*roaring64.Bitmap
-	fst       map[uint64]*roaring64.Bitmap
-	shards    roaring64.Bitmap
-	bitDepth  map[uint64]map[uint64]uint64
-
+	*batch.Batch
 	rowsAdded int64
 }
 
@@ -44,14 +35,7 @@ func NewBatch() *Batch {
 
 func newBatch() *Batch {
 	return &Batch{
-		values:    make(map[uint64]*roaring64.Bitmap),
-		histogram: make(map[uint64]*roaring64.Bitmap),
-		timestamp: make(map[uint64]*roaring64.Bitmap),
-		series:    make(map[uint64]*roaring64.Bitmap),
-		labels:    make(map[uint64]*roaring64.Bitmap),
-		exemplars: make(map[uint64]*roaring64.Bitmap),
-		fst:       make(map[uint64]*roaring64.Bitmap),
-		bitDepth:  make(map[uint64]map[uint64]uint64),
+		Batch: batch.NewBatch(),
 	}
 }
 
@@ -63,15 +47,7 @@ func (b *Batch) Release() {
 }
 
 func (b *Batch) Reset() {
-	clear(b.values)
-	clear(b.histogram)
-	clear(b.timestamp)
-	clear(b.series)
-	clear(b.labels)
-	clear(b.exemplars)
-	clear(b.fst)
-	clear(b.bitDepth)
-	b.shards.Clear()
+	b.Batch.Reset()
 	b.rowsAdded = 0
 }
 
@@ -94,22 +70,16 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob
 		shard := id / shardwidth.ShardWidth
 		if shard != currentShard {
 			currentShard = shard
-			b.shards.Add(shard)
-			bitmap(shard, b.fst).AddMany(labels)
-			b.depth(constants.MetricsSeries, shard, bits.Len64(series))
-			b.depth(constants.MetricsExemplars, shard, bits.Len64(exemplars))
+			b.Shard(shard)
+			b.AddMany(constants.MetricsFST, shard, labels)
 		}
-		ro.BSI(bitmap(shard, b.series), id, series)
-		ro.BSI(bitmap(shard, b.timestamp), id, uint64(s.Timestamp))
+		b.BSI(constants.MetricsSeries, shard, id, series)
+		b.BSI(constants.MetricsTimestamp, shard, id, uint64(s.Timestamp))
 		value := math.Float64bits(s.Value)
-		ro.BSI(bitmap(shard, b.values), id, value)
-		ro.BSISet(bitmap(shard, b.labels), id, labels)
-
-		b.depth(constants.MetricsTimestamp, shard, bits.Len64(uint64(s.Timestamp)))
-		b.depth(constants.MetricsValue, shard, bits.Len64(value))
-
+		b.BSI(constants.MetricsValue, shard, id, value)
+		b.BSISet(constants.MetricsLabels, shard, id, labels)
 		if len(ts.Exemplars) > 0 {
-			ro.BSI(bitmap(shard, b.exemplars), id, exemplars)
+			b.BSI(constants.MetricsExemplars, shard, id, exemplars)
 		}
 	}
 	currentShard = ^uint64(0)
@@ -121,46 +91,20 @@ func (b *Batch) Append(ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob
 		shard := id / shardwidth.ShardWidth
 		if shard != currentShard {
 			currentShard = shard
-			b.shards.Add(shard)
-			bitmap(shard, b.fst).AddMany(labels)
-			b.depth(constants.MetricsSeries, shard, bits.Len64(series))
-			if len(ts.Exemplars) > 0 {
-				b.depth(constants.MetricsExemplars, shard, bits.Len64(exemplars))
-			}
+			b.Shard(shard)
+			b.AddMany(constants.MetricsFST, shard, labels)
 		}
 		data, _ := s.Marshal()
 		value := blobFunc(constants.MetricsHistogram, data)
-		ro.BSI(bitmap(shard, b.series), id, series)
-		ro.BSI(bitmap(shard, b.timestamp), id, uint64(s.Timestamp))
-		ro.BSI(bitmap(shard, b.values), id, value)
-		ro.BSISet(bitmap(shard, b.labels), id, labels)
-		ro.Bool(bitmap(shard, b.histogram), id, true)
-
-		b.depth(constants.MetricsValue, shard, bits.Len64(value))
-		b.depth(constants.MetricsTimestamp, shard, bits.Len64(uint64(s.Timestamp)))
-
+		b.BSI(constants.MetricsSeries, shard, id, series)
+		b.BSI(constants.MetricsTimestamp, shard, id, uint64(s.Timestamp))
+		b.BSI(constants.MetricsValue, shard, id, value)
+		b.BSISet(constants.MetricsLabels, shard, id, labels)
+		b.Bool(constants.MetricsHistogram, shard, id, true)
 		if len(ts.Exemplars) > 0 {
-			ro.BSI(bitmap(shard, b.exemplars), id, exemplars)
+			b.BSI(constants.MetricsExemplars, shard, id, exemplars)
 		}
 	}
-}
-
-func (b *Batch) depth(field constants.ID, shard uint64, depth int) {
-	m, ok := b.bitDepth[shard]
-	if !ok {
-		m = make(map[uint64]uint64)
-		b.bitDepth[shard] = m
-	}
-	m[uint64(field)] = max(m[uint64(field)], uint64(depth))
-}
-
-func bitmap(u uint64, m map[uint64]*roaring64.Bitmap) *roaring64.Bitmap {
-	b, ok := m[u]
-	if !ok {
-		b = roaring64.New()
-		m[u] = b
-	}
-	return b
 }
 
 var (
@@ -205,16 +149,23 @@ func AppendBatch(ctx context.Context, store *store.Store, mets pmetric.Metrics, 
 		if err != nil {
 			batchFailure.Add(ctx, 1)
 		}
-		for k, v := range batch.fst {
-			batchLabels.Record(ctx, int64(v.GetCardinality()), metric.WithAttributes(
-				attribute.Int64("shard", int64(k)),
-			))
-		}
-		for k, v := range batch.series {
-			batchSeries.Record(ctx, int64(v.GetCardinality()), metric.WithAttributes(
-				attribute.Int64("shard", int64(k)),
-			))
-		}
+		batch.Range(func(field constants.ID, mapping map[uint64]*roaring64.Bitmap) error {
+			switch field {
+			case constants.MetricsFST:
+				for k, v := range mapping {
+					batchLabels.Record(ctx, int64(v.GetCardinality()), metric.WithAttributes(
+						attribute.Int64("shard", int64(k)),
+					))
+				}
+			case constants.MetricsSeries:
+				for k, v := range mapping {
+					batchSeries.Record(ctx, int64(v.GetCardinality()), metric.WithAttributes(
+						attribute.Int64("shard", int64(k)),
+					))
+				}
+			}
+			return nil
+		})
 	}()
 	conv := prometheusremotewrite.NewPrometheusConverter()
 	err = conv.FromMetrics(mets, prometheusremotewrite.Settings{
@@ -226,27 +177,18 @@ func AppendBatch(ctx context.Context, store *store.Store, mets pmetric.Metrics, 
 	meta := prometheusremotewrite.OtelMetricsToMetadata(mets, true)
 
 	// wrap everything in a single transaction
-	store.DB.Update(func(txn *badger.Txn) error {
+	err = store.DB.Update(func(txn *badger.Txn) error {
 		blob := blob.Upsert(txn, store.Seq, store.Cache)
 		label := UpsertLabels(blob)
 		series := conv.TimeSeries()
 		for i := range series {
 			batch.Append(&series[i], label, blob, store.Seq)
 		}
-		tx, err := store.Index.Begin(true)
-		if err != nil {
-			return err
-		}
-		err = Save(ctx, tx, txn, batch, ts)
-		if err != nil {
-			tx.Rollback()
-			return err
-		}
-		err = tx.Commit()
-		if err != nil {
-			return err
-		}
 		return StoreMetadata(txn, meta)
 	})
-	return
+	if err != nil {
+		return err
+	}
+	view := quantum.ViewByTimeUnit("", ts, 'D')
+	return batch.Apply(store, view)
 }

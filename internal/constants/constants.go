@@ -9,10 +9,17 @@ const (
 	MetricsSeries
 	MetricsLabels
 	MetricsExemplars
-	// Used to generate unique row ID for metrics
 	MetricsRow
+	MetricsFST
 
+	LogsRow
+	LogsStreamID
 	LogsLabels
+	LogsTimestamp
+	LogsLine
+	LogsMetadata
+	LogsFST
 
 	TracesLabels
+	TraceFST
 )

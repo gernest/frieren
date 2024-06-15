@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math/bits"
 	"slices"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
@@ -15,11 +16,136 @@ import (
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/keys"
+	"github.com/gernest/frieren/internal/ro"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/internal/util"
 	"github.com/gernest/rbf"
 	"google.golang.org/protobuf/proto"
 )
+
+type Mapping map[uint64]*roaring64.Bitmap
+
+type Batch struct {
+	fields map[constants.ID]Mapping
+	depth  map[uint64]map[uint64]uint64
+	shards roaring64.Bitmap
+}
+
+func NewBatch() *Batch {
+	return &Batch{fields: make(map[constants.ID]Mapping),
+		depth: make(map[uint64]map[uint64]uint64)}
+}
+
+func (b *Batch) Reset() {
+	clear(b.fields)
+	clear(b.depth)
+	b.shards.Clear()
+}
+
+type Func func(field constants.ID, mapping map[uint64]*roaring64.Bitmap) error
+
+func (b *Batch) Apply(db *store.Store, view string, cb ...func(txn *badger.Txn) error) error {
+	return db.DB.Update(func(txn *badger.Txn) error {
+		tx, err := db.Index.Begin(true)
+		if err != nil {
+			return err
+		}
+		err = b.Range(func(field constants.ID, mapping map[uint64]*roaring64.Bitmap) error {
+			switch field {
+			case constants.MetricsFST, constants.TraceFST, constants.LogsFST:
+				return ApplyFST(txn, tx, blob.Translate(txn), view, field, mapping)
+			default:
+				return Apply(tx, fields.New(field, 0, view), mapping)
+			}
+		})
+		if err != nil {
+			tx.Rollback()
+			return err
+		}
+		err = tx.Commit()
+		if err != nil {
+			return err
+		}
+		err = ApplyBitDepth(txn, view, b.GetDepth())
+		if err != nil {
+			return err
+		}
+		if len(cb) > 0 {
+			return cb[0](txn)
+		}
+		return nil
+	})
+}
+
+func (b *Batch) Range(f Func) error {
+	for field, v := range b.fields {
+		err := f(field, v)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (b *Batch) GetDepth() map[uint64]map[uint64]uint64 {
+	return b.depth
+}
+
+func (b *Batch) GetShards() *roaring64.Bitmap {
+	return &b.shards
+}
+
+func (b *Batch) Depth(field constants.ID, shard uint64, depth int) {
+	m, ok := b.depth[shard]
+	if !ok {
+		m = make(map[uint64]uint64)
+		b.depth[shard] = m
+	}
+	m[uint64(field)] = max(m[uint64(field)], uint64(depth))
+}
+
+func (b *Batch) Shard(shard uint64) {
+	b.shards.Add(shard)
+}
+
+func (b *Batch) BSI(field constants.ID, shard, id, value uint64) {
+	ro.BSI(b.bitmap(field, shard), id, value)
+	b.Depth(field, shard, bits.Len64(value))
+}
+
+func (b *Batch) Mutex(field constants.ID, shard, id, value uint64) {
+	ro.Mutex(b.bitmap(field, shard), id, value)
+}
+
+func (b *Batch) Bool(field constants.ID, shard, id uint64, value bool) {
+	ro.Bool(b.bitmap(field, shard), id, value)
+}
+
+func (b *Batch) BSISet(field constants.ID, shard, id uint64, value []uint64) {
+	ro.BSISet(b.bitmap(field, shard), id, value)
+}
+
+func (b *Batch) Add(field constants.ID, shard, value uint64) {
+	b.bitmap(field, shard).Add(value)
+}
+
+func (b *Batch) AddMany(field constants.ID, shard uint64, value []uint64) {
+	b.bitmap(field, shard).AddMany(value)
+}
+
+func (b *Batch) bitmap(field constants.ID, u uint64) *roaring64.Bitmap {
+	m, ok := b.fields[field]
+	if !ok {
+		m = make(map[uint64]*roaring64.Bitmap)
+		b.fields[field] = m
+	}
+	r, ok := m[u]
+	if !ok {
+		r = roaring64.New()
+		m[u] = r
+	}
+	return r
+}
 
 func Apply(tx *rbf.Tx, view *fields.Fragment, data map[uint64]*roaring64.Bitmap) error {
 	for shard, m := range data {
