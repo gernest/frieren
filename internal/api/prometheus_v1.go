@@ -117,7 +117,7 @@ type apiFunc func(r *http.Request) apiFuncResult
 
 type prometheusAPI struct {
 	cors     *regexp.Regexp
-	qe       promql.QueryEngine
+	qe       *promql.Engine
 	qs       ps.Queryable
 	examplar ps.ExemplarQueryable
 	db       *store.Store

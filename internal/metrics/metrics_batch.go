@@ -24,8 +24,7 @@ func Append(ctx context.Context, store *store.Store, mets pmetric.Metrics, ts ti
 	return batch.Append(ctx, constants.METRICS, store, ts,
 		func(bx *batch.Batch) error {
 			return store.DB.Update(func(txn *badger.Txn) error {
-				conv := prometheusremotewrite.NewPrometheusConverter()
-				err := conv.FromMetrics(mets, prometheusremotewrite.Settings{
+				series, err := prometheusremotewrite.FromMetrics(mets, prometheusremotewrite.Settings{
 					AddMetricSuffixes: true,
 				})
 				if err != nil {
@@ -34,9 +33,8 @@ func Append(ctx context.Context, store *store.Store, mets pmetric.Metrics, ts ti
 				blob := blob.Upsert(txn, store)
 				label := UpsertLabels(blob)
 
-				series := conv.TimeSeries()
-				for i := range series {
-					appendBatch(bx, &series[i], label, blob, store.Seq)
+				for _, s := range series {
+					appendBatch(bx, s, label, blob, store.Seq)
 				}
 				meta := prometheusremotewrite.OtelMetricsToMetadata(mets, true)
 				return StoreMetadata(txn, meta)
