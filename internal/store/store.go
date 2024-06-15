@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/dgraph-io/badger/v4"
+	"github.com/dgraph-io/ristretto"
 	"github.com/gernest/rbf"
 )
 
@@ -17,7 +18,10 @@ type Store struct {
 	DB    *badger.DB
 	Index *rbf.DB
 	Seq   *Seq
+	Cache *ristretto.Cache
 }
+
+const hashItems = (16 << 20) / 16
 
 func New(path string) (*Store, error) {
 	dbPath := filepath.Join(path, "db")
@@ -31,12 +35,24 @@ func New(path string) (*Store, error) {
 	idx := rbf.NewDB(idxPath, nil)
 	err = idx.Open()
 	if err != nil {
+		db.Close()
 		return nil, err
 	}
-	return &Store{Path: path, DB: db, Index: idx, Seq: NewSequence(db)}, nil
+	cache, err := ristretto.NewCache(&ristretto.Config{
+		NumCounters: hashItems * 10,
+		MaxCost:     hashItems,
+		BufferItems: 64,
+	})
+	if err != nil {
+		idx.Close()
+		db.Close()
+		return nil, err
+	}
+	return &Store{Path: path, DB: db, Index: idx, Seq: NewSequence(db), Cache: cache}, nil
 }
 
 func (s *Store) Close() error {
+	s.Cache.Close()
 	return errors.Join(
 		s.Seq.Release(), s.Index.Close(), s.DB.Close(),
 	)
