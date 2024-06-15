@@ -39,7 +39,7 @@ type Metrics struct {
 func (m *Metrics) Export(ctx context.Context, req pmetricotlp.ExportRequest) (pmetricotlp.ExportResponse, error) {
 	_, span := self.Start(ctx, "metrics/Export")
 	defer span.End()
-	err := metrics.AppendBatch(ctx, m.db, req.Metrics(), time.Now().UTC())
+	err := metrics.Append(ctx, m.db, req.Metrics(), time.Now().UTC())
 	if err != nil {
 		return pmetricotlp.ExportResponse{}, err
 	}

@@ -21,7 +21,7 @@ func TestBach_Append(t *testing.T) {
 	defer db.Close()
 
 	m := generateOTLPWriteRequest()
-	err = AppendBatch(context.TODO(), db, m.Metrics(), util.TS())
+	err = Append(context.TODO(), db, m.Metrics(), util.TS())
 	require.NoError(t, err)
 	tx, err := db.Index.Begin(false)
 	require.NoError(t, err)

@@ -20,7 +20,31 @@ import (
 
 type LabelFunc func([]prompb.Label) []uint64
 
-func Append(b *batch.Batch, ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob.Func, seq *store.Seq) {
+func Append(ctx context.Context, store *store.Store, mets pmetric.Metrics, ts time.Time) (err error) {
+	return batch.Append(ctx, constants.METRICS, store, ts,
+		func(bx *batch.Batch) error {
+			return store.DB.Update(func(txn *badger.Txn) error {
+				conv := prometheusremotewrite.NewPrometheusConverter()
+				err := conv.FromMetrics(mets, prometheusremotewrite.Settings{
+					AddMetricSuffixes: true,
+				})
+				if err != nil {
+					return err
+				}
+				blob := blob.Upsert(txn, store.Seq, store.Cache)
+				label := UpsertLabels(blob)
+
+				series := conv.TimeSeries()
+				for i := range series {
+					appendBatch(bx, &series[i], label, blob, store.Seq)
+				}
+				meta := prometheusremotewrite.OtelMetricsToMetadata(mets, true)
+				return StoreMetadata(txn, meta)
+			})
+		})
+}
+
+func appendBatch(b *batch.Batch, ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob.Func, seq *store.Seq) {
 	labels := labelFunc(ts.Labels)
 	checksum := sha512.Sum512(util.Uint64ToBytes(labels))
 	series := blobFunc(constants.MetricsSeries, checksum[:])
@@ -72,28 +96,4 @@ func Append(b *batch.Batch, ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc
 			b.BSI(constants.MetricsExemplars, shard, id, exemplars)
 		}
 	}
-}
-
-func AppendBatch(ctx context.Context, store *store.Store, mets pmetric.Metrics, ts time.Time) (err error) {
-	return batch.Append(ctx, constants.METRICS, store, ts,
-		func(bx *batch.Batch) error {
-			return store.DB.Update(func(txn *badger.Txn) error {
-				conv := prometheusremotewrite.NewPrometheusConverter()
-				err := conv.FromMetrics(mets, prometheusremotewrite.Settings{
-					AddMetricSuffixes: true,
-				})
-				if err != nil {
-					return err
-				}
-				blob := blob.Upsert(txn, store.Seq, store.Cache)
-				label := UpsertLabels(blob)
-
-				series := conv.TimeSeries()
-				for i := range series {
-					Append(bx, &series[i], label, blob, store.Seq)
-				}
-				meta := prometheusremotewrite.OtelMetricsToMetadata(mets, true)
-				return StoreMetadata(txn, meta)
-			})
-		})
 }
