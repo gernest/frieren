@@ -65,7 +65,7 @@ func (e *ExemplarQueryable) Select(start, end int64, matchers ...[]*labels.Match
 	m := make(ExemplarSet)
 	tr := blob.Translate(txn)
 	err = view.Traverse(func(shard *v1.Shard, view string) error {
-		filters, err := fst.MatchSet(txn, tx, shard.Id, view, constants.MetricsLabels, matchers...)
+		filters, err := fst.MatchSet(txn, tx, shard.Id, view, constants.MetricsFST, matchers...)
 		if err != nil {
 			return err
 		}
