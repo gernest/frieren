@@ -1,23 +1,36 @@
 package logs
 
 import (
+	"context"
+	"time"
+
+	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/batch"
+	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/logs/logproto"
 	"github.com/gernest/frieren/internal/shardwidth"
 	"github.com/gernest/frieren/internal/store"
+	"go.opentelemetry.io/collector/pdata/plog"
 )
 
-type Batch struct {
-	*batch.Batch
-	rows int64
+func AppendBatch(ctx context.Context, store *store.Store, ld plog.Logs, ts time.Time) error {
+	return batch.Append(ctx, constants.LOGS, store, ts, func(bx *batch.Batch) error {
+		return store.DB.Update(func(txn *badger.Txn) error {
+			all := logproto.FromLogs(ld, blob.Upsert(txn, store.Seq, store.Cache))
+			for _, v := range all {
+				append(bx, store.Seq, v)
+			}
+			return nil
+		})
+	})
 }
 
-func (b *Batch) Append(seq *store.Seq, m *logproto.Stream) {
+func append(b *batch.Batch, seq *store.Seq, m *logproto.Stream) {
 	currentShard := ^uint64(0)
 	for _, e := range m.Entries {
 		id := seq.NextID(constants.LogsRow)
-		b.rows++
+		b.Rows++
 		shard := id / shardwidth.ShardWidth
 		if shard != currentShard {
 			currentShard = shard
