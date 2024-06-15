@@ -46,7 +46,7 @@ func (q *Queryable) Querier(mints, maxts int64) (storage.Querier, error) {
 	defer tx.Rollback()
 	txn := q.db.NewTransaction(false)
 	defer txn.Discard()
-	view, err := query.New(txn, tx, mints, maxts)
+	view, err := query.New(txn, tx, constants.METRICS, mints, maxts)
 	if err != nil {
 		return nil, err
 	}

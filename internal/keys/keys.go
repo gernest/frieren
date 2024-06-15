@@ -54,8 +54,8 @@ func Metadata(b *bytes.Buffer, name string) []byte {
 	return b.Bytes()
 }
 
-func FieldView(b *bytes.Buffer, view string) []byte {
+func FieldView(b *bytes.Buffer, resource constants.Resource, view string) []byte {
 	b.Reset()
-	fmt.Fprintf(b, "%d:%s", fieldView, view)
+	fmt.Fprintf(b, "%d:%d:%s", resource, fieldView, view)
 	return b.Bytes()
 }

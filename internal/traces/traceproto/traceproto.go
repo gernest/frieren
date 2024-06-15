@@ -17,7 +17,6 @@ type Span struct {
 	Tags          []uint64
 	TraceID       uint64
 	SpanID        uint64
-	State         uint64
 	Parent        uint64
 	Name          uint64
 	Kind          uint64
@@ -37,11 +36,11 @@ func From(td ptrace.Traces, tr blob.Func, f func(span *Span)) {
 		return
 	}
 	rls := td.ResourceSpans()
-	streamCtx := px.New(constants.TracesLabels, tr)
-	rsCtx := px.New(constants.TracesLabels, tr)
-	scopeCtx := px.New(constants.TracesLabels, tr)
-	attrCtx := px.New(constants.TracesLabels, tr)
-	eventsCtx := px.New(constants.TracesLabels, tr)
+	streamCtx := px.New(constants.TracesFST, tr)
+	rsCtx := px.New(constants.TracesFST, tr)
+	scopeCtx := px.New(constants.TracesFST, tr)
+	attrCtx := px.New(constants.TracesFST, tr)
+	eventsCtx := px.New(constants.TracesFST, tr)
 	o := &Span{}
 	for i := 0; i < rls.Len(); i++ {
 		sls := rls.At(i).ScopeSpans()

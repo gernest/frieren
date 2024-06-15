@@ -63,7 +63,7 @@ func (b *Batch) Reset() {
 
 type Func func(field constants.ID, mapping map[uint64]*roaring64.Bitmap) error
 
-func (b *Batch) Apply(db *store.Store, view string, cb ...func(txn *badger.Txn) error) error {
+func (b *Batch) Apply(db *store.Store, resource constants.Resource, view string, cb ...func(txn *badger.Txn) error) error {
 	return db.DB.Update(func(txn *badger.Txn) error {
 		tx, err := db.Index.Begin(true)
 		if err != nil {
@@ -71,7 +71,7 @@ func (b *Batch) Apply(db *store.Store, view string, cb ...func(txn *badger.Txn) 
 		}
 		err = b.Range(func(field constants.ID, mapping map[uint64]*roaring64.Bitmap) error {
 			switch field {
-			case constants.MetricsFST, constants.TraceFST, constants.LogsFST:
+			case constants.MetricsFST, constants.TracesFST, constants.LogsFST:
 				return ApplyFST(txn, tx, blob.Translate(txn), view, field, mapping)
 			default:
 				return Apply(tx, fields.New(field, 0, view), mapping)
@@ -85,7 +85,7 @@ func (b *Batch) Apply(db *store.Store, view string, cb ...func(txn *badger.Txn) 
 		if err != nil {
 			return err
 		}
-		err = ApplyBitDepth(txn, view, b.GetDepth())
+		err = ApplyBitDepth(txn, resource, view, b.GetDepth())
 		if err != nil {
 			return err
 		}
@@ -248,9 +248,9 @@ func updateFST(buf *bytes.Buffer, txn *badger.Txn, tr blob.Tr, shard uint64, vie
 	return nil
 }
 
-func ApplyBitDepth(txn *badger.Txn, view string, depth map[uint64]map[uint64]uint64) error {
+func ApplyBitDepth(txn *badger.Txn, resource constants.Resource, view string, depth map[uint64]map[uint64]uint64) error {
 	b := &v1.FieldViewInfo{}
-	key := keys.FieldView(new(bytes.Buffer), view)
+	key := keys.FieldView(new(bytes.Buffer), resource, view)
 	store.Get(txn, key, func(val []byte) error {
 		return proto.Unmarshal(val, b)
 	})
@@ -282,8 +282,8 @@ func ApplyBitDepth(txn *badger.Txn, view string, depth map[uint64]map[uint64]uin
 	return txn.Set(key, data)
 }
 
-func FieldViewInfo(txn *badger.Txn, view string) (*v1.FieldViewInfo, error) {
-	key := keys.FieldView(new(bytes.Buffer), view)
+func FieldViewInfo(txn *badger.Txn, resource constants.Resource, view string) (*v1.FieldViewInfo, error) {
+	key := keys.FieldView(new(bytes.Buffer), resource, view)
 	it, err := txn.Get(key)
 	if err != nil {
 		if !errors.Is(err, badger.ErrKeyNotFound) {
@@ -347,7 +347,7 @@ func Append(
 	initMetrics()
 	view := quantum.ViewByTimeUnit("", ts, 'D')
 
-	err = bx.Apply(store, view)
+	err = bx.Apply(store, resource, view)
 	if err != nil {
 		batchFailure.Add(ctx, 1, metric.WithAttributes(res))
 		return err

@@ -20,8 +20,23 @@ const (
 	LogsMetadata
 	LogsFST
 
-	TracesLabels
-	TraceFST
+	TracesResource
+	TracesTags
+	TracesTracesID
+	TracesSpanID
+	TracesState
+	TracesParent
+	TracesName
+	TracesKind
+	TracesStart
+	TracesEnd
+	TracesDuration
+	TracesEvents
+	TracesLinks
+	TracesStatusCode
+	TracesStatusMessage
+	TracesRow
+	TracesFST
 )
 
 type Resource uint

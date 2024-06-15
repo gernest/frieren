@@ -55,7 +55,7 @@ func (e *ExemplarQueryable) Select(start, end int64, matchers ...[]*labels.Match
 	txn := e.db.NewTransaction(false)
 	defer txn.Discard()
 
-	view, err := query.New(txn, tx, start, end)
+	view, err := query.New(txn, tx, constants.METRICS, start, end)
 	if err != nil {
 		return nil, err
 	}
