@@ -44,9 +44,7 @@ func append(b *batch.Batch, seq *store.Seq) func(span *traceproto.Span) {
 		b.BSISet(constants.TracesTags, shard, id, span.Tags)
 		b.BSI(constants.TracesTracesID, shard, id, span.TraceID)
 		b.BSI(constants.TracesSpanID, shard, id, span.SpanID)
-		if span.Parent != 0 {
-			b.BSI(constants.TracesParent, shard, id, span.Parent)
-		}
+		b.BSI(constants.TracesParent, shard, id, span.Parent)
 		b.BSI(constants.TracesName, shard, id, span.Name)
 		b.Mutex(constants.TracesKind, shard, id, span.Kind)
 		b.BSI(constants.TracesStart, shard, id, span.Start)
