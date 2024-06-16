@@ -43,7 +43,7 @@ func newLokiAPI(db *store.Store) *lokiAPI {
 func (a *lokiAPI) Register(r *route.Router) {
 	wrap := func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		req, err := codec.DecodeRequest(nil, r, nil)
+		req, err := codec.DecodeRequest(ctx, r, nil)
 		if err != nil {
 			writeError(w, err)
 			return

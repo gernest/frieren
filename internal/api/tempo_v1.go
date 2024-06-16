@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 
+	"github.com/gernest/frieren/internal/store"
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/grafana/tempo/pkg/api"
 	"github.com/grafana/tempo/pkg/model/trace"
@@ -26,11 +27,15 @@ type Engine interface {
 	SearchTagValues(ctx context.Context, req *tempopb.SearchTagValuesRequest) (*tempopb.SearchTagValuesResponse, error)
 }
 
-type API struct {
+type tempoAPI struct {
 	engine Engine
 }
 
-func (a *API) Register(r *route.Router) {
+func newTempoAPI(db *store.Store) *tempoAPI {
+	return &tempoAPI{}
+}
+
+func (a *tempoAPI) Register(r *route.Router) {
 	r.Get("/api/traces/:id", a.findTraceByID)
 	r.Post("/api/traces/:id", a.findTraceByID)
 	r.Get(api.PathSearch, a.search)
@@ -41,7 +46,7 @@ func (a *API) Register(r *route.Router) {
 	r.Post("/api/search/tag/:name/values", a.searchTagValues)
 }
 
-func (a *API) findTraceByID(w http.ResponseWriter, r *http.Request) {
+func (a *tempoAPI) findTraceByID(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	byteID, err := parseTraceID(ctx)
 	if err != nil {
@@ -77,7 +82,7 @@ func (a *API) findTraceByID(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set(api.HeaderContentType, api.HeaderAcceptJSON)
 }
 
-func (a *API) search(w http.ResponseWriter, r *http.Request) {
+func (a *tempoAPI) search(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	req, err := api.ParseSearchRequest(r)
 	if err != nil {
@@ -99,7 +104,7 @@ func (a *API) search(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set(api.HeaderContentType, api.HeaderAcceptJSON)
 }
 
-func (a *API) searchTags(w http.ResponseWriter, r *http.Request) {
+func (a *tempoAPI) searchTags(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	req, err := api.ParseSearchTagsRequest(r)
 	if err != nil {
@@ -122,7 +127,7 @@ func (a *API) searchTags(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set(api.HeaderContentType, api.HeaderAcceptJSON)
 }
 
-func (a *API) searchTagValues(w http.ResponseWriter, r *http.Request) {
+func (a *tempoAPI) searchTagValues(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	req, err := parseSearchTagValuesRequest(r, true)

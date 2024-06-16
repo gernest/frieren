@@ -125,12 +125,11 @@ type prometheusAPI struct {
 }
 
 func Add(mux *http.ServeMux, db *store.Store) {
-	av1 := route.New()
-	newPrometheusAPI(db).Register(av1)
-	mux.Handle("/api/v1/", http.StripPrefix("/api/v1", av1))
-	lokiV1 := route.New()
-	newLokiAPI(db).Register(lokiV1)
-	mux.Handle("/loki/api/v1/", http.StripPrefix("/loki/api/v1", av1))
+	api := route.New()
+	newPrometheusAPI(db).Register(api)
+	newLokiAPI(db).Register(api)
+	newTempoAPI(db).Register(api)
+	mux.Handle("/api/", api)
 }
 
 func newPrometheusAPI(db *store.Store) *prometheusAPI {
@@ -193,20 +192,20 @@ func (api *prometheusAPI) Register(r *route.Router) {
 			Handler: hf,
 		}.ServeHTTP
 	}
-	r.Get("/query", wrap(api.query))
-	r.Post("/query", wrap(api.query))
-	r.Get("/query_range", wrap(api.queryRange))
-	r.Post("/query_range", wrap(api.queryRange))
-	r.Get("/query_exemplars", wrap(api.queryExemplars))
-	r.Post("/query_exemplars", wrap(api.queryExemplars))
+	r.Get("/api/v1/query", wrap(api.query))
+	r.Post("/api/v1/query", wrap(api.query))
+	r.Get("/api/v1/query_range", wrap(api.queryRange))
+	r.Post("/api/v1/query_range", wrap(api.queryRange))
+	r.Get("/api/v1/query_exemplars", wrap(api.queryExemplars))
+	r.Post("/api/v1/query_exemplars", wrap(api.queryExemplars))
 
-	r.Get("/labels", wrap(api.labelNames))
-	r.Post("/labels", wrap(api.labelNames))
-	r.Get("/label/:name/values", wrap(api.labelValues))
-	r.Get("/series", wrap(api.series))
-	r.Post("/series", wrap(api.series))
+	r.Get("/api/v1/labels", wrap(api.labelNames))
+	r.Post("/api/v1/labels", wrap(api.labelNames))
+	r.Get("/api/v1/label/:name/values", wrap(api.labelValues))
+	r.Get("/api/v1/series", wrap(api.series))
+	r.Post("/api/v1/series", wrap(api.series))
 
-	r.Get("/metadata", wrap(api.metricMetadata))
+	r.Get("/api/v1/metadata", wrap(api.metricMetadata))
 }
 
 type QueryData struct {
