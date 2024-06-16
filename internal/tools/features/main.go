@@ -8,8 +8,10 @@ import (
 
 func main() {
 	o := os.Stdout
-	fmt.Fprint(o, "\n# Loki")
+	fmt.Fprint(o, "\n\n# Loki")
 	render(o, Loki)
+	fmt.Fprint(o, "\n\n# Tempo")
+	render(o, tempo)
 }
 
 type Feature struct {
@@ -24,18 +26,17 @@ type FeatureSet struct {
 	Features []Feature
 }
 
-var Loki = []FeatureSet{
-	{Title: "Ingest",
+var tempo = []FeatureSet{
+	{Title: "Query",
 		Features: []Feature{
-			{
-				API:     "POST /loki/api/v1/push",
-				Planned: true,
-			},
-			{
-				API:     "POST /otlp/v1/logs",
-				Planned: true,
-			},
+			{API: "GET /api/traces/:trace_id", Supported: true},
+			{API: "GET /api/search", Supported: true},
+			{API: "GET /api/search/tags", Supported: true},
+			{API: "GET /api/search/tag/:name/values", Supported: true},
 		}},
+}
+
+var Loki = []FeatureSet{
 	{Title: "Query",
 		Features: []Feature{
 			{
@@ -79,10 +80,6 @@ var Loki = []FeatureSet{
 				NotPlaned: true,
 			},
 		}},
-	{Title: "Status"},
-	{Title: "Ring"},
-	{Title: "Flush/Shutdown"},
-	{Title: "Rule"},
 }
 
 func render(w io.Writer, set []FeatureSet) {
