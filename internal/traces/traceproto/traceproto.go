@@ -32,6 +32,7 @@ func From(td ptrace.Traces, tr blob.Func, f func(span *Span)) {
 		util.Exit("converting ptrace.Traces to tempopb.Traces")
 	}
 	rls := td.ResourceSpans()
+	resourceCtx := px.New(constants.TracesFST, tr)
 	scopeCtx := px.New(constants.TracesFST, tr)
 	attrCtx := px.New(constants.TracesFST, tr)
 	o := &Span{}
@@ -39,6 +40,11 @@ func From(td ptrace.Traces, tr blob.Func, f func(span *Span)) {
 		sls := rls.At(i).ScopeSpans()
 		res := rls.At(i).Resource()
 		resAttrs := res.Attributes()
+		resourceCtx.Reset()
+		resAttrs.Range(func(k string, v pcommon.Value) bool {
+			resourceCtx.Set(k, v.AsString())
+			return true
+		})
 		rd, _ := tx.Batches[i].GetResource().Marshal()
 		resourceID := tr(constants.TracesResource, rd)
 		var serviceName string
@@ -73,6 +79,7 @@ func From(td ptrace.Traces, tr blob.Func, f func(span *Span)) {
 				o.Span = spanID
 
 				attrCtx.Reset()
+				attrCtx.Or(resourceCtx)
 				attrCtx.Or(scopeCtx)
 				span.Attributes().Range(func(k string, v pcommon.Value) bool {
 					attrCtx.Set("span."+k, v.AsString())
