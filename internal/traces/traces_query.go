@@ -8,9 +8,10 @@ import (
 )
 
 type queryContext struct {
-	tx  *rbf.Tx
-	txn *badger.Txn
-	tr  blob.Tr
+	tx   *rbf.Tx
+	txn  *badger.Txn
+	tr   blob.Tr
+	find blob.Find
 }
 
 func newQueryContext(db *store.Store) (*queryContext, error) {
@@ -20,9 +21,10 @@ func newQueryContext(db *store.Store) (*queryContext, error) {
 	}
 	txn := db.DB.NewTransaction(false)
 	return &queryContext{
-		tx:  tx,
-		txn: txn,
-		tr:  blob.Translate(txn, db),
+		tx:   tx,
+		txn:  txn,
+		tr:   blob.Translate(txn, db),
+		find: blob.Finder(txn, db),
 	}, nil
 }
 

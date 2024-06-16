@@ -15,7 +15,40 @@ import (
 
 type Func func(id constants.ID, value []byte) uint64
 
+type Find func(id constants.ID, value []byte) (uint64, bool)
+
 type Tr func(id constants.ID, key uint64) []byte
+
+func Finder(txn *badger.Txn, store *store.Store) Find {
+	h := xxhash.New()
+	buf := new(bytes.Buffer)
+	return func(field constants.ID, b []byte) (uint64, bool) {
+		h.Reset()
+		h.Write(b)
+		hash := h.Sum64()
+		if v, ok := store.HashCache.Get(hash); ok {
+			return v.(uint64), true
+		}
+		bhk := keys.BlobHash(buf, field, hash)
+		it, err := txn.Get(bhk)
+		if err != nil {
+			if !errors.Is(err, badger.ErrKeyNotFound) {
+				util.Exit("finding blob id", "err", err)
+			}
+			return 0, false
+		}
+		var id uint64
+		err = it.Value(func(val []byte) error {
+			id = binary.BigEndian.Uint64(val)
+			return nil
+		})
+		if err != nil {
+			util.Exit("reading blob id", "err", err)
+		}
+		store.HashCache.Set(hash, id, 1)
+		return id, true
+	}
+}
 
 func Upsert(txn *badger.Txn, store *store.Store) Func {
 	h := xxhash.New()
