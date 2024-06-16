@@ -23,21 +23,11 @@ const (
 	TracesResource
 	TracesScope
 	TracesSpan
-	TracesTracesID
-	TracesSpanID
-	TracesState
-	TracesParent
-	TracesName
-	TracesKind
+	TracesTags
 	TracesStart
 	TracesEnd
 	TracesDuration
-	TracesEvents
-	TracesLinks
-	TracesStatusCode
-	TracesStatusMessage
 	TracesRow
-	TracesFamily
 	TracesFST
 )
 

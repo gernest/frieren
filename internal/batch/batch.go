@@ -144,6 +144,10 @@ func (b *Batch) BSISet(field constants.ID, shard, id uint64, value []uint64) {
 	ro.BSISet(b.bitmap(field, shard), id, value)
 }
 
+func (b *Batch) BSISetBitmap(field constants.ID, shard, id uint64, value *roaring64.Bitmap) {
+	ro.BSISetBitmap(b.bitmap(field, shard), id, value)
+}
+
 func (b *Batch) BSISetOne(field constants.ID, id uint64, row uint64) {
 	ro.BSISetOne(b.bitmap(field, id/shardwidth.ShardWidth), id, row)
 }

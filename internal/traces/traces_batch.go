@@ -26,7 +26,6 @@ func AppendBatch(ctx context.Context, store *store.Store, td ptrace.Traces, ts t
 
 func append(b *batch.Batch, seq *store.Seq) func(span *traceproto.Span) {
 	currentShard := ^uint64(0)
-
 	return func(span *traceproto.Span) {
 		id := seq.NextID(constants.TracesRow)
 		b.Rows++
@@ -39,19 +38,9 @@ func append(b *batch.Batch, seq *store.Seq) func(span *traceproto.Span) {
 		b.BSI(constants.TracesResource, shard, id, span.Resource)
 		b.BSI(constants.TracesScope, shard, id, span.Scope)
 		b.BSI(constants.TracesSpan, shard, id, span.Span)
-		b.BSI(constants.TracesTracesID, shard, id, span.TraceID)
-		b.BSI(constants.TracesSpanID, shard, id, span.SpanID)
-		b.BSI(constants.TracesParent, shard, id, span.Parent)
-		if span.Parent != 0 {
-			// Store parent_span -> SET(children_span)
-			b.BSISetOne(constants.TracesFamily, span.Parent, span.SpanID)
-		}
-		b.BSI(constants.TracesName, shard, id, span.Name)
-		b.Mutex(constants.TracesKind, shard, id, span.Kind)
+		b.BSISetBitmap(constants.TracesTags, shard, id, span.Tags)
 		b.BSI(constants.TracesStart, shard, id, span.Start)
 		b.BSI(constants.TracesEnd, shard, id, span.End)
 		b.BSI(constants.TracesDuration, shard, id, span.Duration)
-		b.Mutex(constants.TracesStatusCode, shard, id, span.StatusCode)
-		b.Mutex(constants.TracesStatusMessage, shard, id, span.StatusMessage)
 	}
 }
