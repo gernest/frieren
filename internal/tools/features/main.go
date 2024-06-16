@@ -8,6 +8,8 @@ import (
 
 func main() {
 	o := os.Stdout
+	fmt.Fprint(o, "\n\n# Prometheus")
+	render(o, prom)
 	fmt.Fprint(o, "\n\n# Loki")
 	render(o, Loki)
 	fmt.Fprint(o, "\n\n# Tempo")
@@ -25,6 +27,18 @@ type FeatureSet struct {
 	Title    string
 	Features []Feature
 }
+
+var prom = []FeatureSet{
+	{Title: "Query",
+		Features: []Feature{
+			{API: "GET /api/v1/query", Supported: true},
+			{API: "GET /api/v1/query_range", Supported: true},
+			{API: "GET /api/v1/query_exemplars", Supported: true},
+			{API: "GET /api/v1/labels", Supported: true},
+			{API: "GET /api/v1/labels/:name/values", Supported: true},
+			{API: "GET /api/v1/series", Supported: true},
+			{API: "GET /api/v1/metadata", Supported: true},
+		}}}
 
 var tempo = []FeatureSet{
 	{Title: "Query",
