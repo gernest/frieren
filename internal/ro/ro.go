@@ -39,6 +39,10 @@ func BSISet(m *roaring64.Bitmap, id uint64, values []uint64) {
 	}
 }
 
+func BSISetOne(m *roaring64.Bitmap, id uint64, row uint64) {
+	m.Add(row*shardwidth.ShardWidth + (id % shardwidth.ShardWidth))
+}
+
 func Bool(m *roaring64.Bitmap, id uint64, value bool) {
 	fragmentColumn := id % shardwidth.ShardWidth
 	if value {

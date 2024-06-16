@@ -22,6 +22,7 @@ import (
 	"github.com/gernest/frieren/internal/keys"
 	"github.com/gernest/frieren/internal/ro"
 	"github.com/gernest/frieren/internal/self"
+	"github.com/gernest/frieren/internal/shardwidth"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/quantum"
@@ -141,6 +142,10 @@ func (b *Batch) Bool(field constants.ID, shard, id uint64, value bool) {
 
 func (b *Batch) BSISet(field constants.ID, shard, id uint64, value []uint64) {
 	ro.BSISet(b.bitmap(field, shard), id, value)
+}
+
+func (b *Batch) BSISetOne(field constants.ID, id uint64, row uint64) {
+	ro.BSISetOne(b.bitmap(field, id/shardwidth.ShardWidth), id, row)
 }
 
 func (b *Batch) Add(field constants.ID, shard, value uint64) {

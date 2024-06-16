@@ -45,6 +45,10 @@ func append(b *batch.Batch, seq *store.Seq) func(span *traceproto.Span) {
 		b.BSI(constants.TracesTracesID, shard, id, span.TraceID)
 		b.BSI(constants.TracesSpanID, shard, id, span.SpanID)
 		b.BSI(constants.TracesParent, shard, id, span.Parent)
+		if span.Parent != 0 {
+			// Store parent_span -> SET(children_span)
+			b.BSISetOne(constants.TracesFamily, span.Parent, span.SpanID)
+		}
 		b.BSI(constants.TracesName, shard, id, span.Name)
 		b.Mutex(constants.TracesKind, shard, id, span.Kind)
 		b.BSI(constants.TracesStart, shard, id, span.Start)

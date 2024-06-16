@@ -36,6 +36,7 @@ const (
 	TracesStatusCode
 	TracesStatusMessage
 	TracesRow
+	TracesFamily
 	TracesFST
 )
 
