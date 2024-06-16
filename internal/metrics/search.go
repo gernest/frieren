@@ -132,9 +132,10 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 	defer txn.Discard()
 
 	m := make(MapSet)
+	fnd := blob.Finder(txn, s.store)
 
 	err = s.view.Traverse(func(shard *v1.Shard, view string) error {
-		filters, err := fst.Match(txn, shard.Id, view, constants.MetricsFST, matchers...)
+		filters, err := fst.Match(txn, fnd, shard.Id, view, constants.MetricsFST, matchers...)
 		if err != nil {
 			return err
 		}

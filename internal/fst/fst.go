@@ -9,6 +9,7 @@ import (
 	"github.com/blevesearch/vellum"
 	re "github.com/blevesearch/vellum/regexp"
 	"github.com/dgraph-io/badger/v4"
+	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/keys"
 	"github.com/gernest/frieren/internal/store"
@@ -17,7 +18,7 @@ import (
 )
 
 // Match returns label IDs that match all matchers.
-func Match(txn *badger.Txn, shard uint64, view string, id constants.ID, matchers ...*labels.Matcher) (result []uint64, err error) {
+func Match(txn *badger.Txn, find blob.Find, shard uint64, view string, id constants.ID, matchers ...*labels.Matcher) (result []uint64, err error) {
 	var buf bytes.Buffer
 	err = Read(txn, shard, view, id, func(fst *vellum.FST) error {
 		equal := roaring64.New()
@@ -43,10 +44,7 @@ func Match(txn *badger.Txn, shard uint64, view string, id constants.ID, matchers
 				buf.WriteString(m.Name)
 				buf.WriteByte('=')
 				buf.WriteString(m.Value)
-				value, ok, err := fst.Get(buf.Bytes())
-				if err != nil {
-					return fmt.Errorf("get fst value %w", err)
-				}
+				value, ok := find(id, buf.Bytes())
 				if !ok {
 					return nil
 				}
