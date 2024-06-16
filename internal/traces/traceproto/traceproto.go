@@ -1,6 +1,9 @@
 package traceproto
 
 import (
+	"math"
+	"slices"
+
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
@@ -11,31 +14,51 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 )
 
+type Trace struct {
+	Start uint64
+	End   uint64
+	Spans []*Span
+}
+
+type Traces map[string]*Trace
+
+func (t Traces) add(id string, span *Span, start, end uint64) {
+	x, ok := t[id]
+	if !ok {
+		x = &Trace{
+			Spans: make([]*Span, 0, 64),
+			Start: math.MaxUint64,
+		}
+		t[id] = x
+	}
+	x.Start = min(x.Start, start)
+	x.End = max(x.End, end)
+	x.Spans = append(x.Spans, span)
+}
+
 type Span struct {
 	Resource uint64
 	Scope    uint64
 	Span     uint64
 	Tags     *roaring64.Bitmap
-	Start    uint64
-	End      uint64
-	Duration uint64
 }
 
 // Spans can be processed individually during ingest. To save memory, instead of
 // returning a list we accept a callback that receives a fully decoded span.
-func From(td ptrace.Traces, tr blob.Func, f func(span *Span)) {
+func From(td ptrace.Traces, tr blob.Func) Traces {
 	if td.SpanCount() == 0 {
-		return
+		return Traces{}
 	}
 	tx, err := from(td)
 	if err != nil {
 		util.Exit("converting ptrace.Traces to tempopb.Traces")
 	}
+	traces := make(Traces)
 	rls := td.ResourceSpans()
 	resourceCtx := px.New(constants.TracesFST, tr)
 	scopeCtx := px.New(constants.TracesFST, tr)
 	attrCtx := px.New(constants.TracesFST, tr)
-	o := &Span{}
+	encode := marshal(tr)
 	for i := 0; i < rls.Len(); i++ {
 		sls := rls.At(i).ScopeSpans()
 		res := rls.At(i).Resource()
@@ -45,8 +68,7 @@ func From(td ptrace.Traces, tr blob.Func, f func(span *Span)) {
 			resourceCtx.Set(k, v.AsString())
 			return true
 		})
-		rd, _ := tx.Batches[i].GetResource().Marshal()
-		resourceID := tr(constants.TracesResource, rd)
+		resourceID := encode(constants.TracesResource, tx.Batches[i].GetResource())
 		var serviceName string
 		if v, ok := resAttrs.Get(string(semconv.ServiceNameKey)); ok {
 			serviceName = v.AsString()
@@ -66,14 +88,11 @@ func From(td ptrace.Traces, tr blob.Func, f func(span *Span)) {
 			if scopeVersion := scope.Version(); scopeVersion != "" {
 				scopeCtx.Set("scope:version", scopeVersion)
 			}
-			sd, _ := tx.Batches[i].ScopeSpans[j].GetScope().Marshal()
-			scopeID := tr(constants.TracesScope, sd)
-
+			scopeID := encode(constants.TracesScope, tx.Batches[i].ScopeSpans[j].GetScope())
 			for k := 0; k < spans.Len(); k++ {
-				data, _ := tx.Batches[i].ScopeSpans[j].Spans[k].Marshal()
-				spanID := tr(constants.TracesSpan, data)
+				spanID := encode(constants.TracesSpan, tx.Batches[i].ScopeSpans[j].Spans[k])
 				span := spans.At(k)
-				*o = Span{}
+				o := &Span{}
 				o.Resource = resourceID
 				o.Scope = scopeID
 				o.Span = spanID
@@ -108,19 +127,36 @@ func From(td ptrace.Traces, tr blob.Func, f func(span *Span)) {
 					})
 				}
 				attrCtx.Set("parent:id", span.ParentSpanID().String())
-				attrCtx.Set("trace:id", span.TraceID().String())
+				traceID := span.TraceID().String()
+				attrCtx.Set("trace:id", traceID)
 				attrCtx.Set("span:id", span.SpanID().String())
 				if span.ParentSpanID().IsEmpty() {
 					attrCtx.Set("trace:rootName", span.Name())
 					attrCtx.Set("trace:rootService", serviceName)
 				}
-				o.Tags = attrCtx.Bitmap()
-				o.Start = uint64(span.StartTimestamp())
-				o.End = uint64(span.EndTimestamp())
-				o.Duration = uint64(span.EndTimestamp().AsTime().Sub(span.StartTimestamp().AsTime()).Nanoseconds())
-				f(o)
+				o.Tags = attrCtx.Bitmap().Clone()
+				traces.add(traceID, o, uint64(span.StartTimestamp()), uint64(span.EndTimestamp()))
 			}
 		}
 
+	}
+	return traces
+}
+
+type message interface {
+	Size() int
+	MarshalTo([]byte) (int, error)
+}
+
+func marshal(tr blob.Func) func(id constants.ID, msg message) uint64 {
+	var buf []byte
+	return func(id constants.ID, msg message) uint64 {
+		size := msg.Size()
+		buf = slices.Grow(buf, size)[:size]
+		_, err := msg.MarshalTo(buf)
+		if err != nil {
+			util.Exit("marshal trace message", "err", err)
+		}
+		return tr(id, buf)
 	}
 }

@@ -17,30 +17,37 @@ import (
 func AppendBatch(ctx context.Context, store *store.Store, td ptrace.Traces, ts time.Time) error {
 	return batch.Append(ctx, constants.TRACES, store, ts, func(bx *batch.Batch) error {
 		return store.DB.Update(func(txn *badger.Txn) error {
-			traceproto.From(td, blob.Upsert(txn, store),
-				append(bx, store.Seq))
+			a := append(bx, store.Seq)
+			all := traceproto.From(td, blob.Upsert(txn, store))
+			for _, t := range all {
+				a(t)
+			}
 			return nil
 		})
 	})
 }
 
-func append(b *batch.Batch, seq *store.Seq) func(span *traceproto.Span) {
+func append(b *batch.Batch, seq *store.Seq) func(trace *traceproto.Trace) {
 	currentShard := ^uint64(0)
-	return func(span *traceproto.Span) {
-		id := seq.NextID(constants.TracesRow)
-		b.Rows++
-		shard := id / shardwidth.ShardWidth
-		if shard != currentShard {
-			currentShard = shard
-			b.Shard(shard)
+	return func(trace *traceproto.Trace) {
+		duration := trace.End - trace.Start
+		for _, span := range trace.Spans {
+			id := seq.NextID(constants.TracesRow)
+			b.Rows++
+			shard := id / shardwidth.ShardWidth
+			if shard != currentShard {
+				currentShard = shard
+				b.Shard(shard)
+			}
+			b.Or(constants.TracesFST, shard, span.Tags)
+			b.BSI(constants.TracesResource, shard, id, span.Resource)
+			b.BSI(constants.TracesScope, shard, id, span.Scope)
+			b.BSI(constants.TracesSpan, shard, id, span.Span)
+			b.BSISetBitmap(constants.TracesTags, shard, id, span.Tags)
+			b.BSI(constants.TracesStart, shard, id, trace.Start)
+			b.BSI(constants.TracesEnd, shard, id, trace.End)
+			b.BSI(constants.TracesDuration, shard, id, duration)
 		}
-		b.Or(constants.TracesFST, shard, span.Tags)
-		b.BSI(constants.TracesResource, shard, id, span.Resource)
-		b.BSI(constants.TracesScope, shard, id, span.Scope)
-		b.BSI(constants.TracesSpan, shard, id, span.Span)
-		b.BSISetBitmap(constants.TracesTags, shard, id, span.Tags)
-		b.BSI(constants.TracesStart, shard, id, span.Start)
-		b.BSI(constants.TracesEnd, shard, id, span.End)
-		b.BSI(constants.TracesDuration, shard, id, span.Duration)
+
 	}
 }
