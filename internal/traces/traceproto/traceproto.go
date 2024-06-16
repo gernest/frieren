@@ -3,19 +3,20 @@ package traceproto
 import (
 	"fmt"
 
-	v1 "github.com/gernest/frieren/gen/go/fri/v1"
+	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/px"
+	"github.com/gernest/frieren/internal/util"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/ptrace"
-	"google.golang.org/protobuf/proto"
 )
 
 type Span struct {
-	Resource      []uint64
-	Scope         []uint64
-	Span          []uint64
+	Resource      uint64
+	Scope         uint64
+	Span          uint64
+	Tags          *roaring64.Bitmap
 	TraceID       uint64
 	SpanID        uint64
 	Parent        uint64
@@ -24,8 +25,6 @@ type Span struct {
 	Start         uint64
 	End           uint64
 	Duration      uint64
-	Events        uint64
-	Links         uint64
 	StatusCode    uint64
 	StatusMessage uint64
 }
@@ -35,6 +34,10 @@ type Span struct {
 func From(td ptrace.Traces, tr blob.Func, f func(span *Span)) {
 	if td.SpanCount() == 0 {
 		return
+	}
+	tx, err := from(td)
+	if err != nil {
+		util.Exit("converting ptrace.Traces to tempopb.Traces")
 	}
 	rls := td.ResourceSpans()
 	rsCtx := px.New(constants.TracesFST, tr)
@@ -53,7 +56,8 @@ func From(td ptrace.Traces, tr blob.Func, f func(span *Span)) {
 			rsCtx.Set(k, v.AsString())
 			return true
 		})
-		ra := rsCtx.ToArray()
+		rd, _ := tx.Batches[i].GetResource().Marshal()
+		resourceID := tr(constants.TracesResource, rd)
 
 		for j := 0; j < sls.Len(); j++ {
 			scope := sls.At(j).Scope()
@@ -73,19 +77,26 @@ func From(td ptrace.Traces, tr blob.Func, f func(span *Span)) {
 			if scopeDroppedAttributesCount := scope.DroppedAttributesCount(); scopeDroppedAttributesCount != 0 {
 				scopeCtx.Set("scope_dropped_attributes_count", fmt.Sprintf("%d", scopeDroppedAttributesCount))
 			}
-			sa := scopeCtx.ToArray()
+			sd, _ := tx.Batches[i].ScopeSpans[j].GetScope().Marshal()
+			scopeID := tr(constants.TracesScope, sd)
+
 			for k := 0; k < spans.Len(); k++ {
+				data, _ := tx.Batches[i].ScopeSpans[j].Spans[k].Marshal()
+				spanID := tr(constants.TracesSpan, data)
 				span := spans.At(k)
 				*o = Span{}
-				o.Resource = ra
-				o.Scope = sa
+				o.Resource = resourceID
+				o.Scope = scopeID
+				o.Span = spanID
+
 				attrCtx.Reset()
+				attrCtx.Or(rsCtx)
+				attrCtx.Or(scopeCtx)
 				span.Attributes().Range(func(k string, v pcommon.Value) bool {
 					attrCtx.Set(k, v.AsString())
 					return true
 				})
-				o.Span = attrCtx.ToArray()
-
+				o.Tags = attrCtx.Bitmap()
 				spanEntry(eventsCtx, span, o)
 				f(o)
 			}
@@ -108,57 +119,7 @@ func spanEntry(ctx *px.Ctx, sp ptrace.Span, o *Span) {
 	o.End = uint64(sp.EndTimestamp())
 	o.Duration = uint64(sp.EndTimestamp().AsTime().Sub(sp.StartTimestamp().AsTime()).Nanoseconds())
 
-	if e := sp.Events(); e.Len() > 0 {
-		ed, _ := proto.Marshal(event(ctx, e))
-		o.Events = ctx.Tr(ed)
-	}
-	if e := sp.Links(); e.Len() > 0 {
-		ed, _ := proto.Marshal(links(ctx, e))
-		o.Links = ctx.Tr(ed)
-	}
 	s := sp.Status()
 	o.StatusCode = uint64(s.Code())
 	o.StatusMessage = ctx.Tr([]byte(s.Message()))
-
-}
-
-func event(ctx *px.Ctx, pe ptrace.SpanEventSlice) *v1.Events {
-	o := &v1.Events{
-		Timestamp: make([]uint64, pe.Len()),
-		Name:      make([]uint64, pe.Len()),
-		Attr:      make([]*v1.Attr, pe.Len()),
-	}
-	for i := 0; i < pe.Len(); i++ {
-		x := pe.At(i)
-		o.Timestamp[i] = uint64(x.Timestamp())
-		o.Name[i] = ctx.Tr([]byte(x.Name()))
-		o.Attr[i] = attr(ctx, x.Attributes())
-	}
-	return o
-}
-
-func links(ctx *px.Ctx, pe ptrace.SpanLinkSlice) *v1.Links {
-	o := &v1.Links{
-		TraceId:    make([]uint64, pe.Len()),
-		SpanId:     make([]uint64, pe.Len()),
-		Attr:       make([]*v1.Attr, pe.Len()),
-		TraceState: make([]uint64, pe.Len()),
-	}
-	for i := 0; i < pe.Len(); i++ {
-		x := pe.At(i)
-		o.TraceId[i] = ctx.Tr([]byte(x.TraceID().String()))
-		o.SpanId[i] = ctx.Tr([]byte(x.SpanID().String()))
-		o.TraceState[i] = ctx.Tr([]byte(x.TraceState().AsRaw()))
-		o.Attr[i] = attr(ctx, x.Attributes())
-	}
-	return o
-}
-
-func attr(ctx *px.Ctx, a pcommon.Map) *v1.Attr {
-	ctx.Reset()
-	a.Range(func(k string, v pcommon.Value) bool {
-		ctx.Set(k, v.AsString())
-		return true
-	})
-	return &v1.Attr{Value: ctx.ToArray()}
 }

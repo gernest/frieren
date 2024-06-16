@@ -26,6 +26,9 @@ func (x *Ctx) Or(o *Ctx) {
 func (x *Ctx) ToArray() []uint64 {
 	return x.o.ToArray()
 }
+func (x *Ctx) Bitmap() *roaring64.Bitmap {
+	return &x.o
+}
 
 func New(id constants.ID, tr blob.Func) *Ctx {
 	return &Ctx{}

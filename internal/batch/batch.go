@@ -156,6 +156,10 @@ func (b *Batch) AddMany(field constants.ID, shard uint64, value []uint64) {
 	b.bitmap(field, shard).AddMany(value)
 }
 
+func (b *Batch) Or(field constants.ID, shard uint64, value *roaring64.Bitmap) {
+	b.bitmap(field, shard).Or(value)
+}
+
 func (b *Batch) bitmap(field constants.ID, u uint64) *roaring64.Bitmap {
 	m, ok := b.fields[field]
 	if !ok {

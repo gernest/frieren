@@ -35,15 +35,10 @@ func append(b *batch.Batch, seq *store.Seq) func(span *traceproto.Span) {
 			currentShard = shard
 			b.Shard(shard)
 		}
-
-		// Combine both resource and span attributes for fst.
-		b.AddMany(constants.TracesFST, shard, span.Resource)
-		b.AddMany(constants.TracesFST, shard, span.Scope)
-		b.AddMany(constants.TracesFST, shard, span.Span)
-
-		b.BSISet(constants.TracesResource, shard, id, span.Resource)
-		b.BSISet(constants.TracesScope, shard, id, span.Scope)
-		b.BSISet(constants.TracesSpan, shard, id, span.Span)
+		b.Or(constants.TracesFST, shard, span.Tags)
+		b.BSI(constants.TracesResource, shard, id, span.Resource)
+		b.BSI(constants.TracesScope, shard, id, span.Scope)
+		b.BSI(constants.TracesSpan, shard, id, span.Span)
 		b.BSI(constants.TracesTracesID, shard, id, span.TraceID)
 		b.BSI(constants.TracesSpanID, shard, id, span.SpanID)
 		b.BSI(constants.TracesParent, shard, id, span.Parent)
@@ -56,12 +51,6 @@ func append(b *batch.Batch, seq *store.Seq) func(span *traceproto.Span) {
 		b.BSI(constants.TracesStart, shard, id, span.Start)
 		b.BSI(constants.TracesEnd, shard, id, span.End)
 		b.BSI(constants.TracesDuration, shard, id, span.Duration)
-		if span.Events != 0 {
-			b.BSI(constants.TracesEvents, shard, id, span.Events)
-		}
-		if span.Links != 0 {
-			b.BSI(constants.TracesLinks, shard, id, span.Links)
-		}
 		b.Mutex(constants.TracesStatusCode, shard, id, span.StatusCode)
 		b.Mutex(constants.TracesStatusMessage, shard, id, span.StatusMessage)
 	}
