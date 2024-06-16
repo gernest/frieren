@@ -14,7 +14,8 @@ import (
 
 type Span struct {
 	Resource      []uint64
-	Tags          []uint64
+	Scope         []uint64
+	Span          []uint64
 	TraceID       uint64
 	SpanID        uint64
 	Parent        uint64
@@ -36,7 +37,6 @@ func From(td ptrace.Traces, tr blob.Func, f func(span *Span)) {
 		return
 	}
 	rls := td.ResourceSpans()
-	streamCtx := px.New(constants.TracesFST, tr)
 	rsCtx := px.New(constants.TracesFST, tr)
 	scopeCtx := px.New(constants.TracesFST, tr)
 	attrCtx := px.New(constants.TracesFST, tr)
@@ -47,7 +47,6 @@ func From(td ptrace.Traces, tr blob.Func, f func(span *Span)) {
 		res := rls.At(i).Resource()
 		resAttrs := res.Attributes()
 
-		streamCtx.Reset()
 		rsCtx.Reset()
 
 		resAttrs.Range(func(k string, v pcommon.Value) bool {
@@ -74,13 +73,20 @@ func From(td ptrace.Traces, tr blob.Func, f func(span *Span)) {
 			if scopeDroppedAttributesCount := scope.DroppedAttributesCount(); scopeDroppedAttributesCount != 0 {
 				scopeCtx.Set("scope_dropped_attributes_count", fmt.Sprintf("%d", scopeDroppedAttributesCount))
 			}
+			sa := scopeCtx.ToArray()
 			for k := 0; k < spans.Len(); k++ {
 				span := spans.At(k)
 				*o = Span{}
 				o.Resource = ra
+				o.Scope = sa
 				attrCtx.Reset()
-				attrCtx.Or(scopeCtx)
-				spanEntry(attrCtx, eventsCtx, span, o)
+				span.Attributes().Range(func(k string, v pcommon.Value) bool {
+					attrCtx.Set(k, v.AsString())
+					return true
+				})
+				o.Span = attrCtx.ToArray()
+
+				spanEntry(eventsCtx, span, o)
 				f(o)
 			}
 		}
@@ -88,12 +94,8 @@ func From(td ptrace.Traces, tr blob.Func, f func(span *Span)) {
 	}
 }
 
-func spanEntry(ctx, events *px.Ctx, sp ptrace.Span, o *Span) {
-	sp.Attributes().Range(func(k string, v pcommon.Value) bool {
-		ctx.Set(k, v.AsString())
-		return true
-	})
-	o.Tags = ctx.ToArray()
+func spanEntry(ctx *px.Ctx, sp ptrace.Span, o *Span) {
+
 	o.TraceID = ctx.Tr([]byte(sp.TraceID().String()))
 	o.SpanID = ctx.Tr([]byte(sp.SpanID().String()))
 	o.TraceID = ctx.Tr([]byte(sp.TraceState().AsRaw()))
@@ -107,11 +109,11 @@ func spanEntry(ctx, events *px.Ctx, sp ptrace.Span, o *Span) {
 	o.Duration = uint64(sp.EndTimestamp().AsTime().Sub(sp.StartTimestamp().AsTime()).Nanoseconds())
 
 	if e := sp.Events(); e.Len() > 0 {
-		ed, _ := proto.Marshal(event(events, e))
+		ed, _ := proto.Marshal(event(ctx, e))
 		o.Events = ctx.Tr(ed)
 	}
 	if e := sp.Links(); e.Len() > 0 {
-		ed, _ := proto.Marshal(links(events, e))
+		ed, _ := proto.Marshal(links(ctx, e))
 		o.Links = ctx.Tr(ed)
 	}
 	s := sp.Status()

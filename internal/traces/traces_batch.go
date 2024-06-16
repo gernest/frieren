@@ -38,10 +38,12 @@ func append(b *batch.Batch, seq *store.Seq) func(span *traceproto.Span) {
 
 		// Combine both resource and span attributes for fst.
 		b.AddMany(constants.TracesFST, shard, span.Resource)
-		b.AddMany(constants.TracesFST, shard, span.Tags)
+		b.AddMany(constants.TracesFST, shard, span.Scope)
+		b.AddMany(constants.TracesFST, shard, span.Span)
 
 		b.BSISet(constants.TracesResource, shard, id, span.Resource)
-		b.BSISet(constants.TracesTags, shard, id, span.Tags)
+		b.BSISet(constants.TracesScope, shard, id, span.Scope)
+		b.BSISet(constants.TracesSpan, shard, id, span.Span)
 		b.BSI(constants.TracesTracesID, shard, id, span.TraceID)
 		b.BSI(constants.TracesSpanID, shard, id, span.SpanID)
 		b.BSI(constants.TracesParent, shard, id, span.Parent)

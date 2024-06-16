@@ -21,7 +21,8 @@ const (
 	LogsFST
 
 	TracesResource
-	TracesTags
+	TracesScope
+	TracesSpan
 	TracesTracesID
 	TracesSpanID
 	TracesState
