@@ -39,10 +39,12 @@ func (x *Ctx) Reset() {
 	x.buf.Reset()
 }
 
-func (x *Ctx) Set(key, value string) {
+func (x *Ctx) Set(key, value string) uint64 {
 	x.buf.Reset()
 	x.buf.WriteString(key)
 	x.buf.WriteByte('=')
 	x.buf.WriteString(value)
-	x.o.Add(x.tr(x.id, x.buf.Bytes()))
+	id := x.tr(x.id, x.buf.Bytes())
+	x.o.Add(id)
+	return id
 }

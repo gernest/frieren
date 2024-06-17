@@ -20,9 +20,9 @@ type Trace struct {
 	Spans []*Span
 }
 
-type Traces map[string]*Trace
+type Traces map[uint64]*Trace
 
-func (t Traces) add(id string, span *Span, start, end uint64) {
+func (t Traces) add(id uint64, span *Span, start, end uint64) {
 	x, ok := t[id]
 	if !ok {
 		x = &Trace{
@@ -127,8 +127,7 @@ func From(td ptrace.Traces, tr blob.Func) Traces {
 					})
 				}
 				attrCtx.Set("parent:id", span.ParentSpanID().String())
-				traceID := span.TraceID().String()
-				attrCtx.Set("trace:id", traceID)
+				traceID := attrCtx.Set("trace:id", span.TraceID().String())
 				attrCtx.Set("span:id", span.SpanID().String())
 				if span.ParentSpanID().IsEmpty() {
 					attrCtx.Set("trace:rootName", span.Name())
@@ -152,6 +151,9 @@ func marshal(tr blob.Func) func(id constants.ID, msg message) uint64 {
 	var buf []byte
 	return func(id constants.ID, msg message) uint64 {
 		size := msg.Size()
+		if size == 0 {
+			return tr(id, []byte{})
+		}
 		buf = slices.Grow(buf, size)[:size]
 		_, err := msg.MarshalTo(buf)
 		if err != nil {

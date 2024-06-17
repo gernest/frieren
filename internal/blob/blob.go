@@ -19,10 +19,21 @@ type Find func(id constants.ID, value []byte) (uint64, bool)
 
 type Tr func(id constants.ID, key uint64) []byte
 
+var emptyKey = []byte{
+	0x00, 0x00, 0x00,
+	0x4d, 0x54, 0x4d, 0x54, // MTMT
+	0x00,
+	0xc2, 0xa0, // NO-BREAK SPACE
+	0x00,
+}
+
 func Finder(txn *badger.Txn, store *store.Store) Find {
 	h := xxhash.New()
 	buf := new(bytes.Buffer)
 	return func(field constants.ID, b []byte) (uint64, bool) {
+		if len(b) == 0 {
+			b = emptyKey
+		}
 		h.Reset()
 		h.Write(b)
 		hash := h.Sum64()
@@ -55,6 +66,9 @@ func Upsert(txn *badger.Txn, store *store.Store) Func {
 	buf := new(bytes.Buffer)
 
 	return func(field constants.ID, b []byte) uint64 {
+		if len(b) == 0 {
+			b = emptyKey
+		}
 		h.Reset()
 		h.Write(b)
 		hash := h.Sum64()
