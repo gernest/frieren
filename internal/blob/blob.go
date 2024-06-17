@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
@@ -78,7 +79,9 @@ func Upsert(txn *badger.Txn, store *store.Store, seq *store.Sequence, view strin
 
 		blobHashKey := keys.BlobHash(buf, field, hash, view)
 		sum := h.Sum(blobHashKey)
+		fmt.Println(sum, string(b))
 		if v, ok := store.HashCache.Get(sum); ok {
+			fmt.Println("=>", sum, string(b), v)
 			return v.(uint64)
 		}
 		it, err := txn.Get(blobHashKey)
@@ -102,7 +105,6 @@ func Upsert(txn *badger.Txn, store *store.Store, seq *store.Sequence, view strin
 			if err != nil {
 				util.Exit("writing blob data", "err", err)
 			}
-
 			store.HashCache.Set(sum, id, 1)
 			err = txn.Set(bytes.Clone(blobHashKey),
 				binary.BigEndian.AppendUint64(make([]byte, 8), id),
