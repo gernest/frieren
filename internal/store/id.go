@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/cespare/xxhash/v2"
@@ -24,6 +25,7 @@ type Sequence struct {
 type Seq struct {
 	cache *ristretto.Cache
 	db    *badger.DB
+	mu    sync.Mutex
 }
 
 func (s *Seq) Sequence(view string) *Sequence {
@@ -32,6 +34,16 @@ func (s *Seq) Sequence(view string) *Sequence {
 		view: view,
 		ids:  make(map[constants.ID]*badger.Sequence),
 	}
+}
+
+func (s *Seq) Get(key []byte, f func(seq *badger.Sequence) error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	seq, err := s.db.GetSequence(key, 4<<10)
+	if err != nil {
+		return err
+	}
+	return f(seq)
 }
 
 func (s *Sequence) Release() {
@@ -51,16 +63,15 @@ func (s *Sequence) NextID(id constants.ID) uint64 {
 		hash := xxhash.Sum64(key)
 		if v, ok := s.seq.cache.Get(hash); ok {
 			sq = v.(*badger.Sequence)
-			s.ids[id] = sq
 		} else {
-			var err error
-			sq, err = s.seq.db.GetSequence(key, 4<<10)
-			if err != nil {
-				util.Exit("creating new sequence", "id", id, "err", err)
-			}
-			s.ids[id] = sq
-			s.seq.cache.SetWithTTL(hash, sq, 1, 24*time.Hour)
+			s.seq.Get(key, func(seq *badger.Sequence) error {
+				sq = seq
+				s.seq.cache.SetWithTTL(hash, sq, 1, 24*time.Hour)
+				return nil
+			})
 		}
+		s.ids[id] = sq
+
 	}
 	next, err := sq.Next()
 	if err != nil {
