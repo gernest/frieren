@@ -27,7 +27,7 @@ var emptyKey = []byte{
 	0x00,
 }
 
-func Finder(txn *badger.Txn, store *store.Store) Find {
+func Finder(txn *badger.Txn, store *store.Store, view string) Find {
 	h := xxhash.New()
 	buf := new(bytes.Buffer)
 	return func(field constants.ID, b []byte) (uint64, bool) {
@@ -40,7 +40,7 @@ func Finder(txn *badger.Txn, store *store.Store) Find {
 		if v, ok := store.HashCache.Get(hash); ok {
 			return v.(uint64), true
 		}
-		bhk := keys.BlobHash(buf, field, hash)
+		bhk := keys.BlobHash(buf, field, hash, view)
 		it, err := txn.Get(bhk)
 		if err != nil {
 			if !errors.Is(err, badger.ErrKeyNotFound) {
@@ -61,10 +61,9 @@ func Finder(txn *badger.Txn, store *store.Store) Find {
 	}
 }
 
-func Upsert(txn *badger.Txn, store *store.Store) Func {
+func Upsert(txn *badger.Txn, store *store.Store, seq *store.Sequence, view string) Func {
 	h := xxhash.New()
 	buf := new(bytes.Buffer)
-
 	return func(field constants.ID, b []byte) uint64 {
 		if len(b) == 0 {
 			b = emptyKey
@@ -75,13 +74,13 @@ func Upsert(txn *badger.Txn, store *store.Store) Func {
 		if v, ok := store.HashCache.Get(hash); ok {
 			return v.(uint64)
 		}
-		bhk := keys.BlobHash(buf, field, hash)
+		bhk := keys.BlobHash(buf, field, hash, view)
 		it, err := txn.Get(bhk)
 		if err != nil {
 			if !errors.Is(err, badger.ErrKeyNotFound) {
 				util.Exit("unexpected badger error", "err", err)
 			}
-			id := store.Seq.NextID(field)
+			id := seq.NextID(field)
 			store.HashCache.Set(hash, id, 1)
 			err = txn.Set(bytes.Clone(bhk),
 				binary.BigEndian.AppendUint64(make([]byte, 8), id),
@@ -89,7 +88,7 @@ func Upsert(txn *badger.Txn, store *store.Store) Func {
 			if err != nil {
 				util.Exit("writing blob hash key", "err", err)
 			}
-			idKey := keys.BlobID(buf, field, id)
+			idKey := keys.BlobID(buf, field, id, view)
 			err = txn.Set(bytes.Clone(idKey), b)
 			if err != nil {
 				util.Exit("writing blob id", "err", err)
@@ -112,11 +111,11 @@ func Upsert(txn *badger.Txn, store *store.Store) Func {
 	}
 }
 
-func Translate(txn *badger.Txn, store *store.Store) Tr {
+func Translate(txn *badger.Txn, store *store.Store, view string) Tr {
 	b := new(bytes.Buffer)
 	h := xxhash.Digest{}
 	return func(field constants.ID, u uint64) []byte {
-		key := keys.BlobID(b, field, u)
+		key := keys.BlobID(b, field, u, view)
 		h.Reset()
 		h.Write(key)
 		hash := h.Sum64()

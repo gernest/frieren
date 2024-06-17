@@ -66,8 +66,8 @@ var _ storage.Querier = (*Querier)(nil)
 
 func (q *Querier) Close() error {
 	return nil
-
 }
+
 func (s *Querier) LabelValues(ctx context.Context, name string, matchers ...*labels.Matcher) ([]string, annotations.Annotations, error) {
 	if s.view.IsEmpty() {
 		return []string{}, nil, nil
@@ -132,9 +132,9 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 	defer txn.Discard()
 
 	m := make(MapSet)
-	fnd := blob.Finder(txn, s.store)
 
 	err = s.view.Traverse(func(shard *v1.Shard, view string) error {
+		fnd := blob.Finder(txn, s.store, view)
 		filters, err := fst.Match(txn, fnd, shard.Id, view, constants.MetricsFST, matchers...)
 		if err != nil {
 			return err
@@ -146,7 +146,7 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 		if err != nil {
 			return err
 		}
-		return m.Build(txn, tx, blob.Translate(txn, s.store), hints.Start, hints.End, view, shard.Id, r)
+		return m.Build(txn, tx, blob.Translate(txn, s.store, view), hints.Start, hints.End, view, shard.Id, r)
 	})
 	if err != nil {
 		return storage.ErrSeriesSet(err)

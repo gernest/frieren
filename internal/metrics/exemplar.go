@@ -63,8 +63,8 @@ func (e *ExemplarQueryable) Select(start, end int64, matchers ...[]*labels.Match
 		return []exemplar.QueryResult{}, nil
 	}
 	m := make(ExemplarSet)
-	tr := blob.Translate(txn, e.store)
 	err = view.Traverse(func(shard *v1.Shard, view string) error {
+		tr := blob.Translate(txn, e.store, view)
 		filters, err := fst.MatchSet(txn, tx, shard.Id, view, constants.MetricsFST, matchers...)
 		if err != nil {
 			return err
@@ -82,17 +82,34 @@ func (e *ExemplarQueryable) Select(start, end int64, matchers ...[]*labels.Match
 		return nil, err
 	}
 	o := make([]exemplar.QueryResult, 0, len(m))
-	ts := &prompb.TimeSeries{}
-	lb := labels.NewScratchBuilder(1 << 10)
 	for _, e := range m {
-		x := exemplar.QueryResult{
-			SeriesLabels: e.Labels,
+		o = append(o, *e)
+	}
+	return o, nil
+}
+
+type ExemplarSet map[uint64]*exemplar.QueryResult
+
+func (s ExemplarSet) Build(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, start, end int64, view string, shard uint64, filter *rows.Row) error {
+	lb := labels.NewScratchBuilder(1 << 10)
+
+	add := func(lf *fields.Fragment, seriesID, validID uint64, exemplars *roaring64.Bitmap) error {
+		sx, ok := s[seriesID]
+		if !ok {
+			lbl, err := lf.Labels(tx, tr, validID)
+			if err != nil {
+				return fmt.Errorf("reading labels %w", err)
+			}
+			sx = &exemplar.QueryResult{}
+			sx.SeriesLabels = lbl
+			return nil
 		}
-		it := e.Exemplars.Iterator()
+		it := exemplars.Iterator()
+		ts := &prompb.TimeSeries{}
 		for it.HasNext() {
 			ts.Reset()
 			ts.Unmarshal(tr(constants.MetricsExemplars, it.Next()))
-			x.Exemplars = slices.Grow(x.Exemplars, len(ts.Exemplars))
+			sx.Exemplars = slices.Grow(sx.Exemplars, len(ts.Exemplars))
 			for i := range ts.Exemplars {
 				ex := &ts.Exemplars[i]
 				o := exemplar.Exemplar{
@@ -105,37 +122,11 @@ func (e *ExemplarQueryable) Select(start, end int64, matchers ...[]*labels.Match
 						lb.Add(ex.Labels[j].Name, ex.Labels[j].Value)
 					}
 					lb.Sort()
-					e.Labels = lb.Labels()
+					o.Labels = lb.Labels()
 				}
-				x.Exemplars = append(x.Exemplars, o)
+				sx.Exemplars = append(sx.Exemplars, o)
 			}
 		}
-		o = append(o, x)
-	}
-	return o, nil
-}
-
-type ExemplarSet map[uint64]*E
-
-type E struct {
-	Labels    labels.Labels
-	Exemplars roaring64.Bitmap
-}
-
-func (s ExemplarSet) Build(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, start, end int64, view string, shard uint64, filter *rows.Row) error {
-	add := func(lf *fields.Fragment, seriesID, validID uint64, exemplars *roaring64.Bitmap) error {
-		sx, ok := s[seriesID]
-		if ok {
-			sx.Exemplars.Or(exemplars)
-			return nil
-		}
-		lbl, err := lf.Labels(tx, tr, validID)
-		if err != nil {
-			return fmt.Errorf("reading labels %w", err)
-		}
-		sx = &E{Labels: lbl}
-		sx.Exemplars.Or(exemplars)
-		s[seriesID] = sx
 		return nil
 	}
 	// fragments

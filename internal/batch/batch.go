@@ -24,7 +24,6 @@ import (
 	"github.com/gernest/frieren/internal/self"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/rbf"
-	"github.com/gernest/rbf/quantum"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"google.golang.org/protobuf/proto"
@@ -71,7 +70,7 @@ func (b *Batch) Apply(db *store.Store, resource constants.Resource, view string,
 		err = b.Range(func(field constants.ID, mapping map[uint64]*roaring64.Bitmap) error {
 			switch field {
 			case constants.MetricsFST, constants.TracesFST, constants.LogsFST:
-				return ApplyFST(txn, tx, blob.Translate(txn, db), view, field, mapping)
+				return ApplyFST(txn, tx, blob.Translate(txn, db, view), view, field, mapping)
 			default:
 				return Apply(tx, fields.New(field, 0, view), mapping)
 			}
@@ -328,7 +327,7 @@ func Append(
 	ctx context.Context,
 	resource constants.Resource,
 	store *store.Store,
-	ts time.Time,
+	view string,
 	f func(bx *Batch) error,
 ) error {
 	ctx, span := self.Start(ctx, fmt.Sprintf("%s.batch", strings.ToLower(resource.String())))
@@ -346,7 +345,6 @@ func Append(
 		return err
 	}
 	initMetrics()
-	view := quantum.ViewByTimeUnit("", ts, 'D')
 
 	err = bx.Apply(store, resource, view)
 	if err != nil {
