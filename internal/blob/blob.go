@@ -65,7 +65,7 @@ func Finder(txn *badger.Txn, store *store.Store, view string) Find {
 }
 
 func Upsert(txn *badger.Txn, store *store.Store, seq *store.Sequence, view string) Func {
-	h := xxhash.New()
+	h := Hash{}
 	buf := new(bytes.Buffer)
 	return func(field constants.ID, b []byte) uint64 {
 		if len(b) == 0 {
@@ -74,15 +74,10 @@ func Upsert(txn *badger.Txn, store *store.Store, seq *store.Sequence, view strin
 
 		// We use the same translation logic for short strings and large blobs.
 		// Instead of using actual blob as part of key we use hash of it
-		h.Reset()
-		h.Write(b)
-		hash := h.Sum64()
+		hash := h.Sum(b)
 
 		blobHashKey := keys.BlobHash(buf, field, hash, view)
-		h.Reset()
-		h.Write(blobHashKey)
-		sum := h.Sum64()
-
+		sum := h.Sum(blobHashKey)
 		if v, ok := store.HashCache.Get(sum); ok {
 			return v.(uint64)
 		}
@@ -122,9 +117,14 @@ func Upsert(txn *badger.Txn, store *store.Store, seq *store.Sequence, view strin
 			if err != nil {
 				util.Exit("writing blob id", "err", err)
 			}
-			h.Reset()
-			h.Write(idKey)
-			store.ValueCache.Set(h.Sum64(), b, int64(len(b)))
+
+			// speedup fst building by caching id => blob
+			idSum := h.Sum(idKey)
+			store.ValueCache.Set(idSum, b, int64(len(b)))
+
+			// Speedup find by caching blob_hash => blob
+			baseSum := h.Sum(baseBlobHashKey)
+			store.ValueCache.Set(baseSum, b, int64(len(b)))
 			return id
 		}
 		var id uint64
@@ -153,12 +153,10 @@ func saveIfNotExists(txn *badger.Txn, key, value []byte) error {
 
 func Translate(txn *badger.Txn, store *store.Store, view string) Tr {
 	b := new(bytes.Buffer)
-	h := xxhash.Digest{}
+	h := Hash{}
 	return func(field constants.ID, u uint64) []byte {
 		viewBlobKey := keys.BlobID(b, field, u, view)
-		h.Reset()
-		h.Write(viewBlobKey)
-		viewBlobHash := h.Sum64()
+		viewBlobHash := h.Sum(viewBlobKey)
 		if v, ok := store.ValueCache.Get(viewBlobHash); ok {
 			return v.([]byte)
 		}
@@ -172,12 +170,27 @@ func Translate(txn *badger.Txn, store *store.Store, view string) Tr {
 			return nil
 		})
 		caBlobKey := keys.BlobHash(b, field, caHash, "")
+		caSum := h.Sum(caBlobKey)
+		if v, ok := store.ValueCache.Get(caSum); ok {
+			return v.([]byte)
+		}
 		it, err = txn.Get(caBlobKey)
 		if err != nil {
 			util.Exit("BUG: reading translated blob data", "key", b.String(), "err", err)
 		}
 		data, _ := it.ValueCopy(nil)
 		store.ValueCache.Set(viewBlobHash, data, int64(len(data)))
+		store.ValueCache.Set(caSum, data, int64(len(data)))
 		return data
 	}
+}
+
+type Hash struct {
+	h xxhash.Digest
+}
+
+func (h *Hash) Sum(b []byte) uint64 {
+	h.h.Reset()
+	h.h.Write(b)
+	return h.h.Sum64()
 }
