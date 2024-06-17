@@ -41,4 +41,5 @@ func TestUpsert(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
+	t.Error(all)
 }

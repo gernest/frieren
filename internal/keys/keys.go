@@ -20,7 +20,7 @@ const (
 
 func Seq(b *bytes.Buffer, field constants.ID, view string) []byte {
 	b.Reset()
-	fmt.Fprintf(b, "%s:%d:%d:", view, blobID, field)
+	fmt.Fprintf(b, "%s:%d:%d:", view, seq, field)
 	return b.Bytes()
 }
 
