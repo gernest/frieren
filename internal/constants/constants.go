@@ -29,6 +29,8 @@ const (
 	TracesDuration
 	TracesRow
 	TracesFST
+
+	LastID
 )
 
 type Resource uint

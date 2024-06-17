@@ -6,6 +6,7 @@ import (
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/dgraph-io/ristretto"
+	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/rbf"
 )
 
@@ -62,8 +63,8 @@ func New(path string) (*Store, error) {
 		return nil, err
 	}
 	seqCache, err := ristretto.NewCache(&ristretto.Config{
-		NumCounters: (1 << 10) * 10,
-		MaxCost:     1 << 10,
+		NumCounters: constants.LastID * 10,
+		MaxCost:     constants.LastID + 2,
 		BufferItems: 64,
 		OnEvict: func(item *ristretto.Item) {
 			item.Value.(*badger.Sequence).Release()
