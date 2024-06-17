@@ -66,7 +66,7 @@ func appendBatch(b *batch.Batch, ts *prompb.TimeSeries, labelFunc LabelFunc, blo
 		b.BSI(constants.MetricsTimestamp, shard, id, uint64(s.Timestamp))
 		value := math.Float64bits(s.Value)
 		b.BSI(constants.MetricsValue, shard, id, value)
-		b.BSISet(constants.MetricsLabels, shard, id, labels)
+		b.Set(constants.MetricsLabels, shard, id, labels)
 		if len(ts.Exemplars) > 0 {
 			b.BSI(constants.MetricsExemplars, shard, id, exemplars)
 		}
@@ -88,7 +88,7 @@ func appendBatch(b *batch.Batch, ts *prompb.TimeSeries, labelFunc LabelFunc, blo
 		b.BSI(constants.MetricsSeries, shard, id, series)
 		b.BSI(constants.MetricsTimestamp, shard, id, uint64(s.Timestamp))
 		b.BSI(constants.MetricsValue, shard, id, value)
-		b.BSISet(constants.MetricsLabels, shard, id, labels)
+		b.Set(constants.MetricsLabels, shard, id, labels)
 		b.Bool(constants.MetricsHistogram, shard, id, true)
 		if len(ts.Exemplars) > 0 {
 			b.BSI(constants.MetricsExemplars, shard, id, exemplars)

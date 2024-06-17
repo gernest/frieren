@@ -40,9 +40,9 @@ func append(b *batch.Batch, seq *store.Seq, m *logproto.Stream) {
 		b.BSI(constants.LogsStreamID, shard, id, m.ID)
 		b.BSI(constants.LogsTimestamp, shard, id, uint64(e.Timestamp))
 		b.BSI(constants.LogsLine, shard, id, e.Line)
-		b.BSISet(constants.LogsLabels, shard, id, m.Labels)
+		b.Set(constants.LogsLabels, shard, id, m.Labels)
 		if len(e.Metadata) > 0 {
-			b.BSISet(constants.LogsMetadata, shard, id, e.Metadata)
+			b.Set(constants.LogsMetadata, shard, id, e.Metadata)
 		}
 	}
 }

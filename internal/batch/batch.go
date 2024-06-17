@@ -22,7 +22,6 @@ import (
 	"github.com/gernest/frieren/internal/keys"
 	"github.com/gernest/frieren/internal/ro"
 	"github.com/gernest/frieren/internal/self"
-	"github.com/gernest/frieren/internal/shardwidth"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/quantum"
@@ -140,16 +139,12 @@ func (b *Batch) Bool(field constants.ID, shard, id uint64, value bool) {
 	ro.Bool(b.bitmap(field, shard), id, value)
 }
 
-func (b *Batch) BSISet(field constants.ID, shard, id uint64, value []uint64) {
-	ro.BSISet(b.bitmap(field, shard), id, value)
+func (b *Batch) Set(field constants.ID, shard, id uint64, value []uint64) {
+	ro.Set(b.bitmap(field, shard), id, value)
 }
 
-func (b *Batch) BSISetBitmap(field constants.ID, shard, id uint64, value *roaring64.Bitmap) {
-	ro.BSISetBitmap(b.bitmap(field, shard), id, value)
-}
-
-func (b *Batch) BSISetOne(field constants.ID, id uint64, row uint64) {
-	ro.BSISetOne(b.bitmap(field, id/shardwidth.ShardWidth), id, row)
+func (b *Batch) SetBitmap(field constants.ID, shard, id uint64, value *roaring64.Bitmap) {
+	ro.SetBitmap(b.bitmap(field, shard), id, value)
 }
 
 func (b *Batch) Add(field constants.ID, shard, value uint64) {

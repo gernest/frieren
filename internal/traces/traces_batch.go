@@ -43,7 +43,7 @@ func append(b *batch.Batch, seq *store.Seq) func(trace *traceproto.Trace) {
 			b.BSI(constants.TracesResource, shard, id, span.Resource)
 			b.BSI(constants.TracesScope, shard, id, span.Scope)
 			b.BSI(constants.TracesSpan, shard, id, span.Span)
-			b.BSISetBitmap(constants.TracesTags, shard, id, span.Tags)
+			b.SetBitmap(constants.TracesTags, shard, id, span.Tags)
 			b.BSI(constants.TracesStart, shard, id, trace.Start)
 			b.BSI(constants.TracesEnd, shard, id, trace.End)
 			b.BSI(constants.TracesDuration, shard, id, duration)

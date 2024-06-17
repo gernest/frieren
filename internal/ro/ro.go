@@ -33,22 +33,18 @@ func BSI(m *roaring64.Bitmap, id uint64, value uint64) {
 	}
 }
 
-func BSISet(m *roaring64.Bitmap, id uint64, values []uint64) {
+func Set(m *roaring64.Bitmap, id uint64, values []uint64) {
 	for _, row := range values {
 		m.Add(row*shardwidth.ShardWidth + (id % shardwidth.ShardWidth))
 	}
 }
 
-func BSISetBitmap(m *roaring64.Bitmap, id uint64, values *roaring64.Bitmap) {
+func SetBitmap(m *roaring64.Bitmap, id uint64, values *roaring64.Bitmap) {
 	it := values.Iterator()
 	for it.HasNext() {
 		row := it.Next()
 		m.Add(row*shardwidth.ShardWidth + (id % shardwidth.ShardWidth))
 	}
-}
-
-func BSISetOne(m *roaring64.Bitmap, id uint64, row uint64) {
-	m.Add(row*shardwidth.ShardWidth + (id % shardwidth.ShardWidth))
 }
 
 func Bool(m *roaring64.Bitmap, id uint64, value bool) {
