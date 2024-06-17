@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"math"
 	"time"
 
 	"github.com/cespare/xxhash/v2"
@@ -9,6 +10,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/keys"
+	"github.com/gernest/frieren/internal/shardwidth"
 	"github.com/gernest/frieren/internal/util"
 )
 
@@ -40,6 +42,8 @@ func NewSequence(db *badger.DB, cache *ristretto.Cache) *Seq {
 	return &Seq{db: db, cache: cache}
 }
 
+const upperLimit = uint64(math.MaxUint64 / shardwidth.ShardWidth)
+
 func (s *Sequence) NextID(id constants.ID) uint64 {
 	sq, ok := s.ids[id]
 	if !ok {
@@ -63,6 +67,9 @@ func (s *Sequence) NextID(id constants.ID) uint64 {
 		// Sequence ID is the heart of the storage. Any failure to create new one is
 		// fatal.
 		util.Exit("generating sequence id", "err", err)
+	}
+	if next > upperLimit {
+		util.Exit("exceeded upper limit for cardinality", "id", id, "limit", upperLimit)
 	}
 	return next
 }
