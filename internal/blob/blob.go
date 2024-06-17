@@ -37,11 +37,14 @@ func Finder(txn *badger.Txn, store *store.Store, view string) Find {
 		h.Reset()
 		h.Write(b)
 		hash := h.Sum64()
-		if v, ok := store.HashCache.Get(hash); ok {
+		viewBlobHash := keys.BlobHash(buf, field, hash, view)
+		h.Reset()
+		h.Write(viewBlobHash)
+		sum := h.Sum64()
+		if v, ok := store.HashCache.Get(sum); ok {
 			return v.(uint64), true
 		}
-		bhk := keys.BlobHash(buf, field, hash, view)
-		it, err := txn.Get(bhk)
+		it, err := txn.Get(viewBlobHash)
 		if err != nil {
 			if !errors.Is(err, badger.ErrKeyNotFound) {
 				util.Exit("finding blob id", "err", err)
@@ -56,7 +59,7 @@ func Finder(txn *badger.Txn, store *store.Store, view string) Find {
 		if err != nil {
 			util.Exit("reading blob id", "err", err)
 		}
-		store.HashCache.Set(hash, id, 1)
+		store.HashCache.Set(sum, id, 1)
 		return id, true
 	}
 }
@@ -68,28 +71,54 @@ func Upsert(txn *badger.Txn, store *store.Store, seq *store.Sequence, view strin
 		if len(b) == 0 {
 			b = emptyKey
 		}
+
+		// We use the same translation logic for short strings and large blobs.
+		// Instead of using actual blob as part of key we use hash of it
 		h.Reset()
 		h.Write(b)
 		hash := h.Sum64()
-		if v, ok := store.HashCache.Get(hash); ok {
+
+		blobHashKey := keys.BlobHash(buf, field, hash, view)
+		h.Reset()
+		h.Write(blobHashKey)
+		sum := h.Sum64()
+
+		if v, ok := store.HashCache.Get(sum); ok {
 			return v.(uint64)
 		}
-		bhk := keys.BlobHash(buf, field, hash, view)
-		it, err := txn.Get(bhk)
+		it, err := txn.Get(blobHashKey)
 		if err != nil {
 			if !errors.Is(err, badger.ErrKeyNotFound) {
 				util.Exit("unexpected badger error", "err", err)
 			}
+			// Observability generates a large amount of data. Storing each copy per view
+			// is wasteful.
+			//
+			// We save blobs in content addressable manner. Where content is identified
+			// by hash of its content.
+
 			id := seq.NextID(field)
-			store.HashCache.Set(hash, id, 1)
-			err = txn.Set(bytes.Clone(bhk),
+
+			blobHashKey = bytes.Clone(blobHashKey)
+
+			baseBlobHashKey := bytes.Clone(keys.BlobHash(buf, field, hash, ""))
+
+			err = saveIfNotExists(txn, baseBlobHashKey, b)
+			if err != nil {
+				util.Exit("writing blob data", "err", err)
+			}
+
+			store.HashCache.Set(sum, id, 1)
+			err = txn.Set(bytes.Clone(blobHashKey),
 				binary.BigEndian.AppendUint64(make([]byte, 8), id),
 			)
 			if err != nil {
 				util.Exit("writing blob hash key", "err", err)
 			}
 			idKey := keys.BlobID(buf, field, id, view)
-			err = txn.Set(bytes.Clone(idKey), b)
+			err = txn.Set(bytes.Clone(idKey),
+				binary.BigEndian.AppendUint64(make([]byte, 8), hash),
+			)
 			if err != nil {
 				util.Exit("writing blob id", "err", err)
 			}
@@ -106,31 +135,49 @@ func Upsert(txn *badger.Txn, store *store.Store, seq *store.Sequence, view strin
 		if err != nil {
 			util.Exit("reading blob id", "err", err)
 		}
-		store.HashCache.Set(hash, id, 1)
+		store.HashCache.Set(sum, id, 1)
 		return id
 	}
+}
+
+func saveIfNotExists(txn *badger.Txn, key, value []byte) error {
+	_, err := txn.Get(key)
+	if err != nil {
+		if errors.Is(err, badger.ErrKeyNotFound) {
+			return txn.Set(key, value)
+		}
+		return err
+	}
+	return nil
 }
 
 func Translate(txn *badger.Txn, store *store.Store, view string) Tr {
 	b := new(bytes.Buffer)
 	h := xxhash.Digest{}
 	return func(field constants.ID, u uint64) []byte {
-		key := keys.BlobID(b, field, u, view)
+		viewBlobKey := keys.BlobID(b, field, u, view)
 		h.Reset()
-		h.Write(key)
-		hash := h.Sum64()
-		if v, ok := store.ValueCache.Get(hash); ok {
+		h.Write(viewBlobKey)
+		viewBlobHash := h.Sum64()
+		if v, ok := store.ValueCache.Get(viewBlobHash); ok {
 			return v.([]byte)
 		}
-		it, err := txn.Get(key)
+		it, err := txn.Get(viewBlobKey)
 		if err != nil {
-			util.Exit("BUG: reading translated blob", "key", b.String(), "err", err)
+			util.Exit("BUG: reading translated blob key id", "key", b.String(), "err", err)
 		}
-		data, err := it.ValueCopy(nil)
-		if err != nil {
+		var caHash uint64
+		it.Value(func(val []byte) error {
+			caHash = binary.BigEndian.Uint64(val)
 			return nil
+		})
+		caBlobKey := keys.BlobHash(b, field, caHash, "")
+		it, err = txn.Get(caBlobKey)
+		if err != nil {
+			util.Exit("BUG: reading translated blob data", "key", b.String(), "err", err)
 		}
-		store.ValueCache.Set(hash, data, int64(len(data)))
+		data, _ := it.ValueCopy(nil)
+		store.ValueCache.Set(viewBlobHash, data, int64(len(data)))
 		return data
 	}
 }
