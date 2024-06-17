@@ -2,11 +2,10 @@ package store
 
 import (
 	"bytes"
+	"errors"
 	"math"
 	"sync"
-	"time"
 
-	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/dgraph-io/ristretto"
 	"github.com/gernest/frieren/internal/constants"
@@ -15,72 +14,92 @@ import (
 	"github.com/gernest/frieren/internal/util"
 )
 
-type Sequence struct {
-	seq  *Seq
-	buf  bytes.Buffer
-	view string
-	ids  map[constants.ID]*badger.Sequence
-}
-
 type Seq struct {
 	cache *ristretto.Cache
 	db    *badger.DB
+	purge *Sequence
+	seq   *Sequence
+	view  string
 	mu    sync.Mutex
 }
 
 func (s *Seq) Sequence(view string) *Sequence {
-	return &Sequence{
-		seq:  s,
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.view == view {
+		return s.seq
+	}
+	s.purge.Release()
+	s.purge = s.seq
+	s.seq = &Sequence{
+		db:   s.db,
 		view: view,
 		ids:  make(map[constants.ID]*badger.Sequence),
 	}
+	s.view = view
+	return s.seq
 }
 
-func (s *Seq) Get(key []byte, f func(seq *badger.Sequence) error) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	seq, err := s.db.GetSequence(key, 4<<10)
-	if err != nil {
-		return err
+func (s *Seq) Release() error {
+	return errors.Join(s.purge.Release(), s.seq.Release())
+}
+
+func NewSequence(db *badger.DB) *Seq {
+	return &Seq{db: db}
+}
+
+type Sequence struct {
+	db   *badger.DB
+	view string
+	ids  map[constants.ID]*badger.Sequence
+	mu   sync.RWMutex
+}
+
+func (s *Sequence) Release() (lastErr error) {
+	if s == nil {
+		return
 	}
-	return f(seq)
-}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-func (s *Sequence) Release() {
+	for _, v := range s.ids {
+		err := v.Release()
+		if err != nil {
+			lastErr = err
+		}
+	}
 	clear(s.ids)
-}
-
-func NewSequence(db *badger.DB, cache *ristretto.Cache) *Seq {
-	return &Seq{db: db, cache: cache}
+	return
 }
 
 const upperLimit = uint64(math.MaxUint64 / shardwidth.ShardWidth)
 
+func (s *Sequence) NextSetID(id constants.ID) uint64 {
+	next := s.NextID(id)
+	if next > upperLimit {
+		util.Exit("exceeded upper limit for cardinality", "id", id, "limit", upperLimit)
+	}
+	return next
+}
+
 func (s *Sequence) NextID(id constants.ID) uint64 {
+	s.mu.RLock()
 	sq, ok := s.ids[id]
+	s.mu.RUnlock()
 	if !ok {
-		key := keys.Seq(&s.buf, id, s.view)
-		hash := xxhash.Sum64(key)
-		if v, ok := s.seq.cache.Get(hash); ok {
-			sq = v.(*badger.Sequence)
-		} else {
-			s.seq.Get(key, func(seq *badger.Sequence) error {
-				sq = seq
-				s.seq.cache.SetWithTTL(hash, sq, 1, 24*time.Hour)
-				return nil
-			})
+		key := keys.Seq(new(bytes.Buffer), id, s.view)
+		var err error
+		sq, err = s.db.GetSequence(key, upperLimit)
+		if err != nil {
+			util.Exit("getting sequence", "key", string(key), "err", err)
 		}
 		s.ids[id] = sq
-
 	}
 	next, err := sq.Next()
 	if err != nil {
 		// Sequence ID is the heart of the storage. Any failure to create new one is
 		// fatal.
 		util.Exit("generating sequence id", "err", err)
-	}
-	if next > upperLimit {
-		util.Exit("exceeded upper limit for cardinality", "id", id, "limit", upperLimit)
 	}
 	return next
 }

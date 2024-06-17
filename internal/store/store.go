@@ -6,7 +6,6 @@ import (
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/dgraph-io/ristretto"
-	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/rbf"
 )
 
@@ -21,7 +20,6 @@ type Store struct {
 	Seq        *Seq
 	HashCache  *ristretto.Cache
 	ValueCache *ristretto.Cache
-	SeqCache   *ristretto.Cache
 }
 
 const hashItems = (16 << 20) / 16
@@ -62,38 +60,17 @@ func New(path string) (*Store, error) {
 		hashCache.Close()
 		return nil, err
 	}
-	seqCache, err := ristretto.NewCache(&ristretto.Config{
-		NumCounters: constants.LastID * 10,
-		MaxCost:     constants.LastID + 2,
-		BufferItems: 64,
-		OnEvict: func(item *ristretto.Item) {
-			item.Value.(*badger.Sequence).Release()
-		},
-		OnReject: func(item *ristretto.Item) {
-			item.Value.(*badger.Sequence).Release()
-		},
-		OnExit: func(val interface{}) {
-			val.(*badger.Sequence).Release()
-		},
-	})
-	if err != nil {
-		idx.Close()
-		db.Close()
-		hashCache.Close()
-		valueCache.Close()
-		return nil, err
-	}
 
 	return &Store{Path: path, DB: db, Index: idx,
-		Seq: NewSequence(db, seqCache), HashCache: hashCache,
-		ValueCache: valueCache, SeqCache: seqCache}, nil
+		Seq: NewSequence(db), HashCache: hashCache,
+		ValueCache: valueCache}, nil
 }
 
 func (s *Store) Close() error {
 	s.HashCache.Close()
 	s.ValueCache.Close()
-	s.SeqCache.Close()
 	return errors.Join(
+		s.Seq.Release(),
 		s.Index.Close(), s.DB.Close(),
 	)
 }
