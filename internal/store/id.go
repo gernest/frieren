@@ -90,13 +90,13 @@ func (s *Sequence) NextID(id constants.ID) uint64 {
 	sq, ok := s.ids[id]
 	s.mu.RUnlock()
 	if !ok {
+		s.mu.Lock()
 		key := keys.Seq(new(bytes.Buffer), id, s.view)
 		var err error
 		sq, err = s.db.GetSequence(key, 1<<10)
 		if err != nil {
 			util.Exit("getting sequence", "key", string(key), "err", err)
 		}
-		s.mu.Lock()
 		s.ids[id] = sq
 		s.mu.Unlock()
 	}

@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"encoding/binary"
+	"math/rand"
 	"testing"
 
 	"github.com/dgraph-io/badger/v4"
@@ -62,5 +63,23 @@ func TestSequence(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, uint64(5), count)
 		require.Equal(t, uint64(5), count2)
+	})
+}
+
+func BenchmarkSequence(b *testing.B) {
+	db, err := badger.Open(badger.DefaultOptions("").WithInMemory(true).WithLogger(nil))
+	require.NoError(b, err)
+	defer db.Close()
+
+	seq := NewSequence(db)
+	defer seq.Release()
+	v1 := "test_1"
+
+	b.RunParallel(func(p *testing.PB) {
+		id := constants.ID(rand.Intn(constants.LastID))
+		sx := seq.Sequence(v1)
+		for p.Next() {
+			sx.NextID(id)
+		}
 	})
 }
