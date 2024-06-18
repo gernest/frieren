@@ -26,7 +26,10 @@ const (
 	TracesTags
 	TracesStart
 	TracesEnd
+	TracesSpanStart
+	TracesSpanEnd
 	TracesDuration
+	TracesSpanDuration
 	TracesRow
 	TracesFST
 

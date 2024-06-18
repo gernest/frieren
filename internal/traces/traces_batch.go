@@ -21,7 +21,7 @@ func AppendBatch(ctx context.Context, store *store.Store, td ptrace.Traces, ts t
 		return store.DB.Update(func(txn *badger.Txn) error {
 			seq := store.Seq.Sequence(view)
 			defer seq.Release()
-			a := append(bx, seq)
+			a := appendTrace(bx, seq)
 
 			all := traceproto.From(td, blob.Upsert(txn, store, seq, view))
 			for _, t := range all {
@@ -32,7 +32,7 @@ func AppendBatch(ctx context.Context, store *store.Store, td ptrace.Traces, ts t
 	})
 }
 
-func append(b *batch.Batch, seq *store.Sequence) func(trace *traceproto.Trace) {
+func appendTrace(b *batch.Batch, seq *store.Sequence) func(trace *traceproto.Trace) {
 	currentShard := ^uint64(0)
 	return func(trace *traceproto.Trace) {
 		duration := trace.End - trace.Start
@@ -51,8 +51,10 @@ func append(b *batch.Batch, seq *store.Sequence) func(trace *traceproto.Trace) {
 			b.SetBitmap(constants.TracesTags, shard, id, span.Tags)
 			b.BSI(constants.TracesStart, shard, id, trace.Start)
 			b.BSI(constants.TracesEnd, shard, id, trace.End)
+			b.BSI(constants.TracesSpanStart, shard, id, span.Start)
+			b.BSI(constants.TracesSpanEnd, shard, id, span.End)
+			b.BSI(constants.TracesSpanDuration, shard, id, span.End-span.Start)
 			b.BSI(constants.TracesDuration, shard, id, duration)
 		}
-
 	}
 }

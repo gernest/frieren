@@ -22,7 +22,7 @@ type Trace struct {
 
 type Traces map[uint64]*Trace
 
-func (t Traces) add(id uint64, span *Span, start, end uint64) {
+func (t Traces) add(id uint64, span *Span) {
 	x, ok := t[id]
 	if !ok {
 		x = &Trace{
@@ -31,16 +31,17 @@ func (t Traces) add(id uint64, span *Span, start, end uint64) {
 		}
 		t[id] = x
 	}
-	x.Start = min(x.Start, start)
-	x.End = max(x.End, end)
+	x.Start = min(x.Start, span.Start)
+	x.End = max(x.End, span.End)
 	x.Spans = append(x.Spans, span)
 }
 
 type Span struct {
-	Resource uint64
-	Scope    uint64
-	Span     uint64
-	Tags     *roaring64.Bitmap
+	Resource   uint64
+	Scope      uint64
+	Span       uint64
+	Tags       *roaring64.Bitmap
+	Start, End uint64
 }
 
 // Spans can be processed individually during ingest. To save memory, instead of
@@ -105,8 +106,9 @@ func From(td ptrace.Traces, tr blob.Func) Traces {
 					return true
 				})
 				attrCtx.Set("span:name", span.Name())
+				attrCtx.Set("span:status", status[span.Status().Code()])
 				attrCtx.Set("span:statusMessage", span.Status().Message())
-				attrCtx.Set("span:kind", span.Kind().String())
+				attrCtx.Set("span:kind", kind[span.Kind()])
 				ev := span.Events()
 				for idx := 0; idx < ev.Len(); idx++ {
 					e := ev.At(idx)
@@ -126,15 +128,19 @@ func From(td ptrace.Traces, tr blob.Func) Traces {
 						return true
 					})
 				}
-				attrCtx.Set("parent:id", span.ParentSpanID().String())
 				traceID := attrCtx.Set("trace:id", span.TraceID().String())
 				attrCtx.Set("span:id", span.SpanID().String())
-				if span.ParentSpanID().IsEmpty() {
+				parent := span.ParentSpanID()
+				if parent.IsEmpty() {
 					attrCtx.Set("trace:rootName", span.Name())
 					attrCtx.Set("trace:rootService", serviceName)
+				} else {
+					attrCtx.Set("parent:id", parent.String())
 				}
 				o.Tags = attrCtx.Bitmap().Clone()
-				traces.add(traceID, o, uint64(span.StartTimestamp()), uint64(span.EndTimestamp()))
+				o.Start = uint64(span.StartTimestamp())
+				o.End = uint64(span.EndTimestamp())
+				traces.add(traceID, o)
 			}
 		}
 
