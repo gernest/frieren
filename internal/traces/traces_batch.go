@@ -49,7 +49,7 @@ func appendTrace(b *batch.Batch, seq *store.Sequence) func(trace *traceproto.Tra
 			b.BSI(constants.TracesSpan, shard, id, span.Span)
 			b.SetBitmap(constants.TracesTags, shard, id, span.Tags)
 			// omit high cardinality tags from fst. Things like span id and trace are
-			// fine to keep in tags only since we will only match of == and !=
+			// fine to keep in tags only since we will only match for == and !=
 			//
 			// There is no need to keep them in the fst.
 			span.Tags.AndNot(span.Omit)
