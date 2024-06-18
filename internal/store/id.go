@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/dgraph-io/badger/v4"
-	"github.com/dgraph-io/ristretto"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/keys"
 	"github.com/gernest/frieren/internal/shardwidth"
@@ -15,8 +14,12 @@ import (
 )
 
 type Seq struct {
-	cache *ristretto.Cache
-	db    *badger.DB
+	db *badger.DB
+
+	// avoid releasing sequences right away, in case there are still samples being
+	// ingested concurrently.
+	//
+	// Views change in 24 hours. It is a safe delay and makes maintenance easier
 	purge *Sequence
 	seq   *Sequence
 	view  string
@@ -89,11 +92,13 @@ func (s *Sequence) NextID(id constants.ID) uint64 {
 	if !ok {
 		key := keys.Seq(new(bytes.Buffer), id, s.view)
 		var err error
-		sq, err = s.db.GetSequence(key, upperLimit)
+		sq, err = s.db.GetSequence(key, 1<<10)
 		if err != nil {
 			util.Exit("getting sequence", "key", string(key), "err", err)
 		}
+		s.mu.Lock()
 		s.ids[id] = sq
+		s.mu.Unlock()
 	}
 	next, err := sq.Next()
 	if err != nil {
