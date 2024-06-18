@@ -96,6 +96,26 @@ func (f *Fragment) EqSet(tx *rbf.Tx, value uint64) (*rows.Row, error) {
 	return f.Row(tx, value)
 }
 
+func (f *Fragment) LTEBSI(tx *rbf.Tx, value uint64) (*rows.Row, error) {
+	return f.rangeLT(tx, value, true)
+}
+
+func (f *Fragment) LTBSI(tx *rbf.Tx, value uint64) (*rows.Row, error) {
+	return f.rangeLT(tx, value, false)
+}
+
+func (f *Fragment) GTEBSI(tx *rbf.Tx, value uint64) (*rows.Row, error) {
+	return f.rangeGT(tx, value, true)
+}
+
+func (f *Fragment) GTBSI(tx *rbf.Tx, value uint64) (*rows.Row, error) {
+	return f.rangeGT(tx, value, false)
+}
+
+func (f *Fragment) NotEqBSI(tx *rbf.Tx, value uint64) (*rows.Row, error) {
+	return f.rangeNEQ(tx, value)
+}
+
 func (f *Fragment) EqBSI(tx *rbf.Tx, value uint64) (*rows.Row, error) {
 	return f.rangeEQ(tx, value)
 }

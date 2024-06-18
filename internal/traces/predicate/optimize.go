@@ -10,6 +10,7 @@ import (
 	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/fst"
 	"github.com/gernest/frieren/internal/keys"
+	"github.com/gernest/rbf"
 	"github.com/gernest/roaring"
 	"github.com/gernest/rows"
 	"github.com/grafana/tempo/pkg/traceql"
@@ -271,7 +272,49 @@ type Ints struct {
 }
 
 func (f *Ints) Apply(ctx *Context) (*rows.Row, error) {
+	field := f.Predicates[0].field
+	fx := fields.New(field, ctx.Shard, ctx.View)
+	switch f.Predicates[0].op {
+	case traceql.OpEqual:
+		return f.apply(ctx, fx.EqBSI)
+	case traceql.OpNotEqual:
+		return f.apply(ctx, fx.NotEqBSI)
+	case traceql.OpGreater:
+		return f.apply(ctx, fx.GTBSI)
+	case traceql.OpGreaterEqual:
+		return f.apply(ctx, fx.GTEBSI)
+	case traceql.OpLess:
+		return f.apply(ctx, fx.LTBSI)
+	case traceql.OpLessEqual:
+		return f.apply(ctx, fx.LTEBSI)
+	}
 	return rows.NewRow(), nil
+}
+
+func (f *Ints) apply(ctx *Context, fn func(*rbf.Tx, uint64) (*rows.Row, error)) (*rows.Row, error) {
+	r := rows.NewRow()
+	for i, v := range f.Predicates {
+		rx, err := fn(ctx.Tx, v.value)
+		if err != nil {
+			return nil, err
+		}
+		if i == 0 {
+			r = rx
+			if f.All && r.IsEmpty() {
+				break
+			}
+			continue
+		}
+		if f.All {
+			r = r.Intersect(rx)
+			if r.IsEmpty() {
+				break
+			}
+		} else {
+			r = r.Union(rx)
+		}
+	}
+	return r, nil
 }
 
 // Optimize groups predicates with same field and operator
