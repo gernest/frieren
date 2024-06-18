@@ -2,6 +2,7 @@ package predicate
 
 import (
 	"github.com/dgraph-io/badger/v4"
+	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rows"
@@ -10,9 +11,11 @@ import (
 
 type Context struct {
 	Shard uint64
-	View  String
+	View  string
 	Tx    *rbf.Tx
 	Txn   *badger.Txn
+	Find  blob.Find
+	Tr    blob.Tr
 }
 
 type Predicate interface {

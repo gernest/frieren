@@ -201,20 +201,23 @@ func (f *Fragment) Row(tx *rbf.Tx, rowID uint64) (*rows.Row, error) {
 	return row, nil
 }
 
-func (f *Fragment) Rows(tx *rbf.Tx, start uint64, filters ...roaring.BitmapFilter) ([]uint64, error) {
-	var rows []uint64
+func (f *Fragment) RowsBitmap(tx *rbf.Tx, start uint64, b *roaring64.Bitmap, filters ...roaring.BitmapFilter) error {
 	cb := func(row uint64) error {
-		rows = append(rows, row)
+		b.Add(row)
 		return nil
 	}
 	startKey := rowToKey(start)
 	filter := roaring.NewBitmapRowFilter(cb, filters...)
-	err := tx.ApplyFilter(f.String(), startKey, filter)
+	return tx.ApplyFilter(f.String(), startKey, filter)
+}
+
+func (f *Fragment) Rows(tx *rbf.Tx, start uint64, filters ...roaring.BitmapFilter) ([]uint64, error) {
+	b := roaring64.New()
+	err := f.RowsBitmap(tx, start, b, filters...)
 	if err != nil {
 		return nil, err
-	} else {
-		return rows, nil
 	}
+	return b.ToArray(), nil
 }
 
 func (f *Fragment) rangeEQ(tx *rbf.Tx, predicate uint64) (*rows.Row, error) {

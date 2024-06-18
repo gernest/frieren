@@ -26,7 +26,7 @@ func Match(txn *badger.Txn, find blob.Find, shard uint64, view string, id consta
 		for _, m := range matchers {
 			switch m.Type {
 			case labels.MatchRegexp, labels.MatchNotRegexp:
-				rx, err := compile(&buf, m.Name, m.Value)
+				rx, err := Compile(&buf, m.Name, m.Value)
 				if err != nil {
 					return fmt.Errorf("compiling matcher %q %w", m.String(), err)
 				}
@@ -90,7 +90,7 @@ func MatchSet(txn *badger.Txn, tx *rbf.Tx, shard uint64, view string, id constan
 			for _, m := range ms {
 				switch m.Type {
 				case labels.MatchRegexp, labels.MatchNotRegexp:
-					rx, err := compile(&buf, m.Name, m.Value)
+					rx, err := Compile(&buf, m.Name, m.Value)
 					if err != nil {
 						return fmt.Errorf("compiling matcher %q %w", m.String(), err)
 					}
@@ -192,7 +192,7 @@ func Read(txn *badger.Txn, shard uint64, view string, id constants.ID, f func(fs
 	})
 }
 
-func compile(b *bytes.Buffer, key, value string) (*re.Regexp, error) {
+func Compile(b *bytes.Buffer, key, value string) (*re.Regexp, error) {
 	value = strings.TrimPrefix(value, "^")
 	value = strings.TrimSuffix(value, "$")
 	b.Reset()
