@@ -77,14 +77,6 @@ func (s *Sequence) Release() (lastErr error) {
 
 const upperLimit = uint64(math.MaxUint64 / shardwidth.ShardWidth)
 
-func (s *Sequence) NextSetID(id constants.ID) uint64 {
-	next := s.NextID(id)
-	if next > upperLimit {
-		util.Exit("exceeded upper limit for cardinality", "id", id, "limit", upperLimit)
-	}
-	return next
-}
-
 func (s *Sequence) NextID(id constants.ID) uint64 {
 	s.mu.RLock()
 	sq, ok := s.ids[id]
@@ -105,6 +97,9 @@ func (s *Sequence) NextID(id constants.ID) uint64 {
 		// Sequence ID is the heart of the storage. Any failure to create new one is
 		// fatal.
 		util.Exit("generating sequence id", "err", err)
+	}
+	if next > upperLimit {
+		util.Exit("exceeded upper limit for cardinality", "id", id, "limit", upperLimit)
 	}
 	return next
 }
