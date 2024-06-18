@@ -79,11 +79,20 @@ func NewInt(field constants.ID, op traceql.Operator, value uint64) *Int {
 type And []Predicate
 
 func (f And) Apply(ctx *Context) (*rows.Row, error) {
+	if len(f) == 0 {
+		return rows.NewRow(), nil
+	}
+	if len(f) == 1 {
+		return f[0].Apply(ctx)
+	}
 	r := rows.NewRow()
 	for i := range f {
 		x, err := f[i].Apply(ctx)
 		if err != nil {
 			return nil, err
+		}
+		if x.IsEmpty() {
+			return x, nil
 		}
 		if i == 0 {
 			r = x
@@ -100,6 +109,12 @@ func (f And) Apply(ctx *Context) (*rows.Row, error) {
 type Or []Predicate
 
 func (f Or) Apply(ctx *Context) (*rows.Row, error) {
+	if len(f) == 0 {
+		return rows.NewRow(), nil
+	}
+	if len(f) == 1 {
+		return f[0].Apply(ctx)
+	}
 	r := rows.NewRow()
 	for i := range f {
 		x, err := f[i].Apply(ctx)
