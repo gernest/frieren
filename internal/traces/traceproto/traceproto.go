@@ -41,6 +41,7 @@ type Span struct {
 	Scope      uint64
 	Span       uint64
 	Tags       *roaring64.Bitmap
+	Omit       *roaring64.Bitmap
 	Start, End uint64
 }
 
@@ -59,6 +60,7 @@ func From(td ptrace.Traces, tr blob.Func) Traces {
 	resourceCtx := px.New(constants.TracesFST, tr)
 	scopeCtx := px.New(constants.TracesFST, tr)
 	attrCtx := px.New(constants.TracesFST, tr)
+	omit := roaring64.New()
 	encode := marshal(tr)
 	for i := 0; i < rls.Len(); i++ {
 		sls := rls.At(i).ScopeSpans()
@@ -66,7 +68,7 @@ func From(td ptrace.Traces, tr blob.Func) Traces {
 		resAttrs := res.Attributes()
 		resourceCtx.Reset()
 		resAttrs.Range(func(k string, v pcommon.Value) bool {
-			resourceCtx.Set(k, v.AsString())
+			resourceCtx.Set("resource."+k, v.AsString())
 			return true
 		})
 		resourceID := encode(constants.TracesResource, tx.Batches[i].GetResource())
@@ -121,23 +123,34 @@ func From(td ptrace.Traces, tr blob.Func) Traces {
 				lk := span.Links()
 				for idx := 0; idx < lk.Len(); idx++ {
 					e := lk.At(idx)
-					attrCtx.Set("link:spanID", e.SpanID().String())
-					attrCtx.Set("link:traceID", e.TraceID().String())
+					omit.Add(
+						attrCtx.Set("link:spanID", e.SpanID().String()),
+					)
+					omit.Add(
+						attrCtx.Set("link:traceID", e.TraceID().String()),
+					)
 					e.Attributes().Range(func(k string, v pcommon.Value) bool {
 						attrCtx.Set("link."+k, v.AsString())
 						return true
 					})
 				}
+				omit.Clear()
 				traceID := attrCtx.Set("trace:id", span.TraceID().String())
-				attrCtx.Set("span:id", span.SpanID().String())
+				omit.Add(traceID)
+				omit.Add(
+					attrCtx.Set("span:id", span.SpanID().String()),
+				)
 				parent := span.ParentSpanID()
 				if parent.IsEmpty() {
 					attrCtx.Set("trace:rootName", span.Name())
 					attrCtx.Set("trace:rootService", serviceName)
 				} else {
-					attrCtx.Set("parent:id", parent.String())
+					omit.Add(
+						attrCtx.Set("parent:id", parent.String()),
+					)
 				}
 				o.Tags = attrCtx.Bitmap().Clone()
+				o.Omit = omit.Clone()
 				o.Start = uint64(span.StartTimestamp())
 				o.End = uint64(span.EndTimestamp())
 				traces.add(traceID, o)
