@@ -39,7 +39,6 @@ func append(b *batch.Batch, seq *store.Sequence, m *logproto.Stream) {
 		if shard != currentShard {
 			currentShard = shard
 			b.Shard(shard)
-			b.AddMany(constants.LogsFST, shard, m.Labels)
 		}
 		b.BSI(constants.LogsStreamID, shard, id, m.ID)
 		b.BSI(constants.LogsTimestamp, shard, id, uint64(e.Timestamp))

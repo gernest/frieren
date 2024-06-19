@@ -65,7 +65,6 @@ func appendBatch(b *batch.Batch, ts *prompb.TimeSeries, labelFunc LabelFunc, blo
 		if shard != currentShard {
 			currentShard = shard
 			b.Shard(shard)
-			b.AddMany(constants.MetricsFST, shard, labels)
 		}
 		b.BSI(constants.MetricsSeries, shard, id, series)
 		b.BSI(constants.MetricsTimestamp, shard, id, uint64(s.Timestamp))
@@ -86,7 +85,6 @@ func appendBatch(b *batch.Batch, ts *prompb.TimeSeries, labelFunc LabelFunc, blo
 		if shard != currentShard {
 			currentShard = shard
 			b.Shard(shard)
-			b.AddMany(constants.MetricsFST, shard, labels)
 		}
 		data, _ := s.Marshal()
 		value := blobFunc(constants.MetricsHistogram, data)

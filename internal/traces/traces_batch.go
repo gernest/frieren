@@ -44,7 +44,6 @@ func appendTrace(b *batch.Batch, seq *store.Sequence) func(trace *traceproto.Tra
 				currentShard = shard
 				b.Shard(shard)
 			}
-			b.Or(constants.TracesFST, shard, span.FST)
 			b.BSI(constants.TracesResource, shard, id, span.Resource)
 			b.BSI(constants.TracesScope, shard, id, span.Scope)
 			b.BSI(constants.TracesSpan, shard, id, span.Span)

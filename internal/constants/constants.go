@@ -10,14 +10,12 @@ const (
 	MetricsSeries
 	MetricsExemplars
 	MetricsRow
-	MetricsFST
 
 	LogsTimestamp
 	LogsStreamID
 	LogsLabels
 	LogsLine
 	LogsMetadata
-	LogsFST
 	LogsRow
 
 	TracesResource
@@ -31,7 +29,6 @@ const (
 	TracesSpanDuration
 	TracesLabels
 	TracesRow
-	TracesFST
 
 	LastID
 )

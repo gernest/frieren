@@ -13,10 +13,9 @@ import (
 	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/fields"
-	"github.com/gernest/frieren/internal/fst"
+	"github.com/gernest/frieren/internal/predicate"
 	"github.com/gernest/frieren/internal/query"
 	"github.com/gernest/frieren/internal/store"
-	"github.com/gernest/frieren/internal/tags"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rows"
 	"github.com/prometheus/prometheus/model/histogram"
@@ -79,9 +78,7 @@ func (s *Querier) LabelValues(ctx context.Context, name string, matchers ...*lab
 	defer txn.Discard()
 
 	err := s.view.Traverse(func(info *v1.Shard, view string) error {
-		return fst.LabelNames(txn, info.Id, view, constants.MetricsFST, name, func(name, value []byte) {
-			names[string(value)] = struct{}{}
-		})
+		return nil
 	})
 	if err != nil {
 		return nil, nil, err
@@ -104,9 +101,7 @@ func (s *Querier) LabelNames(ctx context.Context, matchers ...*labels.Matcher) (
 	defer txn.Discard()
 
 	err := s.view.Traverse(func(info *v1.Shard, view string) error {
-		return fst.Labels(txn, info.Id, view, constants.MetricsFST, func(name, value []byte) {
-			names[string(name)] = struct{}{}
-		})
+		return nil
 	})
 	if err != nil {
 		return nil, nil, err
@@ -134,20 +129,24 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 
 	m := make(MapSet)
 
+	match := predicate.Matchers(constants.MetricsLabels, matchers...)
 	err = s.view.Traverse(func(shard *v1.Shard, view string) error {
-		fnd := blob.Finder(txn, s.store, view)
-		filters, err := fst.Match(txn, fnd, shard.Id, view, constants.MetricsFST, matchers...)
+		fctx := &predicate.Context{
+			Shard: shard.Id,
+			View:  view,
+			Tx:    tx,
+			Txn:   txn,
+			Find:  blob.Finder(txn, s.store, view),
+			Tr:    blob.Translate(txn, s.store, view),
+		}
+		r, err := match.Apply(fctx)
 		if err != nil {
 			return err
 		}
-		if len(filters) == 0 {
+		if r.IsEmpty() {
 			return nil
 		}
-		r, err := tags.Filter(tx, fields.New(constants.MetricsLabels, shard.Id, view), filters)
-		if err != nil {
-			return err
-		}
-		return m.Build(txn, tx, blob.Translate(txn, s.store, view), hints.Start, hints.End, view, shard.Id, r)
+		return m.Build(txn, tx, fctx.Tr, hints.Start, hints.End, view, shard.Id, r)
 	})
 	if err != nil {
 		return storage.ErrSeriesSet(err)

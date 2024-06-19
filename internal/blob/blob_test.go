@@ -18,12 +18,12 @@ func TestUpsert(t *testing.T) {
 		value []string
 		ids   []uint64
 	}{
-		{constants.MetricsFST, []string{"hello", "world"}, []uint64{0, 1}},
-		{constants.MetricsFST, []string{"hello", "world", "foo"}, []uint64{0, 1, 2}},
-		{constants.LogsFST, []string{"key", "value"}, []uint64{0, 1}},
-		{constants.LogsFST, []string{"key", "value"}, []uint64{0, 1}},
-		{constants.TracesFST, []string{"profile", "id"}, []uint64{0, 1}},
-		{constants.TracesFST, []string{"profile", "id"}, []uint64{0, 1}},
+		{constants.MetricsLabels, []string{"hello", "world"}, []uint64{0, 1}},
+		{constants.MetricsLabels, []string{"hello", "world", "foo"}, []uint64{0, 1, 2}},
+		{constants.LogsLabels, []string{"key", "value"}, []uint64{0, 1}},
+		{constants.LogsLabels, []string{"key", "value"}, []uint64{0, 1}},
+		{constants.TracesLabels, []string{"profile", "id"}, []uint64{0, 1}},
+		{constants.TracesLabels, []string{"profile", "id"}, []uint64{0, 1}},
 	}
 	view := "test"
 	seq := db.Seq.Sequence(view)

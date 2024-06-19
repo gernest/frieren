@@ -6,14 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"math/bits"
-	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/blevesearch/vellum"
-	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
 	v1 "github.com/gernest/frieren/gen/go/fri/v1"
 	"github.com/gernest/frieren/internal/blob"
@@ -72,11 +71,15 @@ func (b *Batch) Apply(db *store.Store, resource constants.Resource, view string,
 			return err
 		}
 		err = b.Range(func(field constants.ID, mapping map[uint64]*roaring64.Bitmap) error {
+			err := Apply(tx, fields.New(field, 0, view), mapping)
+			if err != nil {
+				return err
+			}
 			switch field {
-			case constants.MetricsFST, constants.TracesFST, constants.LogsFST:
-				return ApplyFST(txn, tx, blob.Translate(txn, db, view), view, field, mapping)
+			case constants.MetricsLabels, constants.TracesLabels, constants.LogsLabels:
+				return ApplyFST(txn, tx, blob.Translate(txn, db, view), fields.New(field, 0, view), mapping)
 			default:
-				return Apply(tx, fields.New(field, 0, view), mapping)
+				return nil
 			}
 		})
 		if err != nil {
@@ -171,14 +174,6 @@ func (b *Batch) Add(field constants.ID, shard, value uint64) {
 	b.bitmap(field, shard).Add(value)
 }
 
-func (b *Batch) AddMany(field constants.ID, shard uint64, value []uint64) {
-	b.bitmap(field, shard).AddMany(value)
-}
-
-func (b *Batch) Or(field constants.ID, shard uint64, value *roaring64.Bitmap) {
-	b.bitmap(field, shard).Or(value)
-}
-
 func (b *Batch) existence(field constants.ID, u uint64) *roaring64.Bitmap {
 	return b.bitmapBase(b.exists, field, u)
 }
@@ -212,10 +207,10 @@ func Apply(tx *rbf.Tx, view *fields.Fragment, data map[uint64]*roaring64.Bitmap)
 	return nil
 }
 
-func ApplyFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, view string, id constants.ID, data map[uint64]*roaring64.Bitmap) error {
+func ApplyFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, field *fields.Fragment, data map[uint64]*roaring64.Bitmap) error {
 	buf := new(bytes.Buffer)
 	for shard, bm := range data {
-		err := updateFST(buf, txn, tr, shard, view, id, bm)
+		err := updateFST(buf, tx, txn, tr, field.WithShard(shard), bm)
 		if err != nil {
 			return fmt.Errorf("inserting exists bsi %w", err)
 		}
@@ -223,58 +218,60 @@ func ApplyFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, view string, id constants
 	return nil
 }
 
-func updateFST(buf *bytes.Buffer, txn *badger.Txn, tr blob.Tr, shard uint64, view string, id constants.ID, bm *roaring64.Bitmap) error {
+func updateFST(buf *bytes.Buffer, tx *rbf.Tx, txn *badger.Txn, tr blob.Tr, field *fields.Fragment, bm *roaring64.Bitmap) error {
 
-	bitmapKey := bytes.Clone(keys.FSTBitmap(buf, id, shard, view))
-	fstKey := bytes.Clone(keys.FST(buf, id, shard, view))
+	fstKey := bytes.Clone(keys.FST(buf, field.ID, field.Shard, field.View))
 
-	b := roaring64.New()
-	err := store.Get(txn, bitmapKey, b.UnmarshalBinary)
+	// We already save this. It is safe to reuse
+	bm.Clear()
+	err := field.RowsBitmap(tx, 0, bm)
 	if err != nil {
-		if !errors.Is(err, badger.ErrKeyNotFound) {
-			return err
-		}
+		return err
 	}
-	b.Or(bm)
 
-	o := make([][]byte, 0, b.GetCardinality())
-	it := b.Iterator()
-	for it.HasNext() {
-		id := it.Next()
-		o = append(o, tr(constants.MetricsLabels, id))
+	keys := make([][]byte, bm.GetCardinality())
+	values := bm.ToArray()
+	for i := range values {
+		keys[i] = tr(constants.MetricsLabels, values[i])
 	}
-	slices.SortFunc(o, bytes.Compare)
+	sort.Sort(&fstValues{keys: keys, values: values})
 	bs, err := vellum.New(buf, nil)
 	if err != nil {
 		return fmt.Errorf("opening fst builder %w", err)
 	}
-	var h xxhash.Digest
-	for i := range o {
-		h.Reset()
-		h.Write(o[i])
-		err = bs.Insert(o[i], h.Sum64())
+	for i := range keys {
+		err = bs.Insert(keys[i], values[i])
 		if err != nil {
-			return fmt.Errorf("inserting fst key key=%q %w", string(o[i]), err)
+			return fmt.Errorf("inserting fst key key=%q %w", string(keys[i]), err)
 		}
 	}
-
 	err = bs.Close()
 	if err != nil {
 		return fmt.Errorf("closing fst builder %w", err)
 	}
-	b.RunOptimize()
-	fstData := bytes.Clone(buf.Bytes())
-	buf.Reset()
-	b.WriteTo(buf)
-	err = txn.Set(fstKey, fstData)
+	err = txn.Set(fstKey, bytes.Clone(buf.Bytes()))
 	if err != nil {
 		return fmt.Errorf("saving fst %w", err)
 	}
-	err = txn.Set(bitmapKey, buf.Bytes())
-	if err != nil {
-		return fmt.Errorf("saving fst bitmap %w", err)
-	}
 	return nil
+}
+
+type fstValues struct {
+	values []uint64
+	keys   [][]byte
+}
+
+func (f *fstValues) Len() int {
+	return len(f.keys)
+}
+
+func (f *fstValues) Less(i, j int) bool {
+	return bytes.Compare(f.keys[i], f.keys[j]) == -1
+}
+
+func (f *fstValues) Swap(i, j int) {
+	f.keys[i], f.keys[j] = f.keys[j], f.keys[i]
+	f.values[i], f.values[j] = f.values[j], f.values[i]
 }
 
 func ApplyBitDepth(txn *badger.Txn, resource constants.Resource, view string, depth map[uint64]map[uint64]uint64) error {

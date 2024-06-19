@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"slices"
 
+	str "strings"
+
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/blevesearch/vellum"
+	re "github.com/blevesearch/vellum/regexp"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/fields"
-	"github.com/gernest/frieren/internal/fst"
 	"github.com/gernest/frieren/internal/keys"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rows"
@@ -159,12 +161,22 @@ func (s *Strings) NRE(ctx *Context) (*rows.Row, error) {
 func (s *Strings) RE(ctx *Context) (*rows.Row, error) {
 	b := new(bytes.Buffer)
 	return s.applyFST(ctx, func(p *String) (opts fstOptions, err error) {
-		re, err := fst.Compile(b, p.key, p.value)
+		re, err := Compile(b, p.key, p.value)
 		if err != nil {
 			return fstOptions{}, err
 		}
 		return fstOptions{a: re, match: always}, nil
 	})
+}
+
+func Compile(b *bytes.Buffer, key, value string) (*re.Regexp, error) {
+	value = str.TrimPrefix(value, "^")
+	value = str.TrimSuffix(value, "$")
+	b.Reset()
+	b.WriteString(key)
+	b.WriteByte('=')
+	b.WriteString(value)
+	return re.New(b.String())
 }
 
 type fstPredicate func(p *String) (opts fstOptions, err error)

@@ -243,12 +243,7 @@ func createSpanPredicates(conds []traceql.Condition) (preds []predicate.Predicat
 }
 
 func createString(op traceql.Operator, key, value string) predicate.Predicate {
-	switch op {
-	case traceql.OpEqual, traceql.OpNotEqual:
-		return predicate.NewString(constants.TracesLabels, op, key, value)
-	default:
-		return predicate.NewString(constants.TracesFST, op, key, value)
-	}
+	return predicate.NewString(constants.TracesLabels, op, key, value)
 }
 
 func createResourcePredicates(conds []traceql.Condition) (preds []predicate.Predicate, err error) {
