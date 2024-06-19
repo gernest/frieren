@@ -40,7 +40,6 @@ type Span struct {
 	Scope      uint64
 	Span       uint64
 	Tags       *roaring64.Bitmap
-	FST        *roaring64.Bitmap
 	Start, End uint64
 }
 
@@ -109,30 +108,20 @@ func From(td ptrace.Traces, tr blob.Func) Traces {
 				lk := span.Links()
 				for idx := 0; idx < lk.Len(); idx++ {
 					e := lk.At(idx)
-					attrCtx.Omit(
-						attrCtx.Set("link:spanID", e.SpanID().String()),
-					)
-					attrCtx.Omit(
-						attrCtx.Set("link:traceID", e.TraceID().String()),
-					)
+					attrCtx.Set("link:spanID", e.SpanID().String())
+					attrCtx.Set("link:traceID", e.TraceID().String())
 					e.Attributes().Range(attrCtx.Attr("link."))
 				}
 				traceID := attrCtx.Set("trace:id", span.TraceID().String())
-				attrCtx.Omit(traceID)
-				attrCtx.Omit(
-					attrCtx.Set("span:id", span.SpanID().String()),
-				)
+				attrCtx.Set("span:id", span.SpanID().String())
 				parent := span.ParentSpanID()
 				if parent.IsEmpty() {
 					attrCtx.Set("trace:rootName", span.Name())
 					attrCtx.Set("trace:rootService", serviceName)
 				} else {
-					attrCtx.Omit(
-						attrCtx.Set("parent:id", parent.String()),
-					)
+					attrCtx.Set("parent:id", parent.String())
 				}
 				o.Tags = attrCtx.Bitmap()
-				o.FST = attrCtx.FST()
 				o.Start = uint64(span.StartTimestamp())
 				o.End = uint64(span.EndTimestamp())
 				traces.add(traceID, o)
