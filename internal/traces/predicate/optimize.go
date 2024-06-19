@@ -13,7 +13,6 @@ import (
 	"github.com/gernest/frieren/internal/fst"
 	"github.com/gernest/frieren/internal/keys"
 	"github.com/gernest/rbf"
-	"github.com/gernest/roaring"
 	"github.com/gernest/rows"
 	"github.com/grafana/tempo/pkg/traceql"
 )
@@ -31,234 +30,156 @@ func (f *Strings) Index() int {
 func (f *Strings) Apply(ctx *Context) (*rows.Row, error) {
 	switch f.Predicates[0].op {
 	case traceql.OpEqual:
-		return f.applyEqual(ctx)
+		return f.EQ(ctx)
 	case traceql.OpNotEqual:
-		return f.applyNotEqual(ctx)
+		return f.NEQ(ctx)
 	case traceql.OpRegex:
-		return f.applyRegex(ctx)
+		return f.RE(ctx)
 	case traceql.OpNotRegex:
-		return f.applyNotRegex(ctx)
+		return f.NRE(ctx)
 	case traceql.OpLess:
-		return f.applyLess(ctx, false)
+		return f.LT(ctx)
 	case traceql.OpLessEqual:
-		return f.applyLess(ctx, true)
+		return f.LTE(ctx)
 	case traceql.OpGreater:
-		return f.applyGreater(ctx, false)
+		return f.GT(ctx)
 	case traceql.OpGreaterEqual:
-		return f.applyGreater(ctx, true)
+		return f.GTE(ctx)
 	}
 	return rows.NewRow(), nil
 }
 
-func (s *Strings) applyNotRegex(ctx *Context) (*rows.Row, error) {
-	field := s.Predicates[0].field
+func (s *Strings) GTE(ctx *Context) (*rows.Row, error) {
 	b := new(bytes.Buffer)
-	key := keys.FST(b, field, ctx.Shard, ctx.View)
-	it, err := ctx.Txn.Get(key)
-	if err != nil {
-		return nil, fmt.Errorf("reading fst %s %w", b.String(), err)
-	}
-	f := fields.New(field, ctx.Shard, ctx.View)
-	filters := make([]roaring.BitmapFilter, 0, 16)
-
-	o := roaring64.New()
-	r := roaring64.New()
-	all := roaring64.New()
-	err = f.RowsBitmap(ctx.Tx, 0, all)
-	if err != nil {
-		return nil, err
-	}
-	if all.IsEmpty() {
-		return rows.NewRow(), nil
-	}
-
-	err = it.Value(func(val []byte) error {
-		xf, err := vellum.Load(val)
-		if err != nil {
-			return err
-		}
-		for i, v := range s.Predicates {
-			re, err := fst.Compile(b, v.key, v.value)
-			if err != nil {
-				return err
-			}
-			filters = filters[:0]
-			itr, err := xf.Search(re, nil, nil)
-			for err == nil {
-				_, value := itr.Current()
-				filters = append(filters, roaring.NewBitmapColumnFilter(value))
-				err = itr.Next()
-			}
-			o.Clear()
-			err = f.RowsBitmap(ctx.Tx, 0, o, filters...)
-			if err != nil {
-				return err
-			}
-			clone := all.Clone()
-			clone.AndNot(o)
-			if i == 0 {
-				r.Or(o)
-				continue
-			}
-			if s.All {
-				r.And(o)
-				if r.IsEmpty() {
-					return nil
-				}
-				continue
-			}
-			r.Or(o)
-		}
-		return nil
+	return s.applyFST(ctx, func(p *String) (opts fstOptions, err error) {
+		b.WriteString(p.key)
+		b.WriteByte('=')
+		prefix := bytes.Clone(b.Bytes())
+		b.WriteString(p.value)
+		full := bytes.Clone(b.Bytes())
+		return fstOptions{
+			a:     &vellum.AlwaysMatch{},
+			start: full,
+			end:   nil,
+			match: func(b []byte) bool {
+				return bytes.HasPrefix(b, prefix)
+			},
+		}, nil
 	})
-	if err != nil {
-		return nil, err
-	}
-	if o.IsEmpty() {
-		return rows.NewRow(), nil
-	}
-	return rows.NewRow(r.ToArray()...), nil
 }
-
-func (s *Strings) applyGreater(ctx *Context, equal bool) (*rows.Row, error) {
-	field := s.Predicates[0].field
+func (s *Strings) GT(ctx *Context) (*rows.Row, error) {
 	b := new(bytes.Buffer)
-	key := keys.FST(b, field, ctx.Shard, ctx.View)
-	it, err := ctx.Txn.Get(key)
-	if err != nil {
-		return nil, fmt.Errorf("reading fst %s %w", b.String(), err)
-	}
-	f := fields.New(field, ctx.Shard, ctx.View)
-	filters := make([]roaring.BitmapFilter, 0, 16)
-
-	o := roaring64.New()
-	r := roaring64.New()
-	err = it.Value(func(val []byte) error {
-		xf, err := vellum.Load(val)
-		if err != nil {
-			return err
-		}
-		for i, v := range s.Predicates {
-			b.Reset()
-			b.WriteString(v.key)
-			b.WriteByte('=')
-			prefix := bytes.Clone(b.Bytes())
-			b.WriteString(v.value)
-			filters = filters[:0]
-			itr, err := xf.Search(&vellum.AlwaysMatch{}, key, nil)
-			match := true
-			start := true
-			for err == nil && match {
-				currKey, value := itr.Current()
-				match = bytes.HasPrefix(currKey, prefix)
-				err = itr.Next()
-				if start && !equal {
-					start = false
-					// Start key is inclusive
-					continue
-				}
-				filters = append(filters, roaring.NewBitmapColumnFilter(value))
-			}
-			o.Clear()
-			err = f.RowsBitmap(ctx.Tx, 0, o, filters...)
-			if err != nil {
-				return err
-			}
-			if i == 0 {
-				r.Or(o)
-				continue
-			}
-			if s.All {
-				r.And(o)
-				if r.IsEmpty() {
-					return nil
-				}
-				continue
-			}
-			r.Or(o)
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	if o.IsEmpty() {
-		return rows.NewRow(), nil
-	}
-	return rows.NewRow(r.ToArray()...), nil
-}
-
-func (s *Strings) applyLess(ctx *Context, equal bool) (*rows.Row, error) {
-	field := s.Predicates[0].field
-	b := new(bytes.Buffer)
-	key := keys.FST(b, field, ctx.Shard, ctx.View)
-	it, err := ctx.Txn.Get(key)
-	if err != nil {
-		return nil, fmt.Errorf("reading fst %s %w", b.String(), err)
-	}
-	f := fields.New(field, ctx.Shard, ctx.View)
-	filters := make([]roaring.BitmapFilter, 0, 16)
-
-	o := roaring64.New()
-	r := roaring64.New()
-	err = it.Value(func(val []byte) error {
-		xf, err := vellum.Load(val)
-		if err != nil {
-			return err
-		}
-		for i, v := range s.Predicates {
-			b.Reset()
-			b.WriteString(v.key)
-			b.WriteByte('=')
-			prefix := bytes.Clone(b.Bytes())
-			b.WriteString(v.value)
-			filters = filters[:0]
-			itr, err := xf.Search(&vellum.AlwaysMatch{}, prefix, b.Bytes())
-			for err == nil {
-				_, value := itr.Current()
-				filters = append(filters, roaring.NewBitmapColumnFilter(value))
-				err = itr.Next()
-			}
-			if equal {
-				// end key is exclusive
-				value, ok, err := xf.Get(b.Bytes())
-				if err != nil {
-					return fmt.Errorf("reading key from fst %w", err)
-				}
+	return s.applyFST(ctx, func(p *String) (opts fstOptions, err error) {
+		b.WriteString(p.key)
+		b.WriteByte('=')
+		prefix := bytes.Clone(b.Bytes())
+		b.WriteString(p.value)
+		full := bytes.Clone(b.Bytes())
+		return fstOptions{
+			a:     &vellum.AlwaysMatch{},
+			start: full,
+			end:   nil,
+			match: func(b []byte) bool {
+				return bytes.HasPrefix(b, prefix)
+			},
+			after: func(it *vellum.FST, b *roaring64.Bitmap, err error) {
+				v, ok, _ := it.Get(full)
 				if ok {
-					filters = append(filters, roaring.NewBitmapColumnFilter(value))
+					b.Remove(v)
 				}
-			}
-			o.Clear()
-			err = f.RowsBitmap(ctx.Tx, 0, o, filters...)
-			if err != nil {
-				return err
-			}
-			if i == 0 {
-				r.Or(o)
-				continue
-			}
-			if s.All {
-				r.And(o)
-				if r.IsEmpty() {
-					return nil
-				}
-				continue
-			}
-			r.Or(o)
-		}
-		return nil
+			},
+		}, nil
 	})
+}
+
+func (s *Strings) LT(ctx *Context) (*rows.Row, error) {
+	b := new(bytes.Buffer)
+	return s.applyFST(ctx, func(p *String) (opts fstOptions, err error) {
+		b.WriteString(p.key)
+		b.WriteByte('=')
+		prefix := bytes.Clone(b.Bytes())
+		b.WriteString(p.value)
+		full := bytes.Clone(b.Bytes())
+		return fstOptions{
+			a:     &vellum.AlwaysMatch{},
+			start: prefix,
+			end:   full,
+			match: func(b []byte) bool {
+				return bytes.HasPrefix(b, prefix)
+			},
+		}, nil
+	})
+}
+
+func (s *Strings) LTE(ctx *Context) (*rows.Row, error) {
+	b := new(bytes.Buffer)
+	return s.applyFST(ctx, func(p *String) (opts fstOptions, err error) {
+		b.WriteString(p.key)
+		b.WriteByte('=')
+		prefix := bytes.Clone(b.Bytes())
+		b.WriteString(p.value)
+		full := bytes.Clone(b.Bytes())
+		return fstOptions{
+			a:     &vellum.AlwaysMatch{},
+			start: prefix,
+			end:   full,
+			match: func(b []byte) bool {
+				return bytes.HasPrefix(b, prefix)
+			},
+			after: func(it *vellum.FST, b *roaring64.Bitmap, err error) {
+				if err != nil {
+					return
+				}
+				v, ok, _ := it.Get(full)
+				if ok {
+					b.Add(v)
+				}
+			},
+		}, nil
+	})
+}
+
+func (s *Strings) NRE(ctx *Context) (*rows.Row, error) {
+	field := s.Predicates[0].field
+	f := fields.New(field, ctx.Shard, ctx.View)
+	exists, err := f.ExistsSet(ctx.Tx)
 	if err != nil {
 		return nil, err
 	}
-	if o.IsEmpty() {
-		return rows.NewRow(), nil
+	if exists.IsEmpty() {
+		return exists, nil
 	}
-	return rows.NewRow(r.ToArray()...), nil
+	r, err := s.RE(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return exists.Difference(r), nil
 }
 
-func (s *Strings) applyRegex(ctx *Context) (*rows.Row, error) {
+func (s *Strings) RE(ctx *Context) (*rows.Row, error) {
+	b := new(bytes.Buffer)
+	return s.applyFST(ctx, func(p *String) (opts fstOptions, err error) {
+		re, err := fst.Compile(b, p.key, p.value)
+		if err != nil {
+			return fstOptions{}, err
+		}
+		return fstOptions{a: re, match: always}, nil
+	})
+}
+
+type fstPredicate func(p *String) (opts fstOptions, err error)
+
+type fstOptions struct {
+	a          vellum.Automaton
+	start, end []byte
+	before     func(it *vellum.FST, b *roaring64.Bitmap, err error)
+	after      func(it *vellum.FST, b *roaring64.Bitmap, err error)
+	match      func([]byte) bool
+}
+
+func always(_ []byte) bool { return true }
+
+func (s *Strings) applyFST(ctx *Context, fp fstPredicate) (*rows.Row, error) {
 	field := s.Predicates[0].field
 	b := new(bytes.Buffer)
 	key := keys.FST(b, field, ctx.Shard, ctx.View)
@@ -266,45 +187,32 @@ func (s *Strings) applyRegex(ctx *Context) (*rows.Row, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading fst %s %w", b.String(), err)
 	}
-	f := fields.New(field, ctx.Shard, ctx.View)
-	filters := make([]roaring.BitmapFilter, 0, 16)
-
 	o := roaring64.New()
-	r := roaring64.New()
 	err = it.Value(func(val []byte) error {
 		xf, err := vellum.Load(val)
 		if err != nil {
 			return err
 		}
-		for i, v := range s.Predicates {
-			re, err := fst.Compile(b, v.key, v.value)
+		for _, v := range s.Predicates {
+			a, err := fp(v)
 			if err != nil {
 				return err
 			}
-			filters = filters[:0]
-			itr, err := xf.Search(re, nil, nil)
+			itr, err := xf.Search(a.a, a.start, a.end)
+			if a.before != nil {
+				a.before(xf, o, err)
+			}
 			for err == nil {
-				_, value := itr.Current()
-				filters = append(filters, roaring.NewBitmapColumnFilter(value))
+				key, value := itr.Current()
+				if !a.match(key) {
+					break
+				}
+				o.Add(value)
 				err = itr.Next()
 			}
-			o.Clear()
-			err = f.RowsBitmap(ctx.Tx, 0, o, filters...)
-			if err != nil {
-				return err
+			if a.after != nil {
+				a.after(xf, o, err)
 			}
-			if i == 0 {
-				r.Or(o)
-				continue
-			}
-			if s.All {
-				r.And(o)
-				if r.IsEmpty() {
-					return nil
-				}
-				continue
-			}
-			r.Or(o)
 		}
 		return nil
 	})
@@ -314,64 +222,27 @@ func (s *Strings) applyRegex(ctx *Context) (*rows.Row, error) {
 	if o.IsEmpty() {
 		return rows.NewRow(), nil
 	}
-	return rows.NewRow(r.ToArray()...), nil
+	return s.apply(ctx, o.ToArray())
 }
 
-func (s *Strings) applyNotEqual(ctx *Context) (*rows.Row, error) {
+func (s *Strings) NEQ(ctx *Context) (*rows.Row, error) {
 	field := s.Predicates[0].field
-	buf := new(bytes.Buffer)
 	f := fields.New(field, ctx.Shard, ctx.View)
-	ids := make([]uint64, 0, len(s.Predicates))
-	for _, v := range s.Predicates {
-		buf.Reset()
-		buf.WriteString(v.key)
-		buf.WriteByte('=')
-		buf.WriteString(v.value)
-		id, ok := ctx.Find(field, buf.Bytes())
-		if !ok {
-			return rows.NewRow(), nil
-		}
-		ids = append(ids, id)
-	}
-	all := roaring64.New()
-	err := f.RowsBitmap(ctx.Tx, 0, all)
+	r, err := s.EQ(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if s.All {
-		filters := make([]roaring.BitmapFilter, 0, len(ids))
-		for i := range ids {
-			filters[i] = roaring.NewBitmapColumnFilter(ids[i])
-		}
-		matchBitmap := roaring64.New()
-		// Find all rows that match
-		err = f.RowsBitmap(ctx.Tx, 0, matchBitmap, filters...)
-		if err != nil {
-			return nil, err
-		}
-		all.AndNot(matchBitmap)
-		return rows.NewRow(all.ToArray()...), nil
+	all, err := f.ExistsSet(ctx.Tx)
+	if err != nil {
+		return nil, err
 	}
-	matchBitmap := roaring64.New()
-	r := roaring64.New()
-	for i := range ids {
-		matchBitmap.Clear()
-		err = f.RowsBitmap(ctx.Tx, 0, matchBitmap, roaring.NewBitmapColumnFilter(ids[i]))
-		if err != nil {
-			return nil, err
-		}
-		clone := all.Clone()
-		clone.AndNot(matchBitmap)
-		r.Or(clone)
-	}
-	return rows.NewRow(r.ToArray()...), nil
+	return all.Difference(r), nil
 }
 
-func (s *Strings) applyEqual(ctx *Context) (*rows.Row, error) {
+func (s *Strings) EQ(ctx *Context) (*rows.Row, error) {
 	field := s.Predicates[0].field
 	buf := new(bytes.Buffer)
-	f := fields.New(field, ctx.Shard, ctx.View)
-	r := rows.NewRow()
+	ids := make([]uint64, 0, len(s.Predicates))
 	for _, v := range s.Predicates {
 		buf.Reset()
 		buf.WriteString(v.key)
@@ -384,6 +255,16 @@ func (s *Strings) applyEqual(ctx *Context) (*rows.Row, error) {
 			}
 			continue
 		}
+		ids = append(ids, id)
+	}
+	return s.apply(ctx, ids)
+}
+
+func (s *Strings) apply(ctx *Context, columns []uint64) (*rows.Row, error) {
+	field := s.Predicates[0].field
+	f := fields.New(field, ctx.Shard, ctx.View)
+	r := rows.NewRow()
+	for _, id := range columns {
 		rx, err := f.Row(ctx.Tx, id)
 		if err != nil {
 			return nil, err
