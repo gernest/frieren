@@ -32,6 +32,7 @@ func TestBach_Append(t *testing.T) {
 			{Field: "1", View: "_20060102"},
 			{Field: "2", View: "_20060102"},
 			{Field: "3", View: "_20060102"},
+			{Field: "3", View: "_20060102_exists"},
 			{Field: "4", View: "_20060102"},
 			{Field: "5", View: "_20060102"},
 			{Field: "6", View: "_20060102"},

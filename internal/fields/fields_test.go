@@ -26,15 +26,22 @@ func TestSets(t *testing.T) {
 		{2, []uint64{400, 500, 600}},
 	}
 	b := roaring64.New()
+	e := roaring64.New()
 	for _, v := range sample {
-		ro.Set(b, v.row, v.values)
+		ro.Set(b, e, v.row, v.values)
 	}
 	f := New(constants.LastID, 0, "test")
 	tx.Add(f.String(), b.ToArray()...)
+	tx.Add(f.ExistView(), e.ToArray()...)
+
 	require.NoError(t, tx.Commit())
 	tx, err = db.Begin(false)
 	require.NoError(t, err)
 	defer tx.Rollback()
+
+	ex, err := f.ExistsSet(tx)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{1, 2}, ex.Columns())
 
 	r, err := f.Row(tx, 100)
 	require.NoError(t, err)
@@ -43,4 +50,5 @@ func TestSets(t *testing.T) {
 	rs, err := f.Rows(tx, 0, roaring.NewBitmapColumnFilter(1))
 	require.NoError(t, err)
 	require.Equal(t, []uint64{100, 200, 300}, rs)
+
 }

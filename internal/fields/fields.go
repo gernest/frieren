@@ -34,6 +34,13 @@ func (v *Fragment) WithShard(shard uint64) *Fragment {
 		View:  v.View,
 	}
 }
+func (v *Fragment) WithView(view string) *Fragment {
+	return &Fragment{
+		ID:    v.ID,
+		Shard: v.Shard,
+		View:  view,
+	}
+}
 
 func (v *Fragment) String() string {
 	if v.full == "" {
@@ -41,6 +48,11 @@ func (v *Fragment) String() string {
 		v.full = string(key)
 	}
 	return v.full
+}
+
+func (v *Fragment) ExistView() string {
+	key := short_txkey.Prefix("", fmt.Sprint(v.ID), v.View+"_exists", v.Shard)
+	return string(key)
 }
 
 var eql = []byte("=")
@@ -219,6 +231,10 @@ func (f *Fragment) Row(tx *rbf.Tx, rowID uint64) (*rows.Row, error) {
 	}
 	row.InvalidateCount()
 	return row, nil
+}
+
+func (f *Fragment) ExistsSet(tx *rbf.Tx) (*rows.Row, error) {
+	return f.WithView(f.View+"_exists").Row(tx, 0)
 }
 
 func (f *Fragment) RowsBitmap(tx *rbf.Tx, start uint64, b *roaring64.Bitmap, filters ...roaring.BitmapFilter) error {

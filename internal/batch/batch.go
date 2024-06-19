@@ -33,6 +33,7 @@ type Mapping map[uint64]*roaring64.Bitmap
 
 type Batch struct {
 	fields map[constants.ID]Mapping
+	exists map[constants.ID]Mapping
 	depth  map[uint64]map[uint64]uint64
 	shards roaring64.Bitmap
 	Rows   int64
@@ -43,8 +44,11 @@ func NewBatch() *Batch {
 }
 
 var batchPool = &sync.Pool{New: func() any {
-	return &Batch{fields: make(map[constants.ID]Mapping),
-		depth: make(map[uint64]map[uint64]uint64)}
+	return &Batch{
+		fields: make(map[constants.ID]Mapping),
+		exists: make(map[constants.ID]Mapping),
+		depth:  make(map[uint64]map[uint64]uint64),
+	}
 }}
 
 func (b *Batch) Release() {
@@ -79,6 +83,13 @@ func (b *Batch) Apply(db *store.Store, resource constants.Resource, view string,
 			tx.Rollback()
 			return err
 		}
+		err = b.RangeExists(func(field constants.ID, mapping map[uint64]*roaring64.Bitmap) error {
+			return Apply(tx, fields.New(field, 0, view+"_exists"), mapping)
+		})
+		if err != nil {
+			tx.Rollback()
+			return err
+		}
 		err = tx.Commit()
 		if err != nil {
 			return err
@@ -96,6 +107,16 @@ func (b *Batch) Apply(db *store.Store, resource constants.Resource, view string,
 
 func (b *Batch) Range(f Func) error {
 	for field, v := range b.fields {
+		err := f(field, v)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (b *Batch) RangeExists(f Func) error {
+	for field, v := range b.exists {
 		err := f(field, v)
 		if err != nil {
 			return err
@@ -139,11 +160,11 @@ func (b *Batch) Bool(field constants.ID, shard, id uint64, value bool) {
 }
 
 func (b *Batch) Set(field constants.ID, shard, id uint64, value []uint64) {
-	ro.Set(b.bitmap(field, shard), id, value)
+	ro.Set(b.bitmap(field, shard), b.existence(field, shard), id, value)
 }
 
 func (b *Batch) SetBitmap(field constants.ID, shard, id uint64, value *roaring64.Bitmap) {
-	ro.SetBitmap(b.bitmap(field, shard), id, value)
+	ro.SetBitmap(b.bitmap(field, shard), b.existence(field, shard), id, value)
 }
 
 func (b *Batch) Add(field constants.ID, shard, value uint64) {
@@ -158,11 +179,19 @@ func (b *Batch) Or(field constants.ID, shard uint64, value *roaring64.Bitmap) {
 	b.bitmap(field, shard).Or(value)
 }
 
+func (b *Batch) existence(field constants.ID, u uint64) *roaring64.Bitmap {
+	return b.bitmapBase(b.exists, field, u)
+}
+
 func (b *Batch) bitmap(field constants.ID, u uint64) *roaring64.Bitmap {
-	m, ok := b.fields[field]
+	return b.bitmapBase(b.fields, field, u)
+}
+
+func (b *Batch) bitmapBase(base map[constants.ID]Mapping, field constants.ID, u uint64) *roaring64.Bitmap {
+	m, ok := base[field]
 	if !ok {
 		m = make(map[uint64]*roaring64.Bitmap)
-		b.fields[field] = m
+		base[field] = m
 	}
 	r, ok := m[u]
 	if !ok {
