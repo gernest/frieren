@@ -28,19 +28,16 @@ var emptyKey = []byte{
 }
 
 func Finder(txn *badger.Txn, store *store.Store, view string) Find {
-	h := xxhash.New()
+	h := Hash{}
 	buf := new(bytes.Buffer)
 	return func(field constants.ID, b []byte) (uint64, bool) {
 		if len(b) == 0 {
 			b = emptyKey
 		}
-		h.Reset()
-		h.Write(b)
-		hash := h.Sum64()
+
+		hash := h.Sum(b)
 		viewBlobHash := keys.BlobHash(buf, field, hash, view)
-		h.Reset()
-		h.Write(viewBlobHash)
-		sum := h.Sum64()
+		sum := h.Sum(viewBlobHash)
 		if v, ok := store.HashCache.Get(sum); ok {
 			return v.(uint64), true
 		}
