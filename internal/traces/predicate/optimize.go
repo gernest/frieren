@@ -370,7 +370,8 @@ func (s *Strings) applyNotEqual(ctx *Context) (*rows.Row, error) {
 func (s *Strings) applyEqual(ctx *Context) (*rows.Row, error) {
 	field := s.Predicates[0].field
 	buf := new(bytes.Buffer)
-	ids := make([]uint64, 0, len(s.Predicates))
+	f := fields.New(field, ctx.Shard, ctx.View)
+	r := rows.NewRow()
 	for _, v := range s.Predicates {
 		buf.Reset()
 		buf.WriteString(v.key)
@@ -383,36 +384,25 @@ func (s *Strings) applyEqual(ctx *Context) (*rows.Row, error) {
 			}
 			continue
 		}
-		ids = append(ids, id)
-	}
-	if len(ids) == 0 {
-		return rows.NewRow(), nil
-	}
-	f := fields.New(field, ctx.Shard, ctx.View)
-	if s.All {
-		// faster path
-		filters := make([]roaring.BitmapFilter, 0, len(ids))
-		for i := range ids {
-			filters[i] = roaring.NewBitmapColumnFilter(ids[i])
-		}
-		match, err := f.Rows(ctx.Tx, 0, filters...)
+		rx, err := f.Row(ctx.Tx, id)
 		if err != nil {
 			return nil, err
 		}
-		return rows.NewRow(match...), nil
-	}
-	r := rows.NewRow()
-
-	for i := range ids {
-		x, err := f.EqSet(ctx.Tx, ids[i])
-		if err != nil {
-			return nil, err
+		if rx.IsEmpty() && s.All {
+			return rx, nil
 		}
-		if i == 0 {
-			r = x
+		if r.IsEmpty() {
+			r = rx
 			continue
 		}
-		r = r.Union(x)
+		if s.All {
+			r = r.Intersect(rx)
+			if r.IsEmpty() {
+				return r, nil
+			}
+			continue
+		}
+		r = r.Union(rx)
 	}
 	return r, nil
 }
