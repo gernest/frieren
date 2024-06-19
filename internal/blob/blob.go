@@ -2,12 +2,12 @@ package blob
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/constants"
+	"github.com/gernest/frieren/internal/encoding"
 	"github.com/gernest/frieren/internal/keys"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/internal/util"
@@ -53,7 +53,7 @@ func Finder(txn *badger.Txn, store *store.Store, view string) Find {
 		}
 		var id uint64
 		err = it.Value(func(val []byte) error {
-			id = binary.BigEndian.Uint64(val)
+			id = encoding.Uint64(val)
 			return nil
 		})
 		if err != nil {
@@ -104,14 +104,14 @@ func Upsert(txn *badger.Txn, store *store.Store, seq *store.Sequence, view strin
 			}
 			store.HashCache.Set(sum, id, 1)
 			err = txn.Set(bytes.Clone(blobHashKey),
-				uin64ToBytes(id),
+				encoding.Uint64Bytes(id),
 			)
 			if err != nil {
 				util.Exit("writing blob hash key", "err", err)
 			}
 			idKey := keys.BlobID(buf, field, id, view)
 			err = txn.Set(bytes.Clone(idKey),
-				uin64ToBytes(hash),
+				encoding.Uint64Bytes(hash),
 			)
 			if err != nil {
 				util.Exit("writing blob id", "err", err)
@@ -128,7 +128,7 @@ func Upsert(txn *badger.Txn, store *store.Store, seq *store.Sequence, view strin
 		}
 		var id uint64
 		err = it.Value(func(val []byte) error {
-			id = binary.BigEndian.Uint64(val)
+			id = encoding.Uint64(val)
 			return nil
 		})
 		if err != nil {
@@ -137,12 +137,6 @@ func Upsert(txn *badger.Txn, store *store.Store, seq *store.Sequence, view strin
 		store.HashCache.Set(sum, id, 1)
 		return id
 	}
-}
-
-func uin64ToBytes(v uint64) []byte {
-	o := make([]byte, 8)
-	binary.BigEndian.PutUint64(o, v)
-	return o
 }
 
 func saveIfNotExists(txn *badger.Txn, key, value []byte) error {
@@ -171,7 +165,7 @@ func Translate(txn *badger.Txn, store *store.Store, view string) Tr {
 		}
 		var caHash uint64
 		it.Value(func(val []byte) error {
-			caHash = binary.BigEndian.Uint64(val)
+			caHash = encoding.Uint64(val)
 			return nil
 		})
 		caBlobKey := keys.BlobHash(b, field, caHash, "")
