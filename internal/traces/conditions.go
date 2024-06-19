@@ -5,7 +5,7 @@ import (
 	"math"
 
 	"github.com/gernest/frieren/internal/constants"
-	"github.com/gernest/frieren/internal/traces/predicate"
+	"github.com/gernest/frieren/internal/predicate"
 	"github.com/grafana/tempo/pkg/traceql"
 )
 
