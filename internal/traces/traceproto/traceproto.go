@@ -56,9 +56,9 @@ func From(td ptrace.Traces, tr blob.Func) Traces {
 	}
 	traces := make(Traces)
 	rls := td.ResourceSpans()
-	resourceCtx := px.New(constants.TracesTags, tr)
-	scopeCtx := px.New(constants.TracesTags, tr)
-	attrCtx := px.New(constants.TracesTags, tr)
+	resourceCtx := px.New(constants.TracesLabels, tr)
+	scopeCtx := px.New(constants.TracesLabels, tr)
+	attrCtx := px.New(constants.TracesLabels, tr)
 	encode := marshal(tr)
 	for i := 0; i < rls.Len(); i++ {
 		sls := rls.At(i).ScopeSpans()

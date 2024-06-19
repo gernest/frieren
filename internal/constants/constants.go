@@ -29,7 +29,7 @@ const (
 	TracesSpanEnd
 	TracesDuration
 	TracesSpanDuration
-	TracesTags
+	TracesLabels
 	TracesRow
 	TracesFST
 

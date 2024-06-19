@@ -45,7 +45,7 @@ func (q *Query) FindTraceByID(ctx context.Context, req *tempopb.TraceByIDRequest
 	}
 
 	pre := []predicate.Predicate{
-		predicate.NewString(constants.TracesTags, traceql.OpEqual, "trace:id", hex.EncodeToString(req.TraceID)),
+		predicate.NewString(constants.TracesLabels, traceql.OpEqual, "trace:id", hex.EncodeToString(req.TraceID)),
 		predicate.NewInt(
 			constants.TracesStart, traceql.OpGreaterEqual, uint64(timeStart),
 		),
