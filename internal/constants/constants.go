@@ -4,32 +4,32 @@ type ID uint
 
 const (
 	MetricsValue = iota + 1
-	MetricsHistogram
 	MetricsTimestamp
-	MetricsSeries
 	MetricsLabels
+	MetricsHistogram
+	MetricsSeries
 	MetricsExemplars
 	MetricsRow
 	MetricsFST
 
-	LogsRow
+	LogsTimestamp
 	LogsStreamID
 	LogsLabels
-	LogsTimestamp
 	LogsLine
 	LogsMetadata
 	LogsFST
+	LogsRow
 
 	TracesResource
 	TracesScope
 	TracesSpan
-	TracesTags
 	TracesStart
 	TracesEnd
 	TracesSpanStart
 	TracesSpanEnd
 	TracesDuration
 	TracesSpanDuration
+	TracesTags
 	TracesRow
 	TracesFST
 
