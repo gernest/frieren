@@ -45,13 +45,15 @@ var intrinsicColumnLookups = map[traceql.Intrinsic]struct {
 	traceql.IntrinsicServiceStats: {intrinsicScopeTrace, traceql.TypeNil},
 }
 
-func compileConditions(conds []traceql.Condition, start, end uint64, allConditions bool) (predicate.Predicate, error) {
+func CompileConditions(conds []traceql.Condition, start, end uint64, allConditions bool) (predicate.Predicate, error) {
 	// Categorize conditions into span-level or resource-level
 	var (
 		mingledConditions  bool
 		spanConditions     []traceql.Condition
 		resourceConditions []traceql.Condition
 		traceConditions    []traceql.Condition
+		eventConditions    []traceql.Condition
+		linkConditions     []traceql.Condition
 	)
 	for _, cond := range conds {
 		// If no-scoped intrinsic then assign default scope
@@ -73,6 +75,11 @@ func compileConditions(conds []traceql.Condition, start, end uint64, allConditio
 			resourceConditions = append(resourceConditions, cond)
 		case intrinsicScopeTrace:
 			traceConditions = append(traceConditions, cond)
+		case traceql.AttributeScopeEvent, intrinsicScopeEvent:
+			eventConditions = append(eventConditions, cond)
+
+		case traceql.AttributeScopeLink, intrinsicScopeLink:
+			linkConditions = append(linkConditions, cond)
 		default:
 			return nil, fmt.Errorf("unsupported traceql scope: %s", cond.Attribute)
 		}
@@ -93,13 +100,74 @@ func compileConditions(conds []traceql.Condition, start, end uint64, allConditio
 	if err != nil {
 		return nil, err
 	}
+	ev, err := createEventIterator(eventConditions)
+	if err != nil {
+		return nil, err
+	}
+	ls, err := createLinkIterator(linkConditions)
+	if err != nil {
+		return nil, err
+	}
 	all := append(tr, r...)
 	all = append(all, s...)
+	all = append(all, ev...)
+	all = append(all, ls...)
 	all = predicate.Optimize(all, allConditions)
 	if allConditions {
 		return predicate.And(all), nil
 	}
 	return predicate.Or(all), nil
+}
+
+func createEventIterator(conditions []traceql.Condition) (preds []predicate.Predicate, err error) {
+	if len(conditions) == 0 {
+		return nil, nil
+	}
+	preds = make([]predicate.Predicate, 0, len(conditions))
+
+	for _, cond := range conditions {
+		switch cond.Attribute.Intrinsic {
+		case traceql.IntrinsicEventName:
+			if !predicate.ValidForStrings(cond.Op) {
+				return nil, fmt.Errorf("%v not valid for event:name", cond.Op)
+			}
+			preds = append(preds, createString(
+				cond.Op, "event:name", cond.Operands[0].S,
+			))
+		default:
+			preds = append(preds, createString(
+				cond.Op, "event."+cond.Attribute.Name, cond.Operands[0].S,
+			))
+		}
+	}
+	return
+}
+
+func createLinkIterator(conditions []traceql.Condition) (preds []predicate.Predicate, err error) {
+	if len(conditions) == 0 {
+		return nil, nil
+	}
+	preds = make([]predicate.Predicate, 0, len(conditions))
+
+	for _, cond := range conditions {
+		switch cond.Attribute.Intrinsic {
+		case traceql.IntrinsicLinkTraceID:
+			if !validForBytes(cond.Op) {
+				return nil, fmt.Errorf("%v not valid for link:traceID", cond.Op)
+			}
+			preds = append(preds, createString(
+				cond.Op, "link:traceID", cond.Operands[0].S,
+			))
+		case traceql.IntrinsicLinkSpanID:
+			if !validForBytes(cond.Op) {
+				return nil, fmt.Errorf("%v not valid for link:spanID", cond.Op)
+			}
+			preds = append(preds, createString(
+				cond.Op, "link:spanID", cond.Operands[0].S,
+			))
+		}
+	}
+	return
 }
 
 func createSpanPredicates(conds []traceql.Condition) (preds []predicate.Predicate, err error) {

@@ -44,17 +44,11 @@ func appendTrace(b *batch.Batch, seq *store.Sequence) func(trace *traceproto.Tra
 				currentShard = shard
 				b.Shard(shard)
 			}
+			b.Or(constants.TracesFST, shard, span.FST)
 			b.BSI(constants.TracesResource, shard, id, span.Resource)
 			b.BSI(constants.TracesScope, shard, id, span.Scope)
 			b.BSI(constants.TracesSpan, shard, id, span.Span)
 			b.SetBitmap(constants.TracesTags, shard, id, span.Tags)
-			// omit high cardinality tags from fst. Things like span id and trace are
-			// fine to keep in tags only since we will only match for == and !=
-			//
-			// There is no need to keep them in the fst.
-			span.Tags.AndNot(span.Omit)
-			b.Or(constants.TracesTags, shard, span.Tags)
-
 			b.BSI(constants.TracesStart, shard, id, trace.Start)
 			b.BSI(constants.TracesEnd, shard, id, trace.End)
 			b.BSI(constants.TracesSpanStart, shard, id, span.Start)

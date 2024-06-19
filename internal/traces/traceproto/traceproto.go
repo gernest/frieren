@@ -9,7 +9,6 @@ import (
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/px"
 	"github.com/gernest/frieren/internal/util"
-	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 )
@@ -41,7 +40,7 @@ type Span struct {
 	Scope      uint64
 	Span       uint64
 	Tags       *roaring64.Bitmap
-	Omit       *roaring64.Bitmap
+	FST        *roaring64.Bitmap
 	Start, End uint64
 }
 
@@ -60,17 +59,13 @@ func From(td ptrace.Traces, tr blob.Func) Traces {
 	resourceCtx := px.New(constants.TracesTags, tr)
 	scopeCtx := px.New(constants.TracesTags, tr)
 	attrCtx := px.New(constants.TracesTags, tr)
-	omit := roaring64.New()
 	encode := marshal(tr)
 	for i := 0; i < rls.Len(); i++ {
 		sls := rls.At(i).ScopeSpans()
 		res := rls.At(i).Resource()
 		resAttrs := res.Attributes()
 		resourceCtx.Reset()
-		resAttrs.Range(func(k string, v pcommon.Value) bool {
-			resourceCtx.Set("resource."+k, v.AsString())
-			return true
-		})
+		resAttrs.Range(resourceCtx.Attr("resource."))
 		resourceID := encode(constants.TracesResource, tx.Batches[i].GetResource())
 		var serviceName string
 		if v, ok := resAttrs.Get(string(semconv.ServiceNameKey)); ok {
@@ -81,10 +76,7 @@ func From(td ptrace.Traces, tr blob.Func) Traces {
 			spans := sls.At(j).Spans()
 			scopeAttrs := scope.Attributes()
 			scopeCtx.Reset()
-			scopeAttrs.Range(func(k string, v pcommon.Value) bool {
-				scopeCtx.Set("scope."+k, v.AsString())
-				return true
-			})
+			scopeAttrs.Range(scopeCtx.Attr("scope."))
 			if scopeName := scope.Name(); scopeName != "" {
 				scopeCtx.Set("scope:name", scopeName)
 			}
@@ -103,10 +95,7 @@ func From(td ptrace.Traces, tr blob.Func) Traces {
 				attrCtx.Reset()
 				attrCtx.Or(resourceCtx)
 				attrCtx.Or(scopeCtx)
-				span.Attributes().Range(func(k string, v pcommon.Value) bool {
-					attrCtx.Set("span."+k, v.AsString())
-					return true
-				})
+				span.Attributes().Range(attrCtx.Attr("span."))
 				attrCtx.Set("span:name", span.Name())
 				attrCtx.Set("span:status", status[span.Status().Code()])
 				attrCtx.Set("span:statusMessage", span.Status().Message())
@@ -115,29 +104,22 @@ func From(td ptrace.Traces, tr blob.Func) Traces {
 				for idx := 0; idx < ev.Len(); idx++ {
 					e := ev.At(idx)
 					attrCtx.Set("event:name", e.Name())
-					e.Attributes().Range(func(k string, v pcommon.Value) bool {
-						attrCtx.Set("event."+k, v.AsString())
-						return true
-					})
+					e.Attributes().Range(attrCtx.Attr("event."))
 				}
 				lk := span.Links()
 				for idx := 0; idx < lk.Len(); idx++ {
 					e := lk.At(idx)
-					omit.Add(
+					attrCtx.Omit(
 						attrCtx.Set("link:spanID", e.SpanID().String()),
 					)
-					omit.Add(
+					attrCtx.Omit(
 						attrCtx.Set("link:traceID", e.TraceID().String()),
 					)
-					e.Attributes().Range(func(k string, v pcommon.Value) bool {
-						attrCtx.Set("link."+k, v.AsString())
-						return true
-					})
+					e.Attributes().Range(attrCtx.Attr("link."))
 				}
-				omit.Clear()
 				traceID := attrCtx.Set("trace:id", span.TraceID().String())
-				omit.Add(traceID)
-				omit.Add(
+				attrCtx.Omit(traceID)
+				attrCtx.Omit(
 					attrCtx.Set("span:id", span.SpanID().String()),
 				)
 				parent := span.ParentSpanID()
@@ -145,12 +127,12 @@ func From(td ptrace.Traces, tr blob.Func) Traces {
 					attrCtx.Set("trace:rootName", span.Name())
 					attrCtx.Set("trace:rootService", serviceName)
 				} else {
-					omit.Add(
+					attrCtx.Omit(
 						attrCtx.Set("parent:id", parent.String()),
 					)
 				}
-				o.Tags = attrCtx.Bitmap().Clone()
-				o.Omit = omit.Clone()
+				o.Tags = attrCtx.Bitmap()
+				o.FST = attrCtx.FST()
 				o.Start = uint64(span.StartTimestamp())
 				o.End = uint64(span.EndTimestamp())
 				traces.add(traceID, o)
