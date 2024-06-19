@@ -6,6 +6,7 @@ import (
 	"math"
 	"slices"
 	"sort"
+	"time"
 
 	"github.com/dgraph-io/badger/v4"
 	v1 "github.com/gernest/frieren/gen/go/fri/v1"
@@ -46,7 +47,7 @@ func (q *Queryable) Querier(mints, maxts int64) (storage.Querier, error) {
 	defer tx.Rollback()
 	txn := q.store.DB.NewTransaction(false)
 	defer txn.Discard()
-	view, err := query.New(txn, tx, constants.METRICS, mints, maxts)
+	view, err := query.New(txn, tx, constants.METRICS, time.UnixMilli(mints), time.UnixMilli(maxts))
 	if err != nil {
 		return nil, err
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"time"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/dgraph-io/badger/v4"
@@ -55,7 +56,7 @@ func (e *ExemplarQueryable) Select(start, end int64, matchers ...[]*labels.Match
 	txn := e.store.DB.NewTransaction(false)
 	defer txn.Discard()
 
-	view, err := query.New(txn, tx, constants.METRICS, start, end)
+	view, err := query.New(txn, tx, constants.METRICS, time.UnixMilli(start), time.UnixMilli(end))
 	if err != nil {
 		return nil, err
 	}

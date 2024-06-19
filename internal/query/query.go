@@ -18,16 +18,16 @@ type View struct {
 	views []string
 }
 
-func New(txn *badger.Txn, tx *rbf.Tx, resource constants.Resource, start, end int64) (*View, error) {
+func New(txn *badger.Txn, tx *rbf.Tx, resource constants.Resource, start, end time.Time) (*View, error) {
 	var views []string
 	if date(start).Equal(date(end)) {
 		// Same day generate a single view
-		views = []string{quantum.ViewByTimeUnit("", time.UnixMilli(start), 'D')}
+		views = []string{quantum.ViewByTimeUnit("", start, 'D')}
 	} else {
 		// We want view that might contain maxts to be included too, we need to add
 		// extra date
 		views = quantum.ViewsByTimeRange("",
-			time.UnixMilli(start), time.UnixMilli(end).AddDate(0, 0, 1),
+			start, end.AddDate(0, 0, 1),
 			quantum.TimeQuantum("D"))
 	}
 	ids := make([]string, 0, len(views))
@@ -72,7 +72,7 @@ func (s *View) Traverse(f func(shard *v1.Shard, view string) error) error {
 	return nil
 }
 
-func date(ts int64) time.Time {
-	y, m, d := time.UnixMilli(ts).Date()
+func date(ts time.Time) time.Time {
+	y, m, d := ts.Date()
 	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }
