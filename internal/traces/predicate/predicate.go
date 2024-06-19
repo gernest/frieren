@@ -37,10 +37,14 @@ func (f *String) Apply(ctx *Context) (*rows.Row, error) {
 }
 
 var strings = map[traceql.Operator]struct{}{
-	traceql.OpEqual:    {},
-	traceql.OpNotEqual: {},
-	traceql.OpRegex:    {},
-	traceql.OpNotRegex: {},
+	traceql.OpEqual:        {},
+	traceql.OpNotEqual:     {},
+	traceql.OpRegex:        {},
+	traceql.OpNotRegex:     {},
+	traceql.OpLess:         {},
+	traceql.OpLessEqual:    {},
+	traceql.OpGreater:      {},
+	traceql.OpGreaterEqual: {},
 }
 
 func ValidForStrings(o traceql.Operator) bool {

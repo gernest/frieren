@@ -32,6 +32,14 @@ func (f *Strings) Apply(ctx *Context) (*rows.Row, error) {
 		return f.applyRegex(ctx)
 	case traceql.OpNotRegex:
 		return f.applyNotRegex(ctx)
+	case traceql.OpLess:
+		return f.applyLess(ctx, false)
+	case traceql.OpLessEqual:
+		return f.applyLess(ctx, true)
+	case traceql.OpGreater:
+		return f.applyGreater(ctx, false)
+	case traceql.OpGreaterEqual:
+		return f.applyGreater(ctx, true)
 	}
 	return rows.NewRow(), nil
 }
@@ -82,6 +90,144 @@ func (s *Strings) applyNotRegex(ctx *Context) (*rows.Row, error) {
 			}
 			clone := all.Clone()
 			clone.AndNot(o)
+			if i == 0 {
+				r.Or(o)
+				continue
+			}
+			if s.All {
+				r.And(o)
+				if r.IsEmpty() {
+					return nil
+				}
+				continue
+			}
+			r.Or(o)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if o.IsEmpty() {
+		return rows.NewRow(), nil
+	}
+	return rows.NewRow(r.ToArray()...), nil
+}
+
+func (s *Strings) applyGreater(ctx *Context, equal bool) (*rows.Row, error) {
+	field := s.Predicates[0].field
+	b := new(bytes.Buffer)
+	key := keys.FST(b, field, ctx.Shard, ctx.View)
+	it, err := ctx.Txn.Get(key)
+	if err != nil {
+		return nil, fmt.Errorf("reading fst %s %w", b.String(), err)
+	}
+	f := fields.New(field, ctx.Shard, ctx.View)
+	filters := make([]roaring.BitmapFilter, 0, 16)
+
+	o := roaring64.New()
+	r := roaring64.New()
+	err = it.Value(func(val []byte) error {
+		xf, err := vellum.Load(val)
+		if err != nil {
+			return err
+		}
+		for i, v := range s.Predicates {
+			b.Reset()
+			b.WriteString(v.key)
+			b.WriteByte('=')
+			prefix := bytes.Clone(b.Bytes())
+			b.WriteString(v.value)
+			filters = filters[:0]
+			itr, err := xf.Search(&vellum.AlwaysMatch{}, key, nil)
+			match := true
+			start := true
+			for err == nil && match {
+				currKey, value := itr.Current()
+				match = bytes.HasPrefix(currKey, prefix)
+				err = itr.Next()
+				if start && !equal {
+					start = false
+					// Start key is inclusive
+					continue
+				}
+				filters = append(filters, roaring.NewBitmapColumnFilter(value))
+			}
+			o.Clear()
+			err = f.RowsBitmap(ctx.Tx, 0, o, filters...)
+			if err != nil {
+				return err
+			}
+			if i == 0 {
+				r.Or(o)
+				continue
+			}
+			if s.All {
+				r.And(o)
+				if r.IsEmpty() {
+					return nil
+				}
+				continue
+			}
+			r.Or(o)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if o.IsEmpty() {
+		return rows.NewRow(), nil
+	}
+	return rows.NewRow(r.ToArray()...), nil
+}
+
+func (s *Strings) applyLess(ctx *Context, equal bool) (*rows.Row, error) {
+	field := s.Predicates[0].field
+	b := new(bytes.Buffer)
+	key := keys.FST(b, field, ctx.Shard, ctx.View)
+	it, err := ctx.Txn.Get(key)
+	if err != nil {
+		return nil, fmt.Errorf("reading fst %s %w", b.String(), err)
+	}
+	f := fields.New(field, ctx.Shard, ctx.View)
+	filters := make([]roaring.BitmapFilter, 0, 16)
+
+	o := roaring64.New()
+	r := roaring64.New()
+	err = it.Value(func(val []byte) error {
+		xf, err := vellum.Load(val)
+		if err != nil {
+			return err
+		}
+		for i, v := range s.Predicates {
+			b.Reset()
+			b.WriteString(v.key)
+			b.WriteByte('=')
+			prefix := bytes.Clone(b.Bytes())
+			b.WriteString(v.value)
+			filters = filters[:0]
+			itr, err := xf.Search(&vellum.AlwaysMatch{}, prefix, b.Bytes())
+			for err == nil {
+				_, value := itr.Current()
+				filters = append(filters, roaring.NewBitmapColumnFilter(value))
+				err = itr.Next()
+			}
+			if equal {
+				// end key is exclusive
+				value, ok, err := xf.Get(b.Bytes())
+				if err != nil {
+					return fmt.Errorf("reading key from fst %w", err)
+				}
+				if ok {
+					filters = append(filters, roaring.NewBitmapColumnFilter(value))
+				}
+			}
+			o.Clear()
+			err = f.RowsBitmap(ctx.Tx, 0, o, filters...)
+			if err != nil {
+				return err
+			}
 			if i == 0 {
 				r.Or(o)
 				continue
