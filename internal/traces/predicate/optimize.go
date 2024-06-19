@@ -2,7 +2,9 @@ package predicate
 
 import (
 	"bytes"
+	"cmp"
 	"fmt"
+	"slices"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/blevesearch/vellum"
@@ -20,6 +22,10 @@ import (
 type Strings struct {
 	Predicates []*String
 	All        bool
+}
+
+func (f *Strings) Index() int {
+	return f.Predicates[0].Index()
 }
 
 func (f *Strings) Apply(ctx *Context) (*rows.Row, error) {
@@ -417,6 +423,10 @@ type Ints struct {
 	All        bool
 }
 
+func (f *Ints) Index() int {
+	return f.Predicates[0].Index()
+}
+
 func (f *Ints) Apply(ctx *Context) (*rows.Row, error) {
 	field := f.Predicates[0].field
 	fx := fields.New(field, ctx.Shard, ctx.View)
@@ -467,6 +477,8 @@ func (f *Ints) apply(ctx *Context, fn func(*rbf.Tx, uint64) (*rows.Row, error)) 
 func Optimize(a []Predicate, all bool) []Predicate {
 	ints := make(map[constants.ID]map[traceql.Operator][]*Int)
 	strings := make(map[constants.ID]map[traceql.Operator][]*String)
+	var o []Predicate
+
 	for _, v := range a {
 		switch e := v.(type) {
 		case *String:
@@ -483,11 +495,13 @@ func Optimize(a []Predicate, all bool) []Predicate {
 				ints[e.field] = x
 			}
 			x[e.op] = append(x[e.op], e)
+		default:
+			o = append(o, e)
 		}
 	}
-	o := make([]Predicate, 0, len(ints)+len(strings))
 	for _, v := range ints {
 		for _, e := range v {
+			slices.SortFunc(e, compare)
 			o = append(o, &Ints{
 				Predicates: e, All: all,
 			})
@@ -495,10 +509,16 @@ func Optimize(a []Predicate, all bool) []Predicate {
 	}
 	for _, v := range strings {
 		for _, e := range v {
+			slices.SortFunc(e, compare)
 			o = append(o, &Strings{
 				Predicates: e, All: all,
 			})
 		}
 	}
+	slices.SortFunc(o, compare)
 	return o
+}
+
+func compare[T Predicate](a, b T) int {
+	return cmp.Compare(a.Index(), b.Index())
 }

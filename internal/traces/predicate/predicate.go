@@ -20,12 +20,17 @@ type Context struct {
 
 type Predicate interface {
 	Apply(ctx *Context) (*rows.Row, error)
+	Index() int
 }
 
 type String struct {
 	key, value string
 	field      constants.ID
 	op         traceql.Operator
+}
+
+func (f *String) Index() int {
+	return int(f.field) + int(f.op)
 }
 
 func NewString(field constants.ID, op traceql.Operator, key, value string) *String {
@@ -58,6 +63,10 @@ type Int struct {
 	value uint64
 }
 
+func (f *Int) Index() int {
+	return int(f.field) + int(f.op)
+}
+
 func (f *Int) Apply(ctx *Context) (*rows.Row, error) {
 	return rows.NewRow(), nil
 }
@@ -81,6 +90,10 @@ func NewInt(field constants.ID, op traceql.Operator, value uint64) *Int {
 }
 
 type And []Predicate
+
+func (f And) Index() int {
+	return 0
+}
 
 func (f And) Apply(ctx *Context) (*rows.Row, error) {
 	if len(f) == 0 {
@@ -111,6 +124,10 @@ func (f And) Apply(ctx *Context) (*rows.Row, error) {
 }
 
 type Or []Predicate
+
+func (f Or) Index() int {
+	return 0
+}
 
 func (f Or) Apply(ctx *Context) (*rows.Row, error) {
 	if len(f) == 0 {
