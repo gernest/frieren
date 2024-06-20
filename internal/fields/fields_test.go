@@ -3,7 +3,6 @@ package fields
 import (
 	"testing"
 
-	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/ro"
 	"github.com/gernest/rbf"
@@ -25,14 +24,14 @@ func TestSets(t *testing.T) {
 		{1, []uint64{100, 200, 300}},
 		{2, []uint64{400, 500, 600}},
 	}
-	b := roaring64.New()
-	e := roaring64.New()
+	b := roaring.NewBitmap()
+	e := roaring.NewBitmap()
 	for _, v := range sample {
 		ro.Set(b, e, v.row, v.values)
 	}
 	f := New(constants.LastID, 0, "test")
-	tx.Add(f.String(), b.ToArray()...)
-	tx.Add(f.ExistView(), e.ToArray()...)
+	tx.AddRoaring(f.String(), b)
+	tx.AddRoaring(f.ExistView(), e)
 
 	require.NoError(t, tx.Commit())
 	tx, err = db.Begin(false)

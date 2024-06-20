@@ -4,7 +4,6 @@ import (
 	"math"
 	"slices"
 
-	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/px"
@@ -39,7 +38,7 @@ type Span struct {
 	Resource   uint64
 	Scope      uint64
 	Span       uint64
-	Tags       *roaring64.Bitmap
+	Tags       []uint64
 	Start, End uint64
 }
 
@@ -121,7 +120,7 @@ func From(td ptrace.Traces, tr blob.Func) Traces {
 				} else {
 					attrCtx.Set("parent:id", parent.String())
 				}
-				o.Tags = attrCtx.Bitmap()
+				o.Tags = attrCtx.ToArray()
 				o.Start = uint64(span.StartTimestamp())
 				o.End = uint64(span.EndTimestamp())
 				traces.add(traceID, o)

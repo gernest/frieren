@@ -23,12 +23,13 @@ import (
 	"github.com/gernest/frieren/internal/self"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/rbf"
+	"github.com/gernest/roaring"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"google.golang.org/protobuf/proto"
 )
 
-type Mapping map[uint64]*roaring64.Bitmap
+type Mapping map[uint64]*roaring.Bitmap
 
 type Batch struct {
 	fields map[constants.ID]Mapping
@@ -62,7 +63,7 @@ func (b *Batch) Reset() {
 	b.shards.Clear()
 }
 
-type Func func(field constants.ID, mapping map[uint64]*roaring64.Bitmap) error
+type Func func(field constants.ID, mapping map[uint64]*roaring.Bitmap) error
 
 func (b *Batch) Apply(db *store.Store, resource constants.Resource, view string, cb AppendCallback) error {
 	return db.DB.Update(func(txn *badger.Txn) error {
@@ -75,7 +76,7 @@ func (b *Batch) Apply(db *store.Store, resource constants.Resource, view string,
 			tx.Rollback()
 			return err
 		}
-		err = b.Range(func(field constants.ID, mapping map[uint64]*roaring64.Bitmap) error {
+		err = b.Range(func(field constants.ID, mapping map[uint64]*roaring.Bitmap) error {
 			err := Apply(tx, fields.New(field, 0, view), mapping)
 			if err != nil {
 				return err
@@ -91,7 +92,7 @@ func (b *Batch) Apply(db *store.Store, resource constants.Resource, view string,
 			tx.Rollback()
 			return err
 		}
-		err = b.RangeExists(func(field constants.ID, mapping map[uint64]*roaring64.Bitmap) error {
+		err = b.RangeExists(func(field constants.ID, mapping map[uint64]*roaring.Bitmap) error {
 			return Apply(tx, fields.New(field, 0, view+"_exists"), mapping)
 		})
 		if err != nil {
@@ -164,7 +165,7 @@ func (b *Batch) Set(field constants.ID, shard, id uint64, value []uint64) {
 	ro.Set(b.bitmap(field, shard), b.existence(field, shard), id, value)
 }
 
-func (b *Batch) SetBitmap(field constants.ID, shard, id uint64, value *roaring64.Bitmap) {
+func (b *Batch) SetBitmap(field constants.ID, shard, id uint64, value *roaring.Bitmap) {
 	ro.SetBitmap(b.bitmap(field, shard), b.existence(field, shard), id, value)
 }
 
@@ -172,32 +173,32 @@ func (b *Batch) Add(field constants.ID, shard, value uint64) {
 	b.bitmap(field, shard).Add(value)
 }
 
-func (b *Batch) existence(field constants.ID, u uint64) *roaring64.Bitmap {
+func (b *Batch) existence(field constants.ID, u uint64) *roaring.Bitmap {
 	return b.bitmapBase(b.exists, field, u)
 }
 
-func (b *Batch) bitmap(field constants.ID, u uint64) *roaring64.Bitmap {
+func (b *Batch) bitmap(field constants.ID, u uint64) *roaring.Bitmap {
 	return b.bitmapBase(b.fields, field, u)
 }
 
-func (b *Batch) bitmapBase(base map[constants.ID]Mapping, field constants.ID, u uint64) *roaring64.Bitmap {
+func (b *Batch) bitmapBase(base map[constants.ID]Mapping, field constants.ID, u uint64) *roaring.Bitmap {
 	m, ok := base[field]
 	if !ok {
-		m = make(map[uint64]*roaring64.Bitmap)
+		m = make(map[uint64]*roaring.Bitmap)
 		base[field] = m
 	}
 	r, ok := m[u]
 	if !ok {
-		r = roaring64.New()
+		r = roaring.NewBitmap()
 		m[u] = r
 	}
 	return r
 }
 
-func Apply(tx *rbf.Tx, view *fields.Fragment, data map[uint64]*roaring64.Bitmap) error {
+func Apply(tx *rbf.Tx, view *fields.Fragment, data map[uint64]*roaring.Bitmap) error {
 	for shard, m := range data {
 		key := view.WithShard(shard).String()
-		_, err := tx.Add(key, m.ToArray()...)
+		_, err := tx.AddRoaring(key, m)
 		if err != nil {
 			return fmt.Errorf("adding to %s %w", key, err)
 		}
@@ -205,10 +206,11 @@ func Apply(tx *rbf.Tx, view *fields.Fragment, data map[uint64]*roaring64.Bitmap)
 	return nil
 }
 
-func ApplyFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, field *fields.Fragment, data map[uint64]*roaring64.Bitmap) error {
+func ApplyFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, field *fields.Fragment, data map[uint64]*roaring.Bitmap) error {
 	buf := new(bytes.Buffer)
-	for shard, bm := range data {
-		err := updateFST(buf, tx, txn, tr, field.WithShard(shard), bm)
+	b := roaring64.New()
+	for shard, _ := range data {
+		err := updateFST(buf, tx, txn, tr, field.WithShard(shard), b)
 		if err != nil {
 			return fmt.Errorf("inserting exists bsi %w", err)
 		}
