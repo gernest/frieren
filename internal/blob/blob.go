@@ -33,7 +33,7 @@ var emptyKey = []byte{
 
 func Finder(txn *badger.Txn, store *store.Store, view string) Find {
 	h := Hash{}
-	buf := new(bytes.Buffer)
+	buf := keys.NewBuffer()
 	return func(field constants.ID, b []byte) (uint64, bool) {
 		if len(b) == 0 {
 			b = emptyKey
@@ -67,7 +67,7 @@ func Finder(txn *badger.Txn, store *store.Store, view string) Find {
 
 func Upsert(txn *badger.Txn, store *store.Store, seq *store.Sequence, view string) Func {
 	h := Hash{}
-	buf := new(bytes.Buffer)
+	buf := keys.NewBuffer()
 	return func(field constants.ID, b []byte) uint64 {
 		if len(b) == 0 {
 			b = emptyKey
@@ -152,7 +152,7 @@ func saveIfNotExists(txn *badger.Txn, key, value []byte) error {
 }
 
 func Translate(txn *badger.Txn, store *store.Store, view string) Tr {
-	b := new(bytes.Buffer)
+	b := keys.NewBuffer()
 	h := Hash{}
 	return func(field constants.ID, u uint64) []byte {
 		viewBlobKey := keys.BlobID(b, field, u, view)
@@ -162,7 +162,7 @@ func Translate(txn *badger.Txn, store *store.Store, view string) Tr {
 		}
 		it, err := txn.Get(viewBlobKey)
 		if err != nil {
-			util.Exit("BUG: reading translated blob key id", "key", b.String(), "err", err)
+			util.Exit("BUG: reading translated blob key id", "key", string(viewBlobKey), "err", err)
 		}
 		var caHash uint64
 		it.Value(func(val []byte) error {
@@ -176,7 +176,7 @@ func Translate(txn *badger.Txn, store *store.Store, view string) Tr {
 		}
 		it, err = txn.Get(caBlobKey)
 		if err != nil {
-			util.Exit("BUG: reading translated blob data", "key", b.String(), "err", err)
+			util.Exit("BUG: reading translated blob data", "key", string(caBlobKey), "err", err)
 		}
 		data, _ := it.ValueCopy(nil)
 		store.ValueCache.Set(viewBlobHash, data, int64(len(data)))
@@ -186,7 +186,7 @@ func Translate(txn *badger.Txn, store *store.Store, view string) Tr {
 }
 
 func TranslateCall(txn *badger.Txn, store *store.Store, view string) TrCall {
-	b := new(bytes.Buffer)
+	b := keys.NewBuffer()
 	h := Hash{}
 	return func(field constants.ID, u uint64, f func([]byte) error) error {
 		viewBlobKey := keys.BlobID(b, field, u, view)
@@ -196,7 +196,7 @@ func TranslateCall(txn *badger.Txn, store *store.Store, view string) TrCall {
 		}
 		it, err := txn.Get(viewBlobKey)
 		if err != nil {
-			util.Exit("BUG: reading translated blob key id", "key", b.String(), "err", err)
+			util.Exit("BUG: reading translated blob key id", "key", string(viewBlobKey), "err", err)
 		}
 		var caHash uint64
 		it.Value(func(val []byte) error {
@@ -210,7 +210,7 @@ func TranslateCall(txn *badger.Txn, store *store.Store, view string) TrCall {
 		}
 		it, err = txn.Get(caBlobKey)
 		if err != nil {
-			util.Exit("BUG: reading translated blob data", "key", b.String(), "err", err)
+			util.Exit("BUG: reading translated blob data", "key", string(caBlobKey), "err", err)
 		}
 		return it.Value(f)
 	}

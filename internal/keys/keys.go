@@ -2,7 +2,9 @@ package keys
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
+	"strconv"
 
 	"github.com/gernest/frieren/internal/constants"
 )
@@ -23,16 +25,34 @@ func Seq(b *bytes.Buffer, field constants.ID, view string) []byte {
 	return b.Bytes()
 }
 
-func BlobID(b *bytes.Buffer, field constants.ID, id uint64, view string) []byte {
-	b.Reset()
-	fmt.Fprintf(b, "%s:%d:%d:%d", view, blobID, field, id)
-	return b.Bytes()
+const BufferSize = 16 + //for view
+	2 + // prefix
+	14 + // blob id
+	2 // field
+
+type Buffer [BufferSize]byte
+
+func NewBuffer() *Buffer {
+	var b Buffer
+	return &b
 }
 
-func BlobHash(b *bytes.Buffer, field constants.ID, hash uint64, view string) []byte {
-	b.Reset()
-	fmt.Fprintf(b, "%s:%d:%d:%d", view, blobHash, field, hash)
-	return b.Bytes()
+func BlobID(a *Buffer, field constants.ID, id uint64, view string) []byte {
+	b := a[:]
+	copy(b, view)
+	b = append(b[:len(view)], ':', '2', ':')
+	b = strconv.AppendUint(b, uint64(field), 10)
+	b = append(b, ':')
+	return strconv.AppendUint(b, id, 10)
+}
+
+func BlobHash(a *Buffer, field constants.ID, hash uint64, view string) []byte {
+	b := a[:]
+	copy(b, view)
+	b = append(b[:len(view)], ':', '3', ':')
+	b = strconv.AppendUint(b, uint64(field), 10)
+	b = append(b, ':')
+	return binary.AppendUvarint(b, hash)
 }
 
 func FST(b *bytes.Buffer, field constants.ID, shard uint64, view string) []byte {
