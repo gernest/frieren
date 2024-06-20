@@ -58,14 +58,9 @@ func (v *Fragment) ExistView() string {
 
 var eql = []byte("=")
 
-func (f *Fragment) Shards(tx *rbf.Tx) ([]uint64, error) {
-	r, err := tx.RoaringBitmap(f.String())
-	if err != nil {
-		return nil, err
-	}
-	return r.Slice(), nil
-}
-
+// Labels reads labels for the column. We use blob.Tr instead of blob.TrCall
+// because most labels are duplicate on several series. We take advantage of
+// caching to speed queries.
 func (f *Fragment) Labels(tx *rbf.Tx, tr blob.Tr, column uint64) (labels.Labels, error) {
 	rows, err := f.Rows(tx, 0, roaring.NewBitmapColumnFilter(column))
 	if err != nil {
@@ -82,9 +77,6 @@ func (f *Fragment) Labels(tx *rbf.Tx, tr blob.Tr, column uint64) (labels.Labels,
 			Name:  string(key),
 			Value: string(value),
 		})
-		if err != nil {
-			return nil, fmt.Errorf("translating  series labels %w", err)
-		}
 	}
 	return o, nil
 }
@@ -164,7 +156,7 @@ func (f *Fragment) transposeBSI(tx *rbf.Tx, columns *rows.Row) (*roaring64.Bitma
 	// Populate a map with the BSI data.
 	data := make(map[uint64]uint64)
 	mergeBits(exists, 0, data)
-	for i := uint64(0); i < bitDepth; i++ {
+	for i := uint64(0); i < f.bitDepth(); i++ {
 		bits, err := f.Row(tx, bsiOffsetBit+uint64(i))
 		if err != nil {
 			return nil, err
@@ -189,7 +181,7 @@ func (fra *Fragment) extractBSI(tx *rbf.Tx, exists *rows.Row, mapping map[uint64
 	data := make(map[uint64]uint64)
 	mergeBits(exists, 0, data)
 
-	for i := uint64(0); i < bitDepth; i++ {
+	for i := uint64(0); i < fra.bitDepth(); i++ {
 		bits, err := fra.Row(tx, bsiOffsetBit+uint64(i))
 		if err != nil {
 			return err
@@ -320,7 +312,7 @@ func (f *Fragment) rangeLT(tx *rbf.Tx, predicate uint64, allowEquality bool) (*r
 		// Match all integers that are either negative or 0.
 		return f.rangeEQ(tx, 0)
 	default:
-		return f.rangeLTUnsigned(tx, b, bitDepth, predicate, allowEquality)
+		return f.rangeLTUnsigned(tx, b, f.bitDepth(), predicate, allowEquality)
 	}
 }
 
@@ -388,7 +380,7 @@ func (f *Fragment) rangeGT(tx *rbf.Tx, predicate uint64, allowEquality bool) (*r
 		return b, nil
 	default:
 		// Match all positive numbers greater than the predicate.
-		return f.rangeGTUnsigned(tx, b, bitDepth, uint64(predicate), allowEquality)
+		return f.rangeGTUnsigned(tx, b, f.bitDepth(), uint64(predicate), allowEquality)
 	}
 }
 
@@ -461,20 +453,27 @@ func (f *Fragment) rangeBetween(tx *rbf.Tx, predicateMin, predicateMax uint64) (
 	}
 }
 
+func (f *Fragment) bitDepth() uint64 {
+	if f.Depth != 0 {
+		return f.Depth
+	}
+	return 64
+}
+
 func (f *Fragment) rangeBetweenUnsigned(tx *rbf.Tx, filter *rows.Row, predicateMin, predicateMax uint64) (*rows.Row, error) {
 	switch {
-	case predicateMax > (1<<bitDepth)-1:
+	case predicateMax > (1<<f.bitDepth())-1:
 		// The upper bound cannot be violated.
-		return f.rangeGTUnsigned(tx, filter, bitDepth, predicateMin, true)
+		return f.rangeGTUnsigned(tx, filter, f.bitDepth(), predicateMin, true)
 	case predicateMin == 0:
 		// The lower bound cannot be violated.
-		return f.rangeLTUnsigned(tx, filter, bitDepth, predicateMax, true)
+		return f.rangeLTUnsigned(tx, filter, f.bitDepth(), predicateMax, true)
 	}
 
 	// Compare any upper bits which are equal.
 	diffLen := bits.Len64(predicateMax ^ predicateMin)
 	remaining := filter
-	for i := int(bitDepth - 1); i >= diffLen; i-- {
+	for i := int(f.bitDepth() - 1); i >= diffLen; i-- {
 		row, err := f.Row(tx, uint64(bsiOffsetBit+i))
 		if err != nil {
 			return nil, err
