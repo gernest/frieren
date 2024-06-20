@@ -11,14 +11,15 @@ import (
 	"github.com/gernest/frieren/internal/logs/logproto"
 	"github.com/gernest/frieren/internal/shardwidth"
 	"github.com/gernest/frieren/internal/store"
+	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/quantum"
 	"go.opentelemetry.io/collector/pdata/plog"
 )
 
 func AppendBatch(ctx context.Context, store *store.Store, ld plog.Logs, ts time.Time) error {
 	view := quantum.ViewByTimeUnit("", ts, 'D')
-	return batch.Append(ctx, constants.LOGS, store, view, func(bx *batch.Batch) error {
-		return store.DB.Update(func(txn *badger.Txn) error {
+	return batch.Append(ctx, constants.LOGS, store, view,
+		func(txn *badger.Txn, _ *rbf.Tx, bx *batch.Batch) error {
 			seq := store.Seq.Sequence(view)
 			defer seq.Release()
 			all := logproto.FromLogs(ld, blob.Upsert(txn, store, seq, view))
@@ -27,7 +28,6 @@ func AppendBatch(ctx context.Context, store *store.Store, ld plog.Logs, ts time.
 			}
 			return nil
 		})
-	})
 }
 
 func append(b *batch.Batch, seq *store.Sequence, m *logproto.Stream) {

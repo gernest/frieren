@@ -13,6 +13,7 @@ import (
 	"github.com/gernest/frieren/internal/shardwidth"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/internal/util"
+	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/quantum"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/storage/remote/otlptranslator/prometheusremotewrite"
@@ -24,26 +25,24 @@ type LabelFunc func([]prompb.Label) []uint64
 func Append(ctx context.Context, store *store.Store, mets pmetric.Metrics, ts time.Time) (err error) {
 	view := quantum.ViewByTimeUnit("", ts, 'D')
 	return batch.Append(ctx, constants.METRICS, store, view,
-		func(bx *batch.Batch) error {
-			return store.DB.Update(func(txn *badger.Txn) error {
-				series, err := prometheusremotewrite.FromMetrics(mets, prometheusremotewrite.Settings{
-					AddMetricSuffixes: true,
-				})
-				if err != nil {
-					return err
-				}
-				seq := store.Seq.Sequence(view)
-				defer seq.Release()
-
-				blob := blob.Upsert(txn, store, seq, view)
-				label := UpsertLabels(blob)
-
-				for _, s := range series {
-					appendBatch(bx, s, label, blob, seq)
-				}
-				meta := prometheusremotewrite.OtelMetricsToMetadata(mets, true)
-				return StoreMetadata(txn, meta)
+		func(txn *badger.Txn, _ *rbf.Tx, bx *batch.Batch) error {
+			series, err := prometheusremotewrite.FromMetrics(mets, prometheusremotewrite.Settings{
+				AddMetricSuffixes: true,
 			})
+			if err != nil {
+				return err
+			}
+			seq := store.Seq.Sequence(view)
+			defer seq.Release()
+
+			blob := blob.Upsert(txn, store, seq, view)
+			label := UpsertLabels(blob)
+
+			for _, s := range series {
+				appendBatch(bx, s, label, blob, seq)
+			}
+			meta := prometheusremotewrite.OtelMetricsToMetadata(mets, true)
+			return StoreMetadata(txn, meta)
 		})
 }
 

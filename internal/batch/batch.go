@@ -64,10 +64,15 @@ func (b *Batch) Reset() {
 
 type Func func(field constants.ID, mapping map[uint64]*roaring64.Bitmap) error
 
-func (b *Batch) Apply(db *store.Store, resource constants.Resource, view string, cb ...func(txn *badger.Txn) error) error {
+func (b *Batch) Apply(db *store.Store, resource constants.Resource, view string, cb AppendCallback) error {
 	return db.DB.Update(func(txn *badger.Txn) error {
 		tx, err := db.Index.Begin(true)
 		if err != nil {
+			return err
+		}
+		err = cb(txn, tx, b)
+		if err != nil {
+			tx.Rollback()
 			return err
 		}
 		err = b.Range(func(field constants.ID, mapping map[uint64]*roaring64.Bitmap) error {
@@ -97,14 +102,7 @@ func (b *Batch) Apply(db *store.Store, resource constants.Resource, view string,
 		if err != nil {
 			return err
 		}
-		err = ApplyBitDepth(txn, resource, view, b.GetDepth())
-		if err != nil {
-			return err
-		}
-		if len(cb) > 0 {
-			return cb[0](txn)
-		}
-		return nil
+		return ApplyBitDepth(txn, resource, view, b.GetDepth())
 	})
 }
 
@@ -349,12 +347,14 @@ func initMetrics() {
 	})
 }
 
+type AppendCallback func(txn *badger.Txn, tx *rbf.Tx, bx *Batch) error
+
 func Append(
 	ctx context.Context,
 	resource constants.Resource,
 	store *store.Store,
 	view string,
-	f func(bx *Batch) error,
+	f AppendCallback,
 ) error {
 	ctx, span := self.Start(ctx, fmt.Sprintf("%s.batch", strings.ToLower(resource.String())))
 	defer span.End()
@@ -366,13 +366,9 @@ func Append(
 	bx := NewBatch()
 	defer bx.Release()
 
-	err := f(bx)
-	if err != nil {
-		return err
-	}
 	initMetrics()
 
-	err = bx.Apply(store, resource, view)
+	err := bx.Apply(store, resource, view, f)
 	if err != nil {
 		batchFailure.Add(ctx, 1, metric.WithAttributes(res))
 		return err

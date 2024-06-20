@@ -11,25 +11,24 @@ import (
 	"github.com/gernest/frieren/internal/shardwidth"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/internal/traces/traceproto"
+	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/quantum"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
 
 func AppendBatch(ctx context.Context, store *store.Store, td ptrace.Traces, ts time.Time) error {
 	view := quantum.ViewByTimeUnit("", ts, 'D')
-	return batch.Append(ctx, constants.TRACES, store, view, func(bx *batch.Batch) error {
-		return store.DB.Update(func(txn *badger.Txn) error {
+	return batch.Append(ctx, constants.TRACES, store, view,
+		func(txn *badger.Txn, _ *rbf.Tx, bx *batch.Batch) error {
 			seq := store.Seq.Sequence(view)
 			defer seq.Release()
 			a := appendTrace(bx, seq)
-
 			all := traceproto.From(td, blob.Upsert(txn, store, seq, view))
 			for _, t := range all {
 				a(t)
 			}
 			return nil
 		})
-	})
 }
 
 func appendTrace(b *batch.Batch, seq *store.Sequence) func(trace *traceproto.Trace) {
