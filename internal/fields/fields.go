@@ -19,12 +19,13 @@ import (
 type Fragment struct {
 	ID    constants.ID
 	Shard uint64
+	Depth uint64
 	View  string
 	full  string
 }
 
 func New(id constants.ID, shard uint64, view string) *Fragment {
-	return &Fragment{ID: id, Shard: shard, View: view}
+	return &Fragment{ID: id, Shard: shard, View: view, Depth: 64}
 }
 
 func (v *Fragment) WithShard(shard uint64) *Fragment {

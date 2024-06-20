@@ -65,14 +65,7 @@ func (e *ExemplarQueryable) Select(start, end int64, matchers ...[]*labels.Match
 	m := make(ExemplarSet)
 	match := predicate.MultiMatchers(constants.MetricsLabels, matchers...)
 	err = view.Traverse(func(shard *v1.Shard, view string) error {
-		ctx := &predicate.Context{
-			Shard: shard.Id,
-			View:  view,
-			Tx:    tx,
-			Txn:   txn,
-			Find:  blob.Finder(txn, e.store, view),
-			Tr:    blob.Translate(txn, e.store, view),
-		}
+		ctx := predicate.NewContext(shard, view, e.store, tx, txn)
 		r, err := match.Apply(ctx)
 		if err != nil {
 			return err

@@ -137,9 +137,7 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 	match := predicate.And(predicate.Optimize(matchSet, true))
 
 	err = s.view.Traverse(func(shard *v1.Shard, view string) error {
-		filterCtx := predicate.NewContext(
-			shard.Id, view, s.store, tx, txn,
-		)
+		filterCtx := predicate.NewContext(shard, view, s.store, tx, txn)
 		r, err := match.Apply(filterCtx)
 		if err != nil {
 			return err
@@ -214,11 +212,11 @@ func (s MapSet) Build(ctx *predicate.Context, filter *rows.Row) error {
 		return nil
 	}
 	// fragments
-	sf := fields.New(constants.MetricsSeries, ctx.Shard, ctx.View)
-	hf := fields.New(constants.MetricsHistogram, ctx.Shard, ctx.View)
-	vf := fields.New(constants.MetricsValue, ctx.Shard, ctx.View)
-	tf := fields.New(constants.MetricsTimestamp, ctx.Shard, ctx.View)
-	lf := fields.New(constants.MetricsLabels, ctx.Shard, ctx.View)
+	sf := ctx.Field(constants.MetricsSeries)
+	hf := ctx.Field(constants.MetricsHistogram)
+	vf := ctx.Field(constants.MetricsValue)
+	tf := ctx.Field(constants.MetricsTimestamp)
+	lf := ctx.Field(constants.MetricsLabels)
 
 	// find all series
 	series, err := sf.TransposeBSI(ctx.Tx, filter)
@@ -302,7 +300,7 @@ func (s MapSet) Build(ctx *predicate.Context, filter *rows.Row) error {
 				return fmt.Errorf("extracting timestamp %w", err)
 			}
 		}
-		err = add(lf, ctx.Shard, columns[0], chunks)
+		err = add(lf, seriesID, columns[0], chunks)
 		if err != nil {
 			return err
 		}

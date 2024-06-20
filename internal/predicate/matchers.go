@@ -109,7 +109,7 @@ func (l *Labels) Match(ctx *Context, f func(val []byte) error) error {
 
 func (l *Labels) fst(ctx *Context, f func(val []byte) error) error {
 	b := new(bytes.Buffer)
-	key := keys.FST(b, l.Field, ctx.Shard, ctx.View)
+	key := keys.FST(b, l.Field, ctx.Shard.Id, ctx.View)
 	it, err := ctx.Txn.Get(key)
 	if err != nil {
 		return fmt.Errorf("reading fst %s %w", b.String(), err)

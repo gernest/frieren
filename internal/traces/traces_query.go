@@ -8,9 +8,7 @@ import (
 	"time"
 
 	v1 "github.com/gernest/frieren/gen/go/fri/v1"
-	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
-	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/predicate"
 	"github.com/gernest/frieren/internal/query"
 	"github.com/gernest/frieren/internal/store"
@@ -63,15 +61,7 @@ func (q *Query) FindTraceByID(ctx context.Context, req *tempopb.TraceByIDRequest
 	scopes := make([]uint64, 0, 64)
 
 	err = view.Traverse(func(shard *v1.Shard, view string) error {
-		clear(m)
-		ctx := &predicate.Context{
-			Shard: shard.Id,
-			View:  view,
-			Tx:    tx,
-			Txn:   txn,
-			Find:  blob.Finder(txn, q.db, view),
-			Tr:    blob.Translate(txn, q.db, view),
-		}
+		ctx := predicate.NewContext(shard, view, q.db, tx, txn)
 		r, err := all.Apply(ctx)
 		if err != nil {
 			return err
@@ -92,9 +82,9 @@ func (q *Query) FindTraceByID(ctx context.Context, req *tempopb.TraceByIDRequest
 			mapping[columns[i]] = i
 		}
 		// read contest
-		resourceField := fields.New(constants.TracesResource, ctx.Shard, ctx.View)
-		scopesField := fields.New(constants.TracesScope, ctx.Shard, ctx.View)
-		spansField := fields.New(constants.TracesSpan, ctx.Shard, ctx.View)
+		resourceField := ctx.Field(constants.TracesResource)
+		scopesField := ctx.Field(constants.TracesScope)
+		spansField := ctx.Field(constants.TracesSpan)
 
 		resources = slices.Grow(resources[:0], int(count))[:count]
 		err = resourceField.ExtractBSI(ctx.Tx, r, mapping, func(i int, v uint64) error {
