@@ -1,0 +1,3 @@
+#!/bin/bash
+
+go test -benchmem  -cpuprofile profile.out -run=^$ -bench ^BenchmarkAppend$ github.com/gernest/frieren/internal/metrics

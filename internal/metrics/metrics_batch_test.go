@@ -48,6 +48,21 @@ func TestBach_Append(t *testing.T) {
 		want := []uint64{0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc}
 		require.Equal(t, want, all.ToArray())
 	})
+	t.Error()
+}
+
+func BenchmarkAppend(b *testing.B) {
+	db, err := store.New(b.TempDir())
+	require.NoError(b, err)
+	defer db.Close()
+
+	m := generateOTLPWriteRequest()
+
+	ctx := context.TODO()
+	b.ResetTimer()
+	for range b.N {
+		Append(ctx, db, m.Metrics(), util.TS())
+	}
 }
 
 func generateOTLPWriteRequest() pmetricotlp.ExportRequest {
