@@ -20,6 +20,14 @@ func MultiMatchers(field constants.ID, matchers ...[]*labels.Matcher) Predicate 
 }
 
 func Matchers(field constants.ID, matchers ...*labels.Matcher) Predicate {
+	o := Optimize(MatchersPlain(field, matchers...), true)
+	return And(o)
+}
+
+func MatchersPlain(field constants.ID, matchers ...*labels.Matcher) []Predicate {
+	if len(matchers) == 0 {
+		return nil
+	}
 	o := make([]Predicate, 0, len(matchers))
 	for _, m := range matchers {
 		switch m.Type {
@@ -49,8 +57,7 @@ func Matchers(field constants.ID, matchers ...*labels.Matcher) Predicate {
 			)
 		}
 	}
-	o = Optimize(o, true)
-	return And(o)
+	return o
 }
 
 func NewLabels(field constants.ID, matches ...*labels.Matcher) *Labels {

@@ -5,6 +5,7 @@ import (
 	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
+	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rows"
@@ -230,4 +231,24 @@ func (f Or) Extract(ctx *Context) (*roaring64.Bitmap, error) {
 		r.Or(x)
 	}
 	return r, nil
+}
+
+type Between struct {
+	Field      constants.ID
+	Start, End uint64
+}
+
+var _ Predicate = (*Between)(nil)
+
+func (f *Between) Index() int {
+	return int(f.Field)
+}
+
+func (f *Between) Extract(_ *Context) (*roaring64.Bitmap, error) {
+	return roaring64.New(), nil
+}
+
+func (f *Between) Apply(ctx *Context) (*rows.Row, error) {
+	fx := fields.New(f.Field, ctx.Shard, ctx.View)
+	return fx.Between(ctx.Tx, f.Start, f.End)
 }

@@ -66,7 +66,7 @@ func (f *Fragment) Shards(tx *rbf.Tx) ([]uint64, error) {
 }
 
 func (f *Fragment) Labels(tx *rbf.Tx, tr blob.Tr, column uint64) (labels.Labels, error) {
-	rows, err := f.ReadSetValue(tx, column)
+	rows, err := f.Rows(tx, 0, roaring.NewBitmapColumnFilter(column))
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +75,7 @@ func (f *Fragment) Labels(tx *rbf.Tx, tr blob.Tr, column uint64) (labels.Labels,
 	}
 	o := make(labels.Labels, 0, len(rows))
 	for i := range rows {
-		val := tr(constants.MetricsLabels, rows[i])
+		val := tr(f.ID, rows[i])
 		key, value, _ := bytes.Cut(val, eql)
 		o = append(o, labels.Label{
 			Name:  string(key),
@@ -128,8 +128,8 @@ func (f *Fragment) NotEqBSI(tx *rbf.Tx, value uint64) (*rows.Row, error) {
 	return f.rangeNEQ(tx, value)
 }
 
-func (f *Fragment) EqBSI(tx *rbf.Tx, value uint64) (*rows.Row, error) {
-	return f.rangeEQ(tx, value)
+func (f *Fragment) EqBSI(tx *rbf.Tx, value uint64, filter ...*rows.Row) (*rows.Row, error) {
+	return f.rangeEQ(tx, value, filter...)
 }
 
 func (f *Fragment) False(tx *rbf.Tx) (*rows.Row, error) {
@@ -256,11 +256,14 @@ func (f *Fragment) Rows(tx *rbf.Tx, start uint64, filters ...roaring.BitmapFilte
 	return b.ToArray(), nil
 }
 
-func (f *Fragment) rangeEQ(tx *rbf.Tx, predicate uint64) (*rows.Row, error) {
+func (f *Fragment) rangeEQ(tx *rbf.Tx, predicate uint64, filter ...*rows.Row) (*rows.Row, error) {
 	// Start with set of columns with values set.
 	b, err := f.Row(tx, bsiExistsBit)
 	if err != nil {
 		return nil, err
+	}
+	if len(filter) > 0 {
+		b = b.Intersect(filter[0])
 	}
 	bitDepth := bits.Len64(predicate)
 	// Filter any bits that don't match the current bit value.
