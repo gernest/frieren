@@ -12,7 +12,6 @@ const (
 	blobSeq
 	blobID
 	blobHash
-	fstBitmap
 	fst
 	metadata
 	fieldView
@@ -33,12 +32,6 @@ func BlobID(b *bytes.Buffer, field constants.ID, id uint64, view string) []byte 
 func BlobHash(b *bytes.Buffer, field constants.ID, hash uint64, view string) []byte {
 	b.Reset()
 	fmt.Fprintf(b, "%s:%d:%d:%d", view, blobHash, field, hash)
-	return b.Bytes()
-}
-
-func FSTBitmap(b *bytes.Buffer, field constants.ID, shard uint64, view string) []byte {
-	b.Reset()
-	fmt.Fprintf(b, "%s:%d:%d:%d", view, fstBitmap, field, shard)
 	return b.Bytes()
 }
 
