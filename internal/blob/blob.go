@@ -19,6 +19,10 @@ type Find func(id constants.ID, value []byte) (uint64, bool)
 
 type Tr func(id constants.ID, key uint64) []byte
 
+// TrCall is like tr but calls f with the value. f must copy the value if it
+// wants to access it outside TrCall context
+type TrCall func(id constants.ID, key uint64, fn func([]byte) error) error
+
 var emptyKey = []byte{
 	0x00, 0x00, 0x00,
 	0x4d, 0x54, 0x4d, 0x54, // MTMT
@@ -178,6 +182,28 @@ func Translate(txn *badger.Txn, store *store.Store, view string) Tr {
 		store.ValueCache.Set(viewBlobHash, data, int64(len(data)))
 		store.ValueCache.Set(caSum, data, int64(len(data)))
 		return data
+	}
+}
+
+func TranslateCall(txn *badger.Txn, view string) TrCall {
+	b := new(bytes.Buffer)
+	return func(field constants.ID, u uint64, f func([]byte) error) error {
+		viewBlobKey := keys.BlobID(b, field, u, view)
+		it, err := txn.Get(viewBlobKey)
+		if err != nil {
+			util.Exit("BUG: reading translated blob key id", "key", b.String(), "err", err)
+		}
+		var caHash uint64
+		it.Value(func(val []byte) error {
+			caHash = encoding.Uint64(val)
+			return nil
+		})
+		caBlobKey := keys.BlobHash(b, field, caHash, "")
+		it, err = txn.Get(caBlobKey)
+		if err != nil {
+			util.Exit("BUG: reading translated blob data", "key", b.String(), "err", err)
+		}
+		return it.Value(f)
 	}
 }
 

@@ -11,12 +11,13 @@ import (
 )
 
 type Context struct {
-	Shard uint64
-	View  string
-	Tx    *rbf.Tx
-	Txn   *badger.Txn
-	Find  blob.Find
-	Tr    blob.Tr
+	Shard  uint64
+	View   string
+	Tx     *rbf.Tx
+	Txn    *badger.Txn
+	Find   blob.Find
+	Tr     blob.Tr
+	TrCall blob.TrCall
 }
 
 type Predicate interface {
