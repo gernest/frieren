@@ -165,3 +165,19 @@ func (q *Query) FindTraceByID(ctx context.Context, req *tempopb.TraceByIDRequest
 	}
 	return result, nil
 }
+
+var _ traceql.SpansetFetcher = (*Query)(nil)
+
+func (q *Query) Fetch(ctx context.Context, req traceql.FetchSpansRequest) (traceql.FetchSpansResponse, error) {
+	return traceql.FetchSpansResponse{}, nil
+}
+
+type QueryValues struct {
+	db *store.Store
+}
+
+var _ traceql.TagValuesFetcher = (*QueryValues)(nil)
+
+func (q *QueryValues) Fetch(ctx context.Context, req traceql.FetchTagValuesRequest, cb traceql.FetchTagValuesCallback) error {
+	return nil
+}
