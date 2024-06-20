@@ -192,6 +192,17 @@ type fstOptions struct {
 func always(_ []byte) bool { return true }
 
 func (s *Strings) applyFST(ctx *Context, fp fstPredicate) (*rows.Row, error) {
+	o, err := s.matchFST(ctx, fp)
+	if err != nil {
+		return nil, err
+	}
+	if o.IsEmpty() {
+		return rows.NewRow(), nil
+	}
+	return s.apply(ctx, o.ToArray())
+}
+
+func (s *Strings) matchFST(ctx *Context, fp fstPredicate) (*roaring64.Bitmap, error) {
 	field := s.Predicates[0].field
 	b := new(bytes.Buffer)
 	key := keys.FST(b, field, ctx.Shard, ctx.View)
@@ -231,10 +242,7 @@ func (s *Strings) applyFST(ctx *Context, fp fstPredicate) (*rows.Row, error) {
 	if err != nil {
 		return nil, err
 	}
-	if o.IsEmpty() {
-		return rows.NewRow(), nil
-	}
-	return s.apply(ctx, o.ToArray())
+	return o, nil
 }
 
 func (s *Strings) NEQ(ctx *Context) (*rows.Row, error) {
