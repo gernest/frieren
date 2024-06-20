@@ -5,6 +5,7 @@ import (
 	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
+	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rows"
 	"github.com/grafana/tempo/pkg/traceql"
@@ -18,6 +19,18 @@ type Context struct {
 	Find   blob.Find
 	Tr     blob.Tr
 	TrCall blob.TrCall
+}
+
+func NewContext(shard uint64, view string, db *store.Store, tx *rbf.Tx, txn *badger.Txn) *Context {
+	return &Context{
+		Shard:  shard,
+		View:   view,
+		Tx:     tx,
+		Txn:    txn,
+		Find:   blob.Finder(txn, db, view),
+		Tr:     blob.Translate(txn, db, view),
+		TrCall: blob.TranslateCall(txn, db, view),
+	}
 }
 
 type Predicate interface {

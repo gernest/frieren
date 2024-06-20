@@ -185,10 +185,15 @@ func Translate(txn *badger.Txn, store *store.Store, view string) Tr {
 	}
 }
 
-func TranslateCall(txn *badger.Txn, view string) TrCall {
+func TranslateCall(txn *badger.Txn, store *store.Store, view string) TrCall {
 	b := new(bytes.Buffer)
+	h := Hash{}
 	return func(field constants.ID, u uint64, f func([]byte) error) error {
 		viewBlobKey := keys.BlobID(b, field, u, view)
+		viewBlobHash := h.Sum(viewBlobKey)
+		if v, ok := store.ValueCache.Get(viewBlobHash); ok {
+			return f(v.([]byte))
+		}
 		it, err := txn.Get(viewBlobKey)
 		if err != nil {
 			util.Exit("BUG: reading translated blob key id", "key", b.String(), "err", err)
@@ -199,6 +204,10 @@ func TranslateCall(txn *badger.Txn, view string) TrCall {
 			return nil
 		})
 		caBlobKey := keys.BlobHash(b, field, caHash, "")
+		caSum := h.Sum(caBlobKey)
+		if v, ok := store.ValueCache.Get(caSum); ok {
+			return f(v.([]byte))
+		}
 		it, err = txn.Get(caBlobKey)
 		if err != nil {
 			util.Exit("BUG: reading translated blob data", "key", b.String(), "err", err)
