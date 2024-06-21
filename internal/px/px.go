@@ -29,7 +29,7 @@ func (x *Ctx) ToArray() []uint64 {
 }
 
 func (x *Ctx) Bitmap() *roaring64.Bitmap {
-	return x.o.Clone()
+	return &x.o
 }
 
 func New(id constants.ID, tr blob.Func) *Ctx {
@@ -50,6 +50,10 @@ func (x *Ctx) Attr(prefix string) func(key string, value pcommon.Value) bool {
 func (x *Ctx) SetAttribute(key string, value pcommon.Value) bool {
 	x.Set(key, value.AsString())
 	return true
+}
+
+func (x *Ctx) Add(id uint64) {
+	x.o.Add(id)
 }
 
 func (x *Ctx) Set(key, value string) uint64 {

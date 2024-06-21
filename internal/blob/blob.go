@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 
+	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/constants"
@@ -217,11 +218,18 @@ func TranslateCall(txn *badger.Txn, store *store.Store, view string) TrCall {
 }
 
 type Hash struct {
-	h xxhash.Digest
+	xxhash.Digest
+}
+
+func (h *Hash) Bitmap(b *roaring64.Bitmap) uint64 {
+	h.Reset()
+	b.RunOptimize()
+	b.WriteTo(h)
+	return h.Sum64()
 }
 
 func (h *Hash) Sum(b []byte) uint64 {
-	h.h.Reset()
-	h.h.Write(b)
-	return h.h.Sum64()
+	h.Reset()
+	h.Write(b)
+	return h.Sum64()
 }
