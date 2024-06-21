@@ -2,17 +2,15 @@ package metrics
 
 import (
 	"context"
-	"crypto/sha512"
-	"math"
 	"time"
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/batch"
 	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
+	"github.com/gernest/frieren/internal/metrics/metricsproto"
 	"github.com/gernest/frieren/internal/shardwidth"
 	"github.com/gernest/frieren/internal/store"
-	"github.com/gernest/frieren/internal/util"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/quantum"
 	"github.com/prometheus/prometheus/prompb"
@@ -26,38 +24,22 @@ func Append(ctx context.Context, store *store.Store, mets pmetric.Metrics, ts ti
 	view := quantum.ViewByTimeUnit("", ts, 'D')
 	return batch.Append(ctx, constants.METRICS, store, view,
 		func(txn *badger.Txn, _ *rbf.Tx, bx *batch.Batch) error {
-			series, err := prometheusremotewrite.FromMetrics(mets, prometheusremotewrite.Settings{
-				AddMetricSuffixes: true,
-			})
-			if err != nil {
-				return err
-			}
 			seq := store.Seq.Sequence(view)
 			defer seq.Release()
 
-			blob := blob.Upsert(txn, store, seq, view)
-			label := UpsertLabels(blob)
+			ms := metricsproto.From(mets, blob.Upsert(txn, store, seq, view))
 
-			for _, s := range series {
-				appendBatch(bx, s, label, blob, seq)
+			for _, s := range ms {
+				appendBatch(bx, s, seq)
 			}
 			meta := prometheusremotewrite.OtelMetricsToMetadata(mets, true)
 			return StoreMetadata(txn, meta)
 		})
 }
 
-func appendBatch(b *batch.Batch, ts *prompb.TimeSeries, labelFunc LabelFunc, blobFunc blob.Func, seq *store.Sequence) {
-	labels := labelFunc(ts.Labels)
-	checksum := sha512.Sum512(util.Uint64ToBytes(labels))
-	series := blobFunc(constants.MetricsSeries, checksum[:])
-
+func appendBatch(b *batch.Batch, series *metricsproto.Series, seq *store.Sequence) {
 	currentShard := ^uint64(0)
-	var exemplars uint64
-	if len(ts.Exemplars) > 0 {
-		data, _ := EncodeExemplars(ts.Exemplars)
-		exemplars = blobFunc(constants.MetricsExemplars, data)
-	}
-	for _, s := range ts.Samples {
+	for i := range series.Values {
 		id := seq.NextID(constants.MetricsRow)
 		b.Rows++
 		shard := id / shardwidth.ShardWidth
@@ -65,19 +47,15 @@ func appendBatch(b *batch.Batch, ts *prompb.TimeSeries, labelFunc LabelFunc, blo
 			currentShard = shard
 			b.Shard(shard)
 		}
-		b.BSI(constants.MetricsSeries, shard, id, series)
-		b.BSI(constants.MetricsTimestamp, shard, id, uint64(s.Timestamp))
-		value := math.Float64bits(s.Value)
-		b.BSI(constants.MetricsValue, shard, id, value)
-		b.Set(constants.MetricsLabels, shard, id, labels)
-		if len(ts.Exemplars) > 0 {
-			b.BSI(constants.MetricsExemplars, shard, id, exemplars)
-		}
+		b.BSI(constants.MetricsSeries, shard, id, series.ID)
+		b.BSI(constants.MetricsTimestamp, shard, id, series.Timestamp[i])
+		b.BSI(constants.MetricsValue, shard, id, series.Values[i])
+		b.Set(constants.MetricsLabels, shard, id, series.Labels)
+		b.Set(constants.MetricsExemplars, shard, id, series.Exemplars)
 	}
 	currentShard = ^uint64(0)
 
-	for j := range ts.Histograms {
-		s := &ts.Histograms[j]
+	for i := range series.Histograms {
 		id := seq.NextID(constants.MetricsRow)
 		b.Rows++
 		shard := id / shardwidth.ShardWidth
@@ -85,15 +63,11 @@ func appendBatch(b *batch.Batch, ts *prompb.TimeSeries, labelFunc LabelFunc, blo
 			currentShard = shard
 			b.Shard(shard)
 		}
-		data, _ := s.Marshal()
-		value := blobFunc(constants.MetricsHistogram, data)
-		b.BSI(constants.MetricsSeries, shard, id, series)
-		b.BSI(constants.MetricsTimestamp, shard, id, uint64(s.Timestamp))
-		b.BSI(constants.MetricsValue, shard, id, value)
-		b.Set(constants.MetricsLabels, shard, id, labels)
+		b.BSI(constants.MetricsSeries, shard, id, series.ID)
+		b.BSI(constants.MetricsTimestamp, shard, id, series.HistogramTS[i])
+		b.BSI(constants.MetricsValue, shard, id, series.Histograms[i])
+		b.Set(constants.MetricsLabels, shard, id, series.Labels)
 		b.Bool(constants.MetricsHistogram, shard, id, true)
-		if len(ts.Exemplars) > 0 {
-			b.BSI(constants.MetricsExemplars, shard, id, exemplars)
-		}
+		b.Set(constants.MetricsExemplars, shard, id, series.Exemplars)
 	}
 }

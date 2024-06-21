@@ -99,7 +99,7 @@ func From(md pmetric.Metrics, tr blob.Func) SeriesMap {
 			scope.Attributes().Range(scopeCtx.SetProm)
 			for k := 0; k < metrics.Len(); k++ {
 				metric := metrics.At(k)
-				name := prometheustranslator.BuildCompliantName(metric, "", false)
+				name := prometheustranslator.BuildCompliantName(metric, "", true)
 				switch metric.Type() {
 				case pmetric.MetricTypeGauge:
 					dataPoints := metric.Gauge().DataPoints()

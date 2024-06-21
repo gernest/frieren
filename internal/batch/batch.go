@@ -162,6 +162,9 @@ func (b *Batch) Bool(field constants.ID, shard, id uint64, value bool) {
 }
 
 func (b *Batch) Set(field constants.ID, shard, id uint64, value []uint64) {
+	if len(value) == 0 {
+		return
+	}
 	ro.Set(b.bitmap(field, shard), b.existence(field, shard), id, value)
 }
 
