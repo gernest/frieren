@@ -28,6 +28,7 @@ func Append(ctx context.Context, store *store.Store, mets pmetric.Metrics, ts ti
 			defer seq.Release()
 
 			ms := metricsproto.From(mets, blob.Upsert(txn, store, seq, view))
+			defer ms.Release()
 
 			for _, s := range ms {
 				appendBatch(bx, s, seq)

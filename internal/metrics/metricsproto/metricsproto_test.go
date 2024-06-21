@@ -28,6 +28,7 @@ func TestFrom(t *testing.T) {
 
 	err = db.DB.Update(func(txn *badger.Txn) error {
 		m = From(Sample(), blob.Upsert(txn, db, sea, view))
+		defer m.Release()
 		return m.Serialize(o, blob.Translate(txn, db, view))
 	})
 	require.NoError(t, err)

@@ -7,9 +7,11 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 	"unicode/utf8"
 
+	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/metrics/metricsproto/prometheusremotewrite"
@@ -46,11 +48,18 @@ const (
 
 type SeriesMap map[uint64]*Series
 
+func (m SeriesMap) Release() {
+	for _, v := range m {
+		v.Release()
+	}
+	clear(m)
+}
+
 func (m SeriesMap) Get(a *px.Ctx, remove ...uint64) *Series {
 	id := a.ID(constants.MetricsSeries)
 	s, ok := m[id]
 	if !ok {
-		s = &Series{Labels: a.ToArray(), ID: id}
+		s = newSeries(id, a.Bitmap())
 		m[id] = s
 	}
 	a.Remove(remove...)
@@ -65,6 +74,35 @@ type Series struct {
 	Values      []uint64
 	Histograms  []uint64
 	HistogramTS []uint64
+}
+
+func newSeries(id uint64, b *roaring64.Bitmap) *Series {
+	return seriesPool.Get().(*Series).Reset(id, b)
+}
+
+var seriesPool = &sync.Pool{New: func() any { return new(Series) }}
+
+func (s *Series) Release() {
+	s.Reset(0, nil)
+	seriesPool.Put(s)
+}
+
+func (s *Series) Reset(id uint64, b *roaring64.Bitmap) *Series {
+	s.ID = id
+	s.Labels = s.Labels[:0]
+	s.Exemplars = s.Exemplars[:0]
+	s.Timestamp = s.Timestamp[:0]
+	s.Values = s.Values[:0]
+	s.Histograms = s.Histograms[:0]
+	s.HistogramTS = s.HistogramTS[:0]
+	if b != nil {
+		s.Labels = slices.Grow(s.Labels, int(b.GetCardinality()))
+		it := b.Iterator()
+		for it.HasNext() {
+			s.Labels = append(s.Labels, it.Next())
+		}
+	}
+	return s
 }
 
 func (s *Series) Add(ts int64, v float64, flags pmetric.DataPointFlags) {
@@ -187,7 +225,13 @@ func addSumNumberDataPoints(name string,
 		}
 		sample := series.Get(attr)
 		sample.Add(ts, value, point.Flags())
-		sample.Exemplars = append(sample.Exemplars, getPromExemplars(point, tr)...)
+		ex := point.Exemplars().Len()
+		if ex > 0 {
+			sample.Exemplars = slices.Grow(sample.Exemplars, ex)
+			getPromExemplars(point, tr, func(_ *prompb.Exemplar, u uint64) {
+				sample.Exemplars = append(sample.Exemplars, u)
+			})
+		}
 	}
 }
 
@@ -328,12 +372,8 @@ type exemplarType interface {
 	Exemplars() pmetric.ExemplarSlice
 }
 
-func getPromExemplars[T exemplarType](pt T, tr blob.Func, f ...func(*prompb.Exemplar, uint64)) []uint64 {
+func getPromExemplars[T exemplarType](pt T, tr blob.Func, f ...func(*prompb.Exemplar, uint64)) {
 	promExemplar := &prompb.Exemplar{}
-	var promExemplars []uint64
-	if len(f) == 0 {
-		promExemplars = make([]uint64, 0, pt.Exemplars().Len())
-	}
 	var buf []byte
 	for i := 0; i < pt.Exemplars().Len(); i++ {
 		exemplar := pt.Exemplars().At(i)
@@ -384,15 +424,11 @@ func getPromExemplars[T exemplarType](pt T, tr blob.Func, f ...func(*prompb.Exem
 		size := promExemplar.Size()
 		buf = slices.Grow(buf, size)[:size]
 		promExemplar.MarshalToSizedBuffer(buf)
-		v := tr(constants.MetricsExemplars, buf)
+		v := tr(constants.MetricsExemplars, bytes.Clone(buf))
 		if len(f) > 0 {
 			f[0](promExemplar, v)
-		} else {
-			promExemplars = append(promExemplars, v)
 		}
 	}
-
-	return promExemplars
 }
 
 func convertTimeStamp(timestamp pcommon.Timestamp) int64 {
