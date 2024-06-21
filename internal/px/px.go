@@ -2,6 +2,7 @@ package px
 
 import (
 	"bytes"
+	"crypto/sha512"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/gernest/frieren/internal/blob"
@@ -16,6 +17,14 @@ type Ctx struct {
 	id  constants.ID
 }
 
+func (x *Ctx) ID(field constants.ID) uint64 {
+	x.buf.Reset()
+	x.o.RunOptimize()
+	x.o.WriteTo(&x.buf)
+	sum := sha512.Sum512(x.buf.Bytes())
+	return x.tr(field, sum[:])
+}
+
 func (x *Ctx) Tr(k []byte) uint64 {
 	return x.tr(x.id, k)
 }
@@ -27,13 +36,18 @@ func (x *Ctx) Or(o *Ctx) {
 func (x *Ctx) ToArray() []uint64 {
 	return x.o.ToArray()
 }
+func (x *Ctx) Remove(values ...uint64) {
+	for i := range values {
+		x.o.Remove(values[i])
+	}
+}
 
 func (x *Ctx) Bitmap() *roaring64.Bitmap {
 	return &x.o
 }
 
 func New(id constants.ID, tr blob.Func) *Ctx {
-	return &Ctx{}
+	return &Ctx{id: id, tr: tr}
 }
 
 func (x *Ctx) Reset() {
@@ -61,7 +75,7 @@ func (x *Ctx) Set(key, value string) uint64 {
 	x.buf.WriteString(key)
 	x.buf.WriteByte('=')
 	x.buf.WriteString(value)
-	id := x.tr(x.id, x.buf.Bytes())
+	id := x.tr(x.id, bytes.Clone(x.buf.Bytes()))
 	x.o.Add(id)
 	return id
 }

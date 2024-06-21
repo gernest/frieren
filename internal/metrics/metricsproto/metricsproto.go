@@ -14,6 +14,7 @@ import (
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/metrics/metricsproto/prometheusremotewrite"
 	"github.com/gernest/frieren/internal/px"
+	"github.com/gernest/frieren/internal/util"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/timestamp"
 	"github.com/prometheus/prometheus/model/value"
@@ -45,17 +46,14 @@ const (
 
 type SeriesMap map[uint64]*Series
 
-func (m SeriesMap) Get(h *blob.Hash, a *px.Ctx, remove ...uint64) *Series {
-	b := a.Bitmap()
-	id := h.Bitmap(b)
+func (m SeriesMap) Get(a *px.Ctx, remove ...uint64) *Series {
+	id := a.ID(constants.MetricsSeries)
 	s, ok := m[id]
 	if !ok {
-		s = &Series{Labels: b.ToArray()}
+		s = &Series{Labels: a.ToArray()}
 		m[id] = s
 	}
-	for i := range remove {
-		b.Remove(remove[i])
-	}
+	a.Remove(remove...)
 	return s
 }
 
@@ -77,13 +75,12 @@ func (s *Series) Add(ts int64, v float64, flags pmetric.DataPointFlags) {
 	}
 }
 
-func FromLogs(md pmetric.Metrics, tr blob.Func) SeriesMap {
+func From(md pmetric.Metrics, tr blob.Func) SeriesMap {
 	if md.DataPointCount() == 0 {
 		return nil
 	}
 	rm := md.ResourceMetrics()
 	series := make(SeriesMap)
-	hash := new(blob.Hash)
 	rsCtx := px.New(constants.MetricsLabels, tr)
 	scopeCtx := px.New(constants.MetricsLabels, tr)
 	attrCtx := px.New(constants.MetricsLabels, tr)
@@ -108,31 +105,31 @@ func FromLogs(md pmetric.Metrics, tr blob.Func) SeriesMap {
 					if dataPoints.Len() == 0 {
 						break
 					}
-					addGaugeNumberDataPoints(name, dataPoints, rsCtx, scopeCtx, attrCtx, series, hash)
+					addGaugeNumberDataPoints(name, dataPoints, rsCtx, scopeCtx, attrCtx, series)
 				case pmetric.MetricTypeSum:
 					dataPoints := metric.Sum().DataPoints()
 					if dataPoints.Len() == 0 {
 						break
 					}
-					addSumNumberDataPoints(name, tr, dataPoints, rsCtx, scopeCtx, attrCtx, series, hash)
+					addSumNumberDataPoints(name, tr, dataPoints, rsCtx, scopeCtx, attrCtx, series)
 				case pmetric.MetricTypeHistogram:
 					dataPoints := metric.Histogram().DataPoints()
 					if dataPoints.Len() == 0 {
 						break
 					}
-					addHistogramDataPoints(name, tr, dataPoints, rsCtx, scopeCtx, attrCtx, series, hash)
+					addHistogramDataPoints(name, tr, dataPoints, rsCtx, scopeCtx, attrCtx, series)
 				case pmetric.MetricTypeExponentialHistogram:
 					dataPoints := metric.ExponentialHistogram().DataPoints()
 					if dataPoints.Len() == 0 {
 						break
 					}
-					addExponentialHistogramDataPoints(name, tr, dataPoints, rsCtx, scopeCtx, attrCtx, series, hash)
+					addExponentialHistogramDataPoints(name, tr, dataPoints, rsCtx, scopeCtx, attrCtx, series)
 				case pmetric.MetricTypeSummary:
 					dataPoints := metric.Summary().DataPoints()
 					if dataPoints.Len() == 0 {
 						break
 					}
-					addSummaryDataPoints(name, dataPoints, rsCtx, scopeCtx, attrCtx, series, hash)
+					addSummaryDataPoints(name, dataPoints, rsCtx, scopeCtx, attrCtx, series)
 				default:
 				}
 
@@ -145,7 +142,7 @@ func FromLogs(md pmetric.Metrics, tr blob.Func) SeriesMap {
 
 func addGaugeNumberDataPoints(name string,
 	data pmetric.NumberDataPointSlice,
-	resource, scope, attr *px.Ctx, series SeriesMap, hash *blob.Hash) {
+	resource, scope, attr *px.Ctx, series SeriesMap) {
 	nameID := attr.Set(model.MetricNameLabel, name)
 	for x := 0; x < data.Len(); x++ {
 		point := data.At(x)
@@ -162,7 +159,7 @@ func addGaugeNumberDataPoints(name string,
 		case pmetric.NumberDataPointValueTypeDouble:
 			value = point.DoubleValue()
 		}
-		sample := series.Get(hash, attr)
+		sample := series.Get(attr)
 		sample.Add(ts, value, point.Flags())
 	}
 }
@@ -170,7 +167,7 @@ func addGaugeNumberDataPoints(name string,
 func addSumNumberDataPoints(name string,
 	tr blob.Func,
 	data pmetric.NumberDataPointSlice,
-	resource, scope, attr *px.Ctx, series SeriesMap, hash *blob.Hash) {
+	resource, scope, attr *px.Ctx, series SeriesMap) {
 	nameID := attr.Set(model.MetricNameLabel, name)
 	for x := 0; x < data.Len(); x++ {
 		point := data.At(x)
@@ -187,7 +184,7 @@ func addSumNumberDataPoints(name string,
 		case pmetric.NumberDataPointValueTypeDouble:
 			value = point.DoubleValue()
 		}
-		sample := series.Get(hash, attr)
+		sample := series.Get(attr)
 		sample.Add(ts, value, point.Flags())
 		sample.Exemplars = append(sample.Exemplars, getPromExemplars(point, tr)...)
 	}
@@ -196,7 +193,7 @@ func addSumNumberDataPoints(name string,
 func addHistogramDataPoints(name string,
 	tr blob.Func,
 	data pmetric.HistogramDataPointSlice,
-	resource, scope, attr *px.Ctx, series SeriesMap, hash *blob.Hash) {
+	resource, scope, attr *px.Ctx, series SeriesMap) {
 	sumID := attr.Set(model.MetricNameLabel, name+sumStr)
 	countID := attr.Set(model.MetricNameLabel, name+countStr)
 	bucketID := attr.Set(model.MetricNameLabel, name+bucketStr)
@@ -210,11 +207,11 @@ func addHistogramDataPoints(name string,
 		ts := convertTimeStamp(point.Timestamp())
 		if point.HasSum() {
 			attr.Add(sumID)
-			sample := series.Get(hash, attr, sumID)
+			sample := series.Get(attr, sumID)
 			sample.Add(ts, point.Sum(), point.Flags())
 		}
 		attr.Add(countID)
-		sample := series.Get(hash, attr, countID)
+		sample := series.Get(attr, countID)
 		sample.Add(ts, float64(point.Count()), point.Flags())
 
 		// cumulative count for conversion to cumulative histogram
@@ -230,7 +227,7 @@ func addHistogramDataPoints(name string,
 			boundStr := strconv.FormatFloat(bound, 'f', -1, 64)
 			leID := attr.Set(leStr, boundStr)
 
-			bs := series.Get(hash, attr, bucketID, leID)
+			bs := series.Get(attr, bucketID, leID)
 			bs.Add(ts, float64(cumulativeCount), point.Flags())
 
 			bucketBounds = append(bucketBounds, bucketBoundsData{ts: bs, bound: bound})
@@ -238,7 +235,7 @@ func addHistogramDataPoints(name string,
 
 		attr.Add(bucketID)
 		attr.Set(leStr, pInfStr)
-		is := series.Get(hash, attr)
+		is := series.Get(attr)
 		is.Add(ts, float64(point.Count()), point.Flags())
 
 		bucketBounds = append(bucketBounds, bucketBoundsData{ts: is, bound: math.Inf(1)})
@@ -269,7 +266,7 @@ func (m byBucketBoundsData) Swap(i, j int)      { m[i], m[j] = m[j], m[i] }
 func addExponentialHistogramDataPoints(name string,
 	tr blob.Func,
 	data pmetric.ExponentialHistogramDataPointSlice,
-	resource, scope, attr *px.Ctx, series SeriesMap, hash *blob.Hash) error {
+	resource, scope, attr *px.Ctx, series SeriesMap) error {
 	nameID := attr.Set(model.MetricNameLabel, name)
 	var buf []byte
 	for x := 0; x < data.Len(); x++ {
@@ -288,7 +285,7 @@ func addExponentialHistogramDataPoints(name string,
 		hs.MarshalToSizedBuffer(buf)
 		id := tr(constants.MetricsHistogram, bytes.Clone(buf))
 
-		sample := series.Get(hash, attr)
+		sample := series.Get(attr)
 		sample.Histograms = append(sample.Histograms, id)
 		sample.HistogramTS = append(sample.HistogramTS, uint64(hs.Timestamp))
 	}
@@ -297,7 +294,7 @@ func addExponentialHistogramDataPoints(name string,
 
 func addSummaryDataPoints(name string,
 	data pmetric.SummaryDataPointSlice,
-	resource, scope, attr *px.Ctx, series SeriesMap, hash *blob.Hash) {
+	resource, scope, attr *px.Ctx, series SeriesMap) {
 	sumID := attr.Set(model.MetricNameLabel, name+sumStr)
 	countID := attr.Set(model.MetricNameLabel, name+countStr)
 	for x := 0; x < data.Len(); x++ {
@@ -308,18 +305,18 @@ func addSummaryDataPoints(name string,
 		point.Attributes().Range(attr.SetProm)
 		ts := convertTimeStamp(point.Timestamp())
 
-		ss := series.Get(hash, attr, sumID)
+		ss := series.Get(attr, sumID)
 		ss.Add(ts, point.Sum(), point.Flags())
 
 		attr.Add(countID)
-		sc := series.Get(hash, attr, countID)
+		sc := series.Get(attr, countID)
 		sc.Add(ts, float64(point.Count()), point.Flags())
 
 		for i := 0; i < point.QuantileValues().Len(); i++ {
 			qt := point.QuantileValues().At(i)
 			percentileStr := strconv.FormatFloat(qt.Quantile(), 'f', -1, 64)
 			pid := attr.Set(quantileStr, percentileStr)
-			ps := series.Get(hash, attr, pid)
+			ps := series.Get(attr, pid)
 			ps.Add(ts, qt.Value(), point.Flags())
 		}
 	}
@@ -399,4 +396,83 @@ func getPromExemplars[T exemplarType](pt T, tr blob.Func, f ...func(*prompb.Exem
 
 func convertTimeStamp(timestamp pcommon.Timestamp) int64 {
 	return timestamp.AsTime().UnixNano() / (int64(time.Millisecond) / int64(time.Nanosecond))
+}
+
+func Sample() pmetric.Metrics {
+	d := pmetric.NewMetrics()
+
+	// Generate One Counter, One Gauge, One Histogram, One Exponential-Histogram
+	// with resource attributes: service.name="test-service", service.instance.id="test-instance", host.name="test-host"
+	// with metric attribute: foo.bar="baz"
+
+	timestamp := util.TS()
+
+	resourceMetric := d.ResourceMetrics().AppendEmpty()
+	resourceMetric.Resource().Attributes().PutStr("service.name", "test-service")
+	resourceMetric.Resource().Attributes().PutStr("service.instance.id", "test-instance")
+	resourceMetric.Resource().Attributes().PutStr("host.name", "test-host")
+
+	scopeMetric := resourceMetric.ScopeMetrics().AppendEmpty()
+
+	// Generate One Counter
+	counterMetric := scopeMetric.Metrics().AppendEmpty()
+	counterMetric.SetName("test-counter")
+	counterMetric.SetDescription("test-counter-description")
+	counterMetric.SetEmptySum()
+	counterMetric.Sum().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+	counterMetric.Sum().SetIsMonotonic(true)
+
+	counterDataPoint := counterMetric.Sum().DataPoints().AppendEmpty()
+	counterDataPoint.SetTimestamp(pcommon.NewTimestampFromTime(timestamp))
+	counterDataPoint.SetDoubleValue(10.0)
+	counterDataPoint.Attributes().PutStr("foo.bar", "baz")
+
+	counterExemplar := counterDataPoint.Exemplars().AppendEmpty()
+	counterExemplar.SetTimestamp(pcommon.NewTimestampFromTime(timestamp))
+	counterExemplar.SetDoubleValue(10.0)
+	counterExemplar.SetSpanID(pcommon.SpanID{0, 1, 2, 3, 4, 5, 6, 7})
+	counterExemplar.SetTraceID(pcommon.TraceID{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15})
+
+	// Generate One Gauge
+	gaugeMetric := scopeMetric.Metrics().AppendEmpty()
+	gaugeMetric.SetName("test-gauge")
+	gaugeMetric.SetDescription("test-gauge-description")
+	gaugeMetric.SetEmptyGauge()
+
+	gaugeDataPoint := gaugeMetric.Gauge().DataPoints().AppendEmpty()
+	gaugeDataPoint.SetTimestamp(pcommon.NewTimestampFromTime(timestamp))
+	gaugeDataPoint.SetDoubleValue(10.0)
+	gaugeDataPoint.Attributes().PutStr("foo.bar", "baz")
+
+	// Generate One Histogram
+	histogramMetric := scopeMetric.Metrics().AppendEmpty()
+	histogramMetric.SetName("test-histogram")
+	histogramMetric.SetDescription("test-histogram-description")
+	histogramMetric.SetEmptyHistogram()
+	histogramMetric.Histogram().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+
+	histogramDataPoint := histogramMetric.Histogram().DataPoints().AppendEmpty()
+	histogramDataPoint.SetTimestamp(pcommon.NewTimestampFromTime(timestamp))
+	histogramDataPoint.ExplicitBounds().FromRaw([]float64{0.0, 1.0, 2.0, 3.0, 4.0, 5.0})
+	histogramDataPoint.BucketCounts().FromRaw([]uint64{2, 2, 2, 2, 2, 2})
+	histogramDataPoint.SetCount(10)
+	histogramDataPoint.SetSum(30.0)
+	histogramDataPoint.Attributes().PutStr("foo.bar", "baz")
+
+	// Generate One Exponential-Histogram
+	exponentialHistogramMetric := scopeMetric.Metrics().AppendEmpty()
+	exponentialHistogramMetric.SetName("test-exponential-histogram")
+	exponentialHistogramMetric.SetDescription("test-exponential-histogram-description")
+	exponentialHistogramMetric.SetEmptyExponentialHistogram()
+	exponentialHistogramMetric.ExponentialHistogram().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+
+	exponentialHistogramDataPoint := exponentialHistogramMetric.ExponentialHistogram().DataPoints().AppendEmpty()
+	exponentialHistogramDataPoint.SetTimestamp(pcommon.NewTimestampFromTime(timestamp))
+	exponentialHistogramDataPoint.SetScale(2.0)
+	exponentialHistogramDataPoint.Positive().BucketCounts().FromRaw([]uint64{2, 2, 2, 2, 2})
+	exponentialHistogramDataPoint.SetZeroCount(2)
+	exponentialHistogramDataPoint.SetCount(10)
+	exponentialHistogramDataPoint.SetSum(30.0)
+	exponentialHistogramDataPoint.Attributes().PutStr("foo.bar", "baz")
+	return d
 }
