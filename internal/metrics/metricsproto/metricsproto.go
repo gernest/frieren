@@ -23,6 +23,42 @@ import (
 	"go.opentelemetry.io/collector/pdata/pmetric"
 )
 
+const (
+	sumStr        = "_sum"
+	countStr      = "_count"
+	bucketStr     = "_bucket"
+	leStr         = "le"
+	quantileStr   = "quantile"
+	pInfStr       = "+Inf"
+	createdSuffix = "_created"
+	// maxExemplarRunes is the maximum number of UTF-8 exemplar characters
+	// according to the prometheus specification
+	// https://github.com/OpenObservability/OpenMetrics/blob/main/specification/OpenMetrics.md#exemplars
+	maxExemplarRunes = 128
+	// Trace and Span id keys are defined as part of the spec:
+	// https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification%2Fmetrics%2Fdatamodel.md#exemplars-2
+	traceIDKey       = "trace_id"
+	spanIDKey        = "span_id"
+	infoType         = "info"
+	targetMetricName = "target_info"
+)
+
+type SeriesMap map[uint64]*Series
+
+func (m SeriesMap) Get(h *blob.Hash, a *px.Ctx, remove ...uint64) *Series {
+	b := a.Bitmap()
+	id := h.Bitmap(b)
+	s, ok := m[id]
+	if !ok {
+		s = &Series{Labels: b.ToArray()}
+		m[id] = s
+	}
+	for i := range remove {
+		b.Remove(remove[i])
+	}
+	return s
+}
+
 type Series struct {
 	Labels      []uint64
 	Exemplars   []uint64
@@ -41,12 +77,12 @@ func (s *Series) Add(ts int64, v float64, flags pmetric.DataPointFlags) {
 	}
 }
 
-func FromLogs(md pmetric.Metrics, tr blob.Func) map[uint64]*Series {
+func FromLogs(md pmetric.Metrics, tr blob.Func) SeriesMap {
 	if md.DataPointCount() == 0 {
 		return nil
 	}
 	rm := md.ResourceMetrics()
-	series := make(map[uint64]*Series, rm.Len())
+	series := make(SeriesMap)
 	hash := new(blob.Hash)
 	rsCtx := px.New(constants.MetricsLabels, tr)
 	scopeCtx := px.New(constants.MetricsLabels, tr)
@@ -109,7 +145,7 @@ func FromLogs(md pmetric.Metrics, tr blob.Func) map[uint64]*Series {
 
 func addGaugeNumberDataPoints(name string,
 	data pmetric.NumberDataPointSlice,
-	resource, scope, attr *px.Ctx, series map[uint64]*Series, hash *blob.Hash) {
+	resource, scope, attr *px.Ctx, series SeriesMap, hash *blob.Hash) {
 	nameID := attr.Set(model.MetricNameLabel, name)
 	for x := 0; x < data.Len(); x++ {
 		point := data.At(x)
@@ -126,18 +162,7 @@ func addGaugeNumberDataPoints(name string,
 		case pmetric.NumberDataPointValueTypeDouble:
 			value = point.DoubleValue()
 		}
-		b := attr.Bitmap()
-		b.RunOptimize()
-		hash.Reset()
-		b.WriteTo(hash)
-		seriesID := hash.Sum64()
-		sample, ok := series[seriesID]
-		if !ok {
-			sample = &Series{
-				Labels: b.ToArray(),
-			}
-			series[seriesID] = sample
-		}
+		sample := series.Get(hash, attr)
 		sample.Add(ts, value, point.Flags())
 	}
 }
@@ -145,7 +170,7 @@ func addGaugeNumberDataPoints(name string,
 func addSumNumberDataPoints(name string,
 	tr blob.Func,
 	data pmetric.NumberDataPointSlice,
-	resource, scope, attr *px.Ctx, series map[uint64]*Series, hash *blob.Hash) {
+	resource, scope, attr *px.Ctx, series SeriesMap, hash *blob.Hash) {
 	nameID := attr.Set(model.MetricNameLabel, name)
 	for x := 0; x < data.Len(); x++ {
 		point := data.At(x)
@@ -162,18 +187,7 @@ func addSumNumberDataPoints(name string,
 		case pmetric.NumberDataPointValueTypeDouble:
 			value = point.DoubleValue()
 		}
-		b := attr.Bitmap()
-		b.RunOptimize()
-		hash.Reset()
-		b.WriteTo(hash)
-		seriesID := hash.Sum64()
-		sample, ok := series[seriesID]
-		if !ok {
-			sample = &Series{
-				Labels: b.ToArray(),
-			}
-			series[seriesID] = sample
-		}
+		sample := series.Get(hash, attr)
 		sample.Add(ts, value, point.Flags())
 		sample.Exemplars = append(sample.Exemplars, getPromExemplars(point, tr)...)
 	}
@@ -182,7 +196,7 @@ func addSumNumberDataPoints(name string,
 func addHistogramDataPoints(name string,
 	tr blob.Func,
 	data pmetric.HistogramDataPointSlice,
-	resource, scope, attr *px.Ctx, series map[uint64]*Series, hash *blob.Hash) {
+	resource, scope, attr *px.Ctx, series SeriesMap, hash *blob.Hash) {
 	sumID := attr.Set(model.MetricNameLabel, name+sumStr)
 	countID := attr.Set(model.MetricNameLabel, name+countStr)
 	bucketID := attr.Set(model.MetricNameLabel, name+bucketStr)
@@ -195,31 +209,12 @@ func addHistogramDataPoints(name string,
 		point.Attributes().Range(attr.SetProm)
 		ts := convertTimeStamp(point.Timestamp())
 		if point.HasSum() {
-			attr.Add(sumID)
-			b := attr.Bitmap()
-			seriesID := hash.Bitmap(b)
-			sample, ok := series[seriesID]
-			if !ok {
-				sample = &Series{Labels: b.ToArray()}
-				series[seriesID] = sample
-			}
+			sample := series.Get(hash, attr, sumID)
 			sample.Add(ts, point.Sum(), point.Flags())
-
-			// remove the sum label
-			b.Remove(sumID)
 		}
 		attr.Add(countID)
-		b := attr.Bitmap()
-		seriesID := hash.Bitmap(b)
-		sample, ok := series[seriesID]
-		if !ok {
-			sample = &Series{}
-			series[seriesID] = sample
-		}
+		sample := series.Get(hash, attr, countID)
 		sample.Add(ts, float64(point.Count()), point.Flags())
-
-		// remove count label
-		b.Remove(sumID)
 
 		// cumulative count for conversion to cumulative histogram
 		var cumulativeCount uint64
@@ -233,31 +228,18 @@ func addHistogramDataPoints(name string,
 			attr.Add(bucketID)
 			boundStr := strconv.FormatFloat(bound, 'f', -1, 64)
 			leID := attr.Set(leStr, boundStr)
-			b := attr.Bitmap()
-			seriesID := hash.Bitmap(b)
-			bs, ok := series[seriesID]
-			if !ok {
-				bs = &Series{Labels: b.ToArray()}
-				series[seriesID] = bs
-			}
+
+			bs := series.Get(hash, attr, bucketID, leID)
 			bs.Add(ts, float64(cumulativeCount), point.Flags())
 
 			bucketBounds = append(bucketBounds, bucketBoundsData{ts: bs, bound: bound})
-
-			b.Remove(bucketID)
-			b.Remove(leID)
 		}
 
 		attr.Add(bucketID)
 		attr.Set(leStr, pInfStr)
-		b = attr.Bitmap()
-		seriesID = hash.Bitmap(b)
-		is, ok := series[seriesID]
-		if !ok {
-			is = &Series{Labels: b.ToArray()}
-			series[sumID] = is
-		}
+		is := series.Get(hash, attr)
 		is.Add(ts, float64(point.Count()), point.Flags())
+
 		bucketBounds = append(bucketBounds, bucketBoundsData{ts: is, bound: math.Inf(1)})
 		sort.Sort(byBucketBoundsData(bucketBounds))
 		getPromExemplars(point, tr, func(e *prompb.Exemplar, u uint64) {
@@ -286,7 +268,7 @@ func (m byBucketBoundsData) Swap(i, j int)      { m[i], m[j] = m[j], m[i] }
 func addExponentialHistogramDataPoints(name string,
 	tr blob.Func,
 	data pmetric.ExponentialHistogramDataPointSlice,
-	resource, scope, attr *px.Ctx, series map[uint64]*Series, hash *blob.Hash) error {
+	resource, scope, attr *px.Ctx, series SeriesMap, hash *blob.Hash) error {
 	nameID := attr.Set(model.MetricNameLabel, name)
 	var buf []byte
 	for x := 0; x < data.Len(); x++ {
@@ -305,13 +287,7 @@ func addExponentialHistogramDataPoints(name string,
 		hs.MarshalToSizedBuffer(buf)
 		id := tr(constants.MetricsHistogram, bytes.Clone(buf))
 
-		b := attr.Bitmap()
-		seriesID := hash.Bitmap(b)
-		sample, ok := series[seriesID]
-		if !ok {
-			sample = &Series{Labels: b.ToArray()}
-			series[seriesID] = sample
-		}
+		sample := series.Get(hash, attr)
 		sample.Histograms = append(sample.Histograms, id)
 		sample.HistogramTS = append(sample.HistogramTS, uint64(hs.Timestamp))
 	}
@@ -320,7 +296,7 @@ func addExponentialHistogramDataPoints(name string,
 
 func addSummaryDataPoints(name string,
 	data pmetric.SummaryDataPointSlice,
-	resource, scope, attr *px.Ctx, series map[uint64]*Series, hash *blob.Hash) {
+	resource, scope, attr *px.Ctx, series SeriesMap, hash *blob.Hash) {
 	sumID := attr.Set(model.MetricNameLabel, name+sumStr)
 	countID := attr.Set(model.MetricNameLabel, name+countStr)
 	for x := 0; x < data.Len(); x++ {
@@ -331,40 +307,19 @@ func addSummaryDataPoints(name string,
 		point.Attributes().Range(attr.SetProm)
 		ts := convertTimeStamp(point.Timestamp())
 
-		b := attr.Bitmap()
-		seriesID := hash.Bitmap(b)
-		ss, ok := series[seriesID]
-		if !ok {
-			ss = &Series{Labels: b.ToArray()}
-			series[seriesID] = ss
-		}
+		ss := series.Get(hash, attr, sumID)
 		ss.Add(ts, point.Sum(), point.Flags())
 
-		b.Remove(sumID)
-
 		attr.Add(countID)
-		b = attr.Bitmap()
-		seriesID = hash.Bitmap(b)
-		sc, ok := series[seriesID]
-		if !ok {
-			sc = &Series{Labels: b.ToArray()}
-			series[seriesID] = ss
-		}
+		sc := series.Get(hash, attr, countID)
 		sc.Add(ts, float64(point.Count()), point.Flags())
 
 		for i := 0; i < point.QuantileValues().Len(); i++ {
 			qt := point.QuantileValues().At(i)
 			percentileStr := strconv.FormatFloat(qt.Quantile(), 'f', -1, 64)
 			pid := attr.Set(quantileStr, percentileStr)
-			b := attr.Bitmap()
-			seriesID := hash.Bitmap(b)
-			ps, ok := series[seriesID]
-			if !ok {
-				ps = &Series{Labels: b.ToArray()}
-				series[seriesID] = ps
-			}
+			ps := series.Get(hash, attr, pid)
 			ps.Add(ts, qt.Value(), point.Flags())
-			b.Remove(pid)
 		}
 	}
 }
@@ -373,26 +328,6 @@ type exemplarType interface {
 	pmetric.ExponentialHistogramDataPoint | pmetric.HistogramDataPoint | pmetric.NumberDataPoint
 	Exemplars() pmetric.ExemplarSlice
 }
-
-const (
-	sumStr        = "_sum"
-	countStr      = "_count"
-	bucketStr     = "_bucket"
-	leStr         = "le"
-	quantileStr   = "quantile"
-	pInfStr       = "+Inf"
-	createdSuffix = "_created"
-	// maxExemplarRunes is the maximum number of UTF-8 exemplar characters
-	// according to the prometheus specification
-	// https://github.com/OpenObservability/OpenMetrics/blob/main/specification/OpenMetrics.md#exemplars
-	maxExemplarRunes = 128
-	// Trace and Span id keys are defined as part of the spec:
-	// https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification%2Fmetrics%2Fdatamodel.md#exemplars-2
-	traceIDKey       = "trace_id"
-	spanIDKey        = "span_id"
-	infoType         = "info"
-	targetMetricName = "target_info"
-)
 
 func getPromExemplars[T exemplarType](pt T, tr blob.Func, f ...func(*prompb.Exemplar, uint64)) []uint64 {
 	promExemplar := &prompb.Exemplar{}
