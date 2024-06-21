@@ -218,21 +218,36 @@ func ApplyFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, field *fields.Fragment, d
 	return nil
 }
 
-func updateFST(buf *bytes.Buffer, tx *rbf.Tx, txn *badger.Txn, tr blob.Tr, field *fields.Fragment, bm *roaring64.Bitmap) error {
+func updateFST(buf *bytes.Buffer, _ *rbf.Tx, txn *badger.Txn, tr blob.Tr, field *fields.Fragment, bm *roaring64.Bitmap) error {
 
 	fstKey := bytes.Clone(keys.FST(buf, field.ID, field.Shard, field.View))
-
-	// We already save this. It is safe to reuse
-	bm.Clear()
-	err := field.RowsBitmap(tx, 0, bm)
-	if err != nil {
-		return err
-	}
 
 	keys := make([][]byte, bm.GetCardinality())
 	values := bm.ToArray()
 	for i := range values {
 		keys[i] = tr(constants.MetricsLabels, values[i])
+	}
+	it, err := txn.Get(fstKey)
+	if err == nil {
+		err = it.Value(func(val []byte) error {
+			fst, err := vellum.Load(val)
+			if err != nil {
+				return err
+			}
+			itr, err := fst.Iterator(nil, nil)
+			for err == nil {
+				key, value := itr.Current()
+				if !bm.Contains(value) {
+					keys = append(keys, bytes.Clone(key))
+					values = append(values, value)
+				}
+				err = itr.Next()
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
 	}
 	sort.Sort(&fstValues{keys: keys, values: values})
 	bs, err := vellum.New(buf, nil)
