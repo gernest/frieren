@@ -25,8 +25,6 @@ func Append(ctx context.Context, store *store.Store, mets pmetric.Metrics, ts ti
 	return batch.Append(ctx, constants.METRICS, store, view,
 		func(txn *badger.Txn, _ *rbf.Tx, bx *batch.Batch) error {
 			seq := store.Seq.Sequence(view)
-			defer seq.Release()
-
 			ms := metricsproto.From(mets, blob.Upsert(txn, store, seq, view))
 			defer ms.Release()
 
