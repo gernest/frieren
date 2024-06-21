@@ -32,6 +32,15 @@ type Series struct {
 	HistogramTS []uint64
 }
 
+func (s *Series) Add(ts int64, v float64, flags pmetric.DataPointFlags) {
+	s.Timestamp = append(s.Timestamp, uint64(ts))
+	if flags.NoRecordedValue() {
+		s.Values = append(s.Values, value.StaleNaN)
+	} else {
+		s.Values = append(s.Values, math.Float64bits(v))
+	}
+}
+
 func FromLogs(md pmetric.Metrics, tr blob.Func) map[uint64]*Series {
 	if md.DataPointCount() == 0 {
 		return nil
@@ -129,8 +138,7 @@ func addGaugeNumberDataPoints(name string,
 			}
 			series[seriesID] = sample
 		}
-		sample.Timestamp = append(sample.Timestamp, uint64(ts))
-		sample.Values = append(sample.Values, math.Float64bits(value))
+		sample.Add(ts, value, point.Flags())
 	}
 }
 
@@ -166,8 +174,7 @@ func addSumNumberDataPoints(name string,
 			}
 			series[seriesID] = sample
 		}
-		sample.Timestamp = append(sample.Timestamp, uint64(ts))
-		sample.Values = append(sample.Values, math.Float64bits(value))
+		sample.Add(ts, value, point.Flags())
 		sample.Exemplars = append(sample.Exemplars, getPromExemplars(point, tr)...)
 	}
 }
@@ -196,8 +203,7 @@ func addHistogramDataPoints(name string,
 				sample = &Series{Labels: b.ToArray()}
 				series[seriesID] = sample
 			}
-			sample.Timestamp = append(sample.Timestamp, uint64(ts))
-			sample.Values = append(sample.Values, math.Float64bits(point.Sum()))
+			sample.Add(ts, point.Sum(), point.Flags())
 
 			// remove the sum label
 			b.Remove(sumID)
@@ -210,8 +216,7 @@ func addHistogramDataPoints(name string,
 			sample = &Series{}
 			series[seriesID] = sample
 		}
-		sample.Timestamp = append(sample.Timestamp, uint64(ts))
-		sample.Values = append(sample.Values, math.Float64bits(float64(point.Count())))
+		sample.Add(ts, float64(point.Count()), point.Flags())
 
 		// remove count label
 		b.Remove(sumID)
@@ -235,20 +240,14 @@ func addHistogramDataPoints(name string,
 				bs = &Series{Labels: b.ToArray()}
 				series[seriesID] = bs
 			}
-			bs.Timestamp = append(bs.Timestamp, uint64(ts))
-			bs.Values = append(bs.Values, math.Float64bits(float64(cumulativeCount)))
+			bs.Add(ts, float64(cumulativeCount), point.Flags())
 
 			bucketBounds = append(bucketBounds, bucketBoundsData{ts: bs, bound: bound})
 
 			b.Remove(bucketID)
 			b.Remove(leID)
 		}
-		var v float64
-		if point.Flags().NoRecordedValue() {
-			v = math.Float64frombits(value.StaleNaN)
-		} else {
-			v = float64(point.Count())
-		}
+
 		attr.Add(bucketID)
 		attr.Set(leStr, pInfStr)
 		b = attr.Bitmap()
@@ -256,9 +255,9 @@ func addHistogramDataPoints(name string,
 		is, ok := series[seriesID]
 		if !ok {
 			is = &Series{Labels: b.ToArray()}
+			series[sumID] = is
 		}
-		is.Timestamp = append(is.Timestamp, uint64(ts))
-		is.Values = append(is.Values, math.Float64bits(v))
+		is.Add(ts, float64(point.Count()), point.Flags())
 		bucketBounds = append(bucketBounds, bucketBoundsData{ts: is, bound: math.Inf(1)})
 		sort.Sort(byBucketBoundsData(bucketBounds))
 		getPromExemplars(point, tr, func(e *prompb.Exemplar, u uint64) {
@@ -322,6 +321,52 @@ func addExponentialHistogramDataPoints(name string,
 func addSummaryDataPoints(name string,
 	data pmetric.SummaryDataPointSlice,
 	resource, scope, attr *px.Ctx, series map[uint64]*Series, hash *blob.Hash) {
+	sumID := attr.Set(model.MetricNameLabel, name+sumStr)
+	countID := attr.Set(model.MetricNameLabel, name+countStr)
+	for x := 0; x < data.Len(); x++ {
+		point := data.At(x)
+		attr.Reset()
+		attr.Or(resource)
+		attr.Or(scope)
+		point.Attributes().Range(attr.SetProm)
+		ts := convertTimeStamp(point.Timestamp())
+
+		b := attr.Bitmap()
+		seriesID := hash.Bitmap(b)
+		ss, ok := series[seriesID]
+		if !ok {
+			ss = &Series{Labels: b.ToArray()}
+			series[seriesID] = ss
+		}
+		ss.Add(ts, point.Sum(), point.Flags())
+
+		b.Remove(sumID)
+
+		attr.Add(countID)
+		b = attr.Bitmap()
+		seriesID = hash.Bitmap(b)
+		sc, ok := series[seriesID]
+		if !ok {
+			sc = &Series{Labels: b.ToArray()}
+			series[seriesID] = ss
+		}
+		sc.Add(ts, float64(point.Count()), point.Flags())
+
+		for i := 0; i < point.QuantileValues().Len(); i++ {
+			qt := point.QuantileValues().At(i)
+			percentileStr := strconv.FormatFloat(qt.Quantile(), 'f', -1, 64)
+			pid := attr.Set(quantileStr, percentileStr)
+			b := attr.Bitmap()
+			seriesID := hash.Bitmap(b)
+			ps, ok := series[seriesID]
+			if !ok {
+				ps = &Series{Labels: b.ToArray()}
+				series[seriesID] = ps
+			}
+			ps.Add(ts, qt.Value(), point.Flags())
+			b.Remove(pid)
+		}
+	}
 }
 
 type exemplarType interface {
