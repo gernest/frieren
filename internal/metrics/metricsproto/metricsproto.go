@@ -1,6 +1,7 @@
 package metricsproto
 
 import (
+	"bytes"
 	"encoding/hex"
 	"math"
 	"slices"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
+	"github.com/gernest/frieren/internal/metrics/metricsproto/prometheusremotewrite"
 	"github.com/gernest/frieren/internal/px"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/timestamp"
@@ -22,11 +24,12 @@ import (
 )
 
 type Series struct {
-	Labels     []uint64
-	Exemplars  []uint64
-	Timestamp  []uint64
-	Values     []uint64
-	Histograms []uint64
+	Labels      []uint64
+	Exemplars   []uint64
+	Timestamp   []uint64
+	Values      []uint64
+	Histograms  []uint64
+	HistogramTS []uint64
 }
 
 func FromLogs(md pmetric.Metrics, tr blob.Func) map[uint64]*Series {
@@ -78,7 +81,7 @@ func FromLogs(md pmetric.Metrics, tr blob.Func) map[uint64]*Series {
 					if dataPoints.Len() == 0 {
 						break
 					}
-					addExponentialHistogramDataPoints(name, dataPoints, rsCtx, scopeCtx, attrCtx, series, hash)
+					addExponentialHistogramDataPoints(name, tr, dataPoints, rsCtx, scopeCtx, attrCtx, series, hash)
 				case pmetric.MetricTypeSummary:
 					dataPoints := metric.Summary().DataPoints()
 					if dataPoints.Len() == 0 {
@@ -282,8 +285,38 @@ func (m byBucketBoundsData) Less(i, j int) bool { return m[i].bound < m[j].bound
 func (m byBucketBoundsData) Swap(i, j int)      { m[i], m[j] = m[j], m[i] }
 
 func addExponentialHistogramDataPoints(name string,
+	tr blob.Func,
 	data pmetric.ExponentialHistogramDataPointSlice,
-	resource, scope, attr *px.Ctx, series map[uint64]*Series, hash *blob.Hash) {
+	resource, scope, attr *px.Ctx, series map[uint64]*Series, hash *blob.Hash) error {
+	nameID := attr.Set(model.MetricNameLabel, name)
+	var buf []byte
+	for x := 0; x < data.Len(); x++ {
+		point := data.At(x)
+		attr.Reset()
+		attr.Or(resource)
+		attr.Or(scope)
+		attr.Add(nameID)
+		point.Attributes().Range(attr.SetProm)
+		hs, err := prometheusremotewrite.ExponentialToNativeHistogram(point)
+		if err != nil {
+			return err
+		}
+		size := hs.Size()
+		buf = slices.Grow(buf, size)[:size]
+		hs.MarshalToSizedBuffer(buf)
+		id := tr(constants.MetricsHistogram, bytes.Clone(buf))
+
+		b := attr.Bitmap()
+		seriesID := hash.Bitmap(b)
+		sample, ok := series[seriesID]
+		if !ok {
+			sample = &Series{Labels: b.ToArray()}
+			series[seriesID] = sample
+		}
+		sample.Histograms = append(sample.Histograms, id)
+		sample.HistogramTS = append(sample.HistogramTS, uint64(hs.Timestamp))
+	}
+	return nil
 }
 
 func addSummaryDataPoints(name string,
