@@ -209,6 +209,7 @@ func addHistogramDataPoints(name string,
 		point.Attributes().Range(attr.SetProm)
 		ts := convertTimeStamp(point.Timestamp())
 		if point.HasSum() {
+			attr.Add(sumID)
 			sample := series.Get(hash, attr, sumID)
 			sample.Add(ts, point.Sum(), point.Flags())
 		}
