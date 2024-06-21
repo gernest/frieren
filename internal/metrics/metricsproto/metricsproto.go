@@ -50,7 +50,7 @@ func (m SeriesMap) Get(a *px.Ctx, remove ...uint64) *Series {
 	id := a.ID(constants.MetricsSeries)
 	s, ok := m[id]
 	if !ok {
-		s = &Series{Labels: a.ToArray()}
+		s = &Series{Labels: a.ToArray(), ID: id}
 		m[id] = s
 	}
 	a.Remove(remove...)
@@ -58,6 +58,7 @@ func (m SeriesMap) Get(a *px.Ctx, remove ...uint64) *Series {
 }
 
 type Series struct {
+	ID          uint64
 	Labels      []uint64
 	Exemplars   []uint64
 	Timestamp   []uint64

@@ -2,6 +2,7 @@ package metricsproto
 
 import (
 	"bytes"
+	"fmt"
 	"math"
 	"os"
 	"slices"
@@ -30,9 +31,9 @@ func TestFrom(t *testing.T) {
 		return m.Serialize(o, blob.Translate(txn, db, view))
 	})
 	require.NoError(t, err)
-	// err = os.WriteFile("testdata/series.txt", o.Bytes(), 0600)
+	// err = os.WriteFile("testdata/series", o.Bytes(), 0600)
 	// require.NoError(t, err)
-	data, err := os.ReadFile("testdata/series.txt")
+	data, err := os.ReadFile("testdata/series")
 	require.NoError(t, err)
 	require.Equal(t, string(data), o.String())
 }
@@ -50,6 +51,7 @@ func (m SeriesMap) Serialize(b *bytes.Buffer, tr blob.Tr) error {
 		if i != 0 {
 			b.WriteByte('\n')
 		}
+		fmt.Fprintln(b, keys[i])
 		err := m[keys[i]].To(ts, tr)
 		if err != nil {
 			return err
