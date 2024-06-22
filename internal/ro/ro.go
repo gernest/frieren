@@ -19,7 +19,7 @@ func Mutex(m *roaring.Bitmap, id uint64, value uint64) {
 
 func BSI(m *roaring.Bitmap, id uint64, value uint64) {
 	fragmentColumn := id % shardwidth.ShardWidth
-	m.Add(fragmentColumn)
+	m.DirectAdd(fragmentColumn)
 	lz := bits.LeadingZeros64(value)
 	if lz == 0 {
 		util.Exit("illegal negative value")
@@ -27,7 +27,7 @@ func BSI(m *roaring.Bitmap, id uint64, value uint64) {
 	row := uint64(2)
 	for mask := uint64(0x1); mask <= 1<<(64-lz) && mask != 0; mask = mask << 1 {
 		if value&mask > 0 {
-			m.Add(row*shardwidth.ShardWidth + fragmentColumn)
+			m.DirectAdd(row*shardwidth.ShardWidth + fragmentColumn)
 		}
 		row++
 	}
@@ -35,26 +35,26 @@ func BSI(m *roaring.Bitmap, id uint64, value uint64) {
 
 func Set(m, exists *roaring.Bitmap, id uint64, values []uint64) {
 	frag := (id % shardwidth.ShardWidth)
-	exists.Add(frag)
+	exists.DirectAdd(frag)
 	for _, row := range values {
-		m.Add(row*shardwidth.ShardWidth + frag)
+		m.DirectAdd(row*shardwidth.ShardWidth + frag)
 	}
 }
 
 func SetBitmap(m, exists *roaring.Bitmap, id uint64, values *roaring.Bitmap) {
 	frag := (id % shardwidth.ShardWidth)
-	exists.Add(frag)
+	exists.DirectAdd(frag)
 	itr := values.Iterator()
 	for next, eof := itr.Next(); !eof; next, eof = itr.Next() {
-		m.Add(next*shardwidth.ShardWidth + frag)
+		m.DirectAdd(next*shardwidth.ShardWidth + frag)
 	}
 }
 
 func Bool(m *roaring.Bitmap, id uint64, value bool) {
 	fragmentColumn := id % shardwidth.ShardWidth
 	if value {
-		m.Add(trueRowOffset + fragmentColumn)
+		m.DirectAdd(trueRowOffset + fragmentColumn)
 	} else {
-		m.Add(falseRowOffset + fragmentColumn)
+		m.DirectAdd(falseRowOffset + fragmentColumn)
 	}
 }
