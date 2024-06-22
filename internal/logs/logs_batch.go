@@ -24,13 +24,13 @@ func AppendBatch(ctx context.Context, store *store.Store, ld plog.Logs, ts time.
 			defer seq.Release()
 			all := logproto.FromLogs(ld, blob.Upsert(txn, store, seq, view))
 			for _, v := range all {
-				append(bx, seq, v)
+				appendLogs(bx, seq, v)
 			}
 			return nil
 		})
 }
 
-func append(b *batch.Batch, seq *store.Sequence, m *logproto.Stream) {
+func appendLogs(b *batch.Batch, seq *store.Sequence, m *logproto.Stream) {
 	currentShard := ^uint64(0)
 	for _, e := range m.Entries {
 		id := seq.NextID(constants.LogsRow)
