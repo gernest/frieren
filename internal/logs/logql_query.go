@@ -80,10 +80,10 @@ func (qr *Querier) SelectLogs(ctx context.Context, req logql.SelectLogParams) (i
 		it := streams.Iterator()
 
 		mapping := map[uint64]int{}
-		ts := fields.New(constants.LogsTimestamp, shard.Id, view)
-		line := fields.New(constants.LogsLine, shard.Id, view)
-		labels := fields.New(constants.LogsLabels, shard.Id, view)
-		meta := fields.New(constants.LogsMetadata, shard.Id, view)
+		ts := filterCtx.Field(constants.LogsTimestamp)
+		line := filterCtx.Field(constants.LogsLine)
+		labels := filterCtx.Field(constants.LogsLabels)
+		meta := filterCtx.Field(constants.LogsMetadata)
 		b := roaring64.New()
 		for it.HasNext() {
 			streamHashID := it.Next()
