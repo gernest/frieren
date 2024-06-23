@@ -230,9 +230,8 @@ func Apply(tx *rbf.Tx, view *fields.Fragment, data map[uint64]*roaring.Bitmap) e
 
 func ApplyFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, field *fields.Fragment, data map[uint64]*roaring64.Bitmap) error {
 	buf := new(bytes.Buffer)
-	kb := keys.NewBuffer()
 	for shard, b := range data {
-		err := updateFST(buf, kb, tx, txn, tr, field.WithShard(shard), b)
+		err := updateFST(buf, tx, txn, tr, field.WithShard(shard), b)
 		if err != nil {
 			return fmt.Errorf("inserting exists bsi %w", err)
 		}
@@ -240,8 +239,8 @@ func ApplyFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, field *fields.Fragment, d
 	return nil
 }
 
-func updateFST(buf *bytes.Buffer, kb *keys.Buffer, _ *rbf.Tx, txn *badger.Txn, tr blob.Tr, field *fields.Fragment, bm *roaring64.Bitmap) error {
-	fstKey := bytes.Clone(keys.FST(kb, field.ID, field.Shard, field.View))
+func updateFST(buf *bytes.Buffer, _ *rbf.Tx, txn *badger.Txn, tr blob.Tr, field *fields.Fragment, bm *roaring64.Bitmap) error {
+	fstKey := keys.FST(field.ID, field.Shard, field.View)
 
 	sr := newSorter()
 	defer sr.Release()

@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strconv"
+	"sync"
 
 	"github.com/gernest/frieren/internal/constants"
 )
@@ -19,7 +20,9 @@ const (
 	fieldView
 )
 
-func Seq(a *Buffer, field constants.ID, view string) []byte {
+func Seq(field constants.ID, view string) []byte {
+	a := get()
+	defer a.Release()
 	b := a[:]
 	copy(b, view)
 	b = append(b[:len(view)], ':', '4', ':')
@@ -27,37 +30,54 @@ func Seq(a *Buffer, field constants.ID, view string) []byte {
 	return b
 }
 
-const BufferSize = 16 + //for view
+const bufferSize = 16 + //for view
 	2 + // prefix
 	14 + // blob id
 	2 // field
 
-type Buffer [BufferSize]byte
+type buffer [bufferSize]byte
 
-func NewBuffer() *Buffer {
-	var b Buffer
+var bufferPool = &sync.Pool{New: func() any {
+	var b buffer
 	return &b
+}}
+
+func get() *buffer {
+	return bufferPool.Get().(*buffer)
 }
 
-func BlobID(a *Buffer, field constants.ID, id uint64, view string) []byte {
+func (b *buffer) Release() {
+	clear(b[:])
+	bufferPool.Put(b)
+}
+
+func BlobID(field constants.ID, id uint64, view string) []byte {
+	a := get()
+	defer a.Release()
+
 	b := a[:]
 	copy(b, view)
 	b = append(b[:len(view)], ':', '2', ':')
 	b = strconv.AppendUint(b, uint64(field), 10)
 	b = append(b, ':')
-	return strconv.AppendUint(b, id, 10)
+	b = strconv.AppendUint(b, id, 10)
+	return bytes.Clone(b)
 }
 
-func BlobHash(a *Buffer, field constants.ID, hash uint64, view string) []byte {
+func BlobHash(field constants.ID, hash uint64, view string) []byte {
+	a := get()
 	b := a[:]
 	copy(b, view)
 	b = append(b[:len(view)], ':', '3', ':')
 	b = strconv.AppendUint(b, uint64(field), 10)
 	b = append(b, ':')
-	return binary.AppendUvarint(b, hash)
+	b = binary.AppendUvarint(b, hash)
+	return bytes.Clone(b)
 }
 
-func FST(a *Buffer, field constants.ID, shard uint64, view string) []byte {
+func FST(field constants.ID, shard uint64, view string) []byte {
+	a := get()
+	defer a.Release()
 	b := a[:]
 	copy(b, view)
 	b = append(b[:len(view)], ':', '4', ':')

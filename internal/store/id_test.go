@@ -39,7 +39,7 @@ func TestSequence(t *testing.T) {
 	t.Run("released sequence is saved", func(t *testing.T) {
 		var count, count2 uint64
 		err := db.View(func(txn *badger.Txn) error {
-			it, err := txn.Get(keys.Seq(keys.NewBuffer(), constants.LastID, v1))
+			it, err := txn.Get(keys.Seq(constants.LastID, v1))
 			if err != nil {
 				return err
 			}
@@ -50,7 +50,7 @@ func TestSequence(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			it, err = txn.Get(keys.Seq(keys.NewBuffer(), constants.LastID, v2))
+			it, err = txn.Get(keys.Seq(constants.LastID, v2))
 			if err != nil {
 				return err
 			}

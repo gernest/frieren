@@ -1,7 +1,6 @@
 package blob
 
 import (
-	"bytes"
 	"errors"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
@@ -34,14 +33,13 @@ var emptyKey = []byte{
 
 func Finder(txn *badger.Txn, store *store.Store, view string) Find {
 	h := Hash{}
-	buf := keys.NewBuffer()
 	return func(field constants.ID, b []byte) (uint64, bool) {
 		if len(b) == 0 {
 			b = emptyKey
 		}
 
 		hash := h.Sum(b)
-		viewBlobHash := keys.BlobHash(buf, field, hash, view)
+		viewBlobHash := keys.BlobHash(field, hash, view)
 		sum := h.Sum(viewBlobHash)
 		if v, ok := store.HashCache.Get(sum); ok {
 			return v.(uint64), true
@@ -68,7 +66,6 @@ func Finder(txn *badger.Txn, store *store.Store, view string) Find {
 
 func Upsert(txn *badger.Txn, store *store.Store, seq *store.Sequence, view string) Func {
 	h := Hash{}
-	buf := keys.NewBuffer()
 	return func(field constants.ID, b []byte) uint64 {
 		if len(b) == 0 {
 			b = emptyKey
@@ -78,7 +75,7 @@ func Upsert(txn *badger.Txn, store *store.Store, seq *store.Sequence, view strin
 		// Instead of using actual blob as part of key we use hash of it
 		hash := h.Sum(b)
 
-		blobHashKey := keys.BlobHash(buf, field, hash, view)
+		blobHashKey := keys.BlobHash(field, hash, view)
 		sum := h.Sum(blobHashKey)
 		if v, ok := store.HashCache.Get(sum); ok {
 			return v.(uint64)
@@ -96,23 +93,21 @@ func Upsert(txn *badger.Txn, store *store.Store, seq *store.Sequence, view strin
 
 			id := seq.NextID(field)
 
-			blobHashKey = bytes.Clone(blobHashKey)
-
-			baseBlobHashKey := bytes.Clone(keys.BlobHash(buf, field, hash, ""))
+			baseBlobHashKey := keys.BlobHash(field, hash, "")
 
 			err = saveIfNotExists(txn, baseBlobHashKey, b)
 			if err != nil {
 				util.Exit("writing blob data", "err", err)
 			}
 			store.HashCache.Set(sum, id, 1)
-			err = txn.Set(bytes.Clone(blobHashKey),
+			err = txn.Set(blobHashKey,
 				encoding.Uint64Bytes(id),
 			)
 			if err != nil {
 				util.Exit("writing blob hash key", "err", err)
 			}
-			idKey := keys.BlobID(buf, field, id, view)
-			err = txn.Set(bytes.Clone(idKey),
+			idKey := keys.BlobID(field, id, view)
+			err = txn.Set(idKey,
 				encoding.Uint64Bytes(hash),
 			)
 			if err != nil {
@@ -153,10 +148,9 @@ func saveIfNotExists(txn *badger.Txn, key, value []byte) error {
 }
 
 func Translate(txn *badger.Txn, store *store.Store, view string) Tr {
-	b := keys.NewBuffer()
 	h := Hash{}
 	return func(field constants.ID, u uint64) []byte {
-		viewBlobKey := keys.BlobID(b, field, u, view)
+		viewBlobKey := keys.BlobID(field, u, view)
 		viewBlobHash := h.Sum(viewBlobKey)
 		if v, ok := store.ValueCache.Get(viewBlobHash); ok {
 			return v.([]byte)
@@ -170,7 +164,7 @@ func Translate(txn *badger.Txn, store *store.Store, view string) Tr {
 			caHash = encoding.Uint64(val)
 			return nil
 		})
-		caBlobKey := keys.BlobHash(b, field, caHash, "")
+		caBlobKey := keys.BlobHash(field, caHash, "")
 		caSum := h.Sum(caBlobKey)
 		if v, ok := store.ValueCache.Get(caSum); ok {
 			return v.([]byte)
@@ -187,10 +181,9 @@ func Translate(txn *badger.Txn, store *store.Store, view string) Tr {
 }
 
 func TranslateCall(txn *badger.Txn, store *store.Store, view string) TrCall {
-	b := keys.NewBuffer()
 	h := Hash{}
 	return func(field constants.ID, u uint64, f func([]byte) error) error {
-		viewBlobKey := keys.BlobID(b, field, u, view)
+		viewBlobKey := keys.BlobID(field, u, view)
 		viewBlobHash := h.Sum(viewBlobKey)
 		if v, ok := store.ValueCache.Get(viewBlobHash); ok {
 			return f(v.([]byte))
@@ -204,7 +197,7 @@ func TranslateCall(txn *badger.Txn, store *store.Store, view string) TrCall {
 			caHash = encoding.Uint64(val)
 			return nil
 		})
-		caBlobKey := keys.BlobHash(b, field, caHash, "")
+		caBlobKey := keys.BlobHash(field, caHash, "")
 		caSum := h.Sum(caBlobKey)
 		if v, ok := store.ValueCache.Get(caSum); ok {
 			return f(v.([]byte))
