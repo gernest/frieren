@@ -39,6 +39,7 @@ func TestBach_Append(t *testing.T) {
 			{Field: "4", View: "_20060102"},
 			{Field: "5", View: "_20060102"},
 			{Field: "6", View: "_20060102"},
+			{Field: "6", View: "_20060102_exists"},
 		}
 		vs, err := tx.GetSortedFieldViewList()
 		require.NoError(t, err)
