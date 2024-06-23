@@ -60,7 +60,16 @@ func (qr *Querier) SelectLogs(ctx context.Context, req logql.SelectLogParams) (i
 	if views.IsEmpty() {
 		return iter.NoopIterator, nil
 	}
-	match := predicate.Matchers(constants.LogsLabels, matchers...)
+
+	plain := predicate.MatchersPlain(constants.LogsLabels, matchers...)
+	plain = append(plain, &predicate.Between{
+		Field: constants.LogsTimestamp,
+		Start: uint64(req.Start.UnixNano()),
+		End:   uint64(req.End.UnixNano()),
+	})
+	plain = predicate.Optimize(plain, true)
+	match := predicate.And(plain)
+
 	hash := new(blob.Hash)
 
 	streamSet := map[uint64]*logproto.Stream{}
