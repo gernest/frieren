@@ -17,7 +17,7 @@ func Labels(db *store.Store, resource constants.Resource,
 	mx := predicate.NewLabels(field, matchers...)
 	if name != "" {
 		var err error
-		mx, err = predicate.NewLabelValues(constants.LogsLabels, name, matchers...)
+		mx, err = predicate.NewLabelValues(field, name, matchers...)
 		if err != nil {
 			return nil, err
 		}

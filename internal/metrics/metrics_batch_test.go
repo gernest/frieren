@@ -12,6 +12,7 @@ import (
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/internal/util"
 	"github.com/gernest/rbf/short_txkey"
+	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
@@ -49,7 +50,7 @@ func TestBach_Append(t *testing.T) {
 		fra := fields.New(constants.MetricsSeries, 0, "_20060102")
 		all, err := fra.TransposeBSI(tx, nil)
 		require.NoError(t, err)
-		want := []uint64{0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc}
+		want := []uint64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
 		require.Equal(t, want, all.ToArray())
 	})
 	t.Run("views", func(t *testing.T) {
@@ -74,6 +75,20 @@ func TestBach_Append(t *testing.T) {
 		require.Equal(t, []map[uint64]uint64{
 			{1: 63, 2: 41, 5: 4},
 		}, depth)
+	})
+
+	t.Run("Label names", func(t *testing.T) {
+		names, err := query.Labels(db, constants.METRICS, constants.MetricsLabels, util.TS(), util.TS(), "")
+		require.NoError(t, err)
+		require.Equal(t, []string{"__name__", "foo_bar",
+			"host_name", "instance", "job", "le", "service_instance_id", "service_name"}, names)
+	})
+
+	t.Run("Label values", func(t *testing.T) {
+		values, err := query.Labels(db, constants.METRICS, constants.MetricsLabels, util.TS(), util.TS(), model.MetricNameLabel)
+		require.NoError(t, err)
+		require.Equal(t, []string{"test_counter_total", "test_exponential_histogram", "test_gauge",
+			"test_histogram_bucket", "test_histogram_count", "test_histogram_sum"}, values)
 	})
 }
 

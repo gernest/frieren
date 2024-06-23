@@ -35,6 +35,7 @@ type Batch struct {
 	fields map[constants.ID]Mapping
 	exists map[constants.ID]Mapping
 	depth  map[uint64]map[uint64]uint64
+	labels map[uint64]*roaring64.Bitmap
 	shards roaring64.Bitmap
 	Rows   int64
 }
@@ -47,6 +48,7 @@ var batchPool = &sync.Pool{New: func() any {
 	return &Batch{
 		fields: make(map[constants.ID]Mapping),
 		exists: make(map[constants.ID]Mapping),
+		labels: make(map[uint64]*roaring64.Bitmap),
 		depth:  make(map[uint64]map[uint64]uint64),
 	}
 }}
@@ -60,6 +62,7 @@ func (b *Batch) Release() {
 func (b *Batch) Reset() {
 	clear(b.fields)
 	clear(b.depth)
+	clear(b.labels)
 	b.shards.Clear()
 }
 
@@ -83,7 +86,7 @@ func (b *Batch) Apply(db *store.Store, resource constants.Resource, view string,
 			}
 			switch field {
 			case constants.MetricsLabels, constants.TracesLabels, constants.LogsLabels:
-				return ApplyFST(txn, tx, blob.Translate(txn, db, view), fields.New(field, 0, view), mapping)
+				return ApplyFST(txn, tx, blob.Translate(txn, db, view), fields.New(field, 0, view), b.labels)
 			default:
 				return nil
 			}
@@ -161,11 +164,25 @@ func (b *Batch) Bool(field constants.ID, shard, id uint64, value bool) {
 	ro.Bool(b.bitmap(field, shard), id, value)
 }
 
+var isLabels = map[constants.ID]bool{
+	constants.MetricsLabels: true,
+	constants.LogsLabels:    true,
+	constants.TracesLabels:  true,
+}
+
 func (b *Batch) Set(field constants.ID, shard, id uint64, value []uint64) {
 	if len(value) == 0 {
 		return
 	}
 	ro.Set(b.bitmap(field, shard), b.existence(field, shard), id, value)
+	if isLabels[field] {
+		r, ok := b.labels[shard]
+		if !ok {
+			r = roaring64.New()
+			b.labels[shard] = r
+		}
+		r.AddMany(value)
+	}
 }
 
 func (b *Batch) SetBitmap(field constants.ID, shard, id uint64, value *roaring.Bitmap) {
@@ -209,10 +226,9 @@ func Apply(tx *rbf.Tx, view *fields.Fragment, data map[uint64]*roaring.Bitmap) e
 	return nil
 }
 
-func ApplyFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, field *fields.Fragment, data map[uint64]*roaring.Bitmap) error {
+func ApplyFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, field *fields.Fragment, data map[uint64]*roaring64.Bitmap) error {
 	buf := new(bytes.Buffer)
-	b := roaring64.New()
-	for shard, _ := range data {
+	for shard, b := range data {
 		err := updateFST(buf, tx, txn, tr, field.WithShard(shard), b)
 		if err != nil {
 			return fmt.Errorf("inserting exists bsi %w", err)
@@ -222,7 +238,6 @@ func ApplyFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, field *fields.Fragment, d
 }
 
 func updateFST(buf *bytes.Buffer, _ *rbf.Tx, txn *badger.Txn, tr blob.Tr, field *fields.Fragment, bm *roaring64.Bitmap) error {
-
 	fstKey := bytes.Clone(keys.FST(buf, field.ID, field.Shard, field.View))
 
 	keys := make([][]byte, bm.GetCardinality())
@@ -253,6 +268,7 @@ func updateFST(buf *bytes.Buffer, _ *rbf.Tx, txn *badger.Txn, tr blob.Tr, field 
 		}
 	}
 	sort.Sort(&fstValues{keys: keys, values: values})
+	buf.Reset()
 	bs, err := vellum.New(buf, nil)
 	if err != nil {
 		return fmt.Errorf("opening fst builder %w", err)

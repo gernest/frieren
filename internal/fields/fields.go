@@ -156,7 +156,8 @@ func (f *Fragment) transposeBSI(tx *rbf.Tx, columns *rows.Row) (*roaring64.Bitma
 	// Populate a map with the BSI data.
 	data := make(map[uint64]uint64)
 	mergeBits(exists, 0, data)
-	for i := uint64(0); i < f.bitDepth(); i++ {
+	fmt.Println(f.bitDepth())
+	for i := uint64(0); i < 63; i++ {
 		bits, err := f.Row(tx, bsiOffsetBit+uint64(i))
 		if err != nil {
 			return nil, err

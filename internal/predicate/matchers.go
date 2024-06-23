@@ -138,7 +138,7 @@ func (l *Labels) fstName(ctx *Context, f func(val []byte) error) error {
 	return it.Value(func(val []byte) error {
 		xf, err := vellum.Load(val)
 		if err != nil {
-			return err
+			return fmt.Errorf("loading vellum fst %w", err)
 		}
 		prefix := []byte(l.name + "=")
 		itr, err := xf.Search(l.re, prefix, nil)
@@ -167,7 +167,7 @@ func (l *Labels) fst(ctx *Context, f func(val []byte) error) error {
 	return it.Value(func(val []byte) error {
 		xf, err := vellum.Load(val)
 		if err != nil {
-			return err
+			return fmt.Errorf("loading fst %w", err)
 		}
 		itr, err := xf.Iterator(nil, nil)
 		for err == nil {
