@@ -25,9 +25,9 @@ func Seq(field constants.ID, view string) []byte {
 	defer a.Release()
 	b := a[:]
 	copy(b, view)
-	b = append(b[:len(view)], ':', '4', ':')
+	b = append(b[:len(view)], ':', '0', ':')
 	b = strconv.AppendUint(b, uint64(field), 10)
-	return b
+	return bytes.Clone(b)
 }
 
 const bufferSize = 16 + //for view
