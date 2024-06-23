@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math/bits"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -241,10 +242,14 @@ func ApplyFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, field *fields.Fragment, d
 func updateFST(buf *bytes.Buffer, _ *rbf.Tx, txn *badger.Txn, tr blob.Tr, field *fields.Fragment, bm *roaring64.Bitmap) error {
 	fstKey := bytes.Clone(keys.FST(buf, field.ID, field.Shard, field.View))
 
-	keys := make([][]byte, bm.GetCardinality())
-	values := bm.ToArray()
-	for i := range values {
-		keys[i] = tr(constants.MetricsLabels, values[i])
+	sr := newSorter()
+	defer sr.Release()
+	sr.Reserve(int(bm.GetCardinality()))
+	itr := bm.Iterator()
+	for itr.HasNext() {
+		value := itr.Next()
+		sr.values = append(sr.values, value)
+		sr.keys = append(sr.keys, tr(constants.MetricsLabels, value))
 	}
 	it, err := txn.Get(fstKey)
 	if err == nil {
@@ -257,8 +262,8 @@ func updateFST(buf *bytes.Buffer, _ *rbf.Tx, txn *badger.Txn, tr blob.Tr, field 
 			for err == nil {
 				key, value := itr.Current()
 				if !bm.Contains(value) {
-					keys = append(keys, bytes.Clone(key))
-					values = append(values, value)
+					sr.keys = append(sr.keys, bytes.Clone(key))
+					sr.values = append(sr.values, value)
 				}
 				err = itr.Next()
 			}
@@ -268,7 +273,7 @@ func updateFST(buf *bytes.Buffer, _ *rbf.Tx, txn *badger.Txn, tr blob.Tr, field 
 			return err
 		}
 	}
-	sort.Sort(&fstValues{keys: keys, values: values})
+	sort.Sort(sr)
 	buf.Reset()
 	bs := get()
 	defer put(bs)
@@ -276,10 +281,10 @@ func updateFST(buf *bytes.Buffer, _ *rbf.Tx, txn *badger.Txn, tr blob.Tr, field 
 	if err != nil {
 		return fmt.Errorf("opening fst builder %w", err)
 	}
-	for i := range keys {
-		err = bs.Insert(keys[i], values[i])
+	for i := range sr.keys {
+		err = bs.Insert(sr.keys[i], sr.values[i])
 		if err != nil {
-			return fmt.Errorf("inserting fst key key=%q %w", string(keys[i]), err)
+			return fmt.Errorf("inserting fst key key=%q %w", string(sr.keys[i]), err)
 		}
 	}
 	err = bs.Close()
@@ -307,20 +312,42 @@ func put(b *vellum.Builder) {
 	buildPool.Put(b)
 }
 
-type fstValues struct {
+type fstSorter struct {
 	values []uint64
 	keys   [][]byte
 }
 
-func (f *fstValues) Len() int {
+func newSorter() *fstSorter {
+	return sorterPool.Get().(*fstSorter)
+}
+
+func (f *fstSorter) Reserve(n int) {
+	f.keys = slices.Grow(f.keys, n)
+	f.values = slices.Grow(f.values, n)
+}
+
+func (f *fstSorter) Release() {
+	f.Reset()
+	sorterPool.Put(f)
+}
+
+func (f *fstSorter) Reset() {
+	f.keys = f.keys[:0]
+	clear(f.values)
+	f.values = f.values[:0]
+}
+
+var sorterPool = &sync.Pool{New: func() any { return new(fstSorter) }}
+
+func (f *fstSorter) Len() int {
 	return len(f.keys)
 }
 
-func (f *fstValues) Less(i, j int) bool {
+func (f *fstSorter) Less(i, j int) bool {
 	return bytes.Compare(f.keys[i], f.keys[j]) == -1
 }
 
-func (f *fstValues) Swap(i, j int) {
+func (f *fstSorter) Swap(i, j int) {
 	f.keys[i], f.keys[j] = f.keys[j], f.keys[i]
 	f.values[i], f.values[j] = f.values[j], f.values[i]
 }
