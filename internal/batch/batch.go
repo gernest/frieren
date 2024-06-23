@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math/bits"
 	"sort"
 	"strings"
@@ -269,7 +270,9 @@ func updateFST(buf *bytes.Buffer, _ *rbf.Tx, txn *badger.Txn, tr blob.Tr, field 
 	}
 	sort.Sort(&fstValues{keys: keys, values: values})
 	buf.Reset()
-	bs, err := vellum.New(buf, nil)
+	bs := get()
+	defer put(bs)
+	err = bs.Reset(buf)
 	if err != nil {
 		return fmt.Errorf("opening fst builder %w", err)
 	}
@@ -288,6 +291,20 @@ func updateFST(buf *bytes.Buffer, _ *rbf.Tx, txn *badger.Txn, tr blob.Tr, field 
 		return fmt.Errorf("saving fst %w", err)
 	}
 	return nil
+}
+
+var buildPool = &sync.Pool{New: func() any {
+	b, _ := vellum.New(io.Discard, nil)
+	return b
+}}
+
+func get() *vellum.Builder {
+	return buildPool.Get().(*vellum.Builder)
+}
+
+func put(b *vellum.Builder) {
+	b.Reset(io.Discard)
+	buildPool.Put(b)
 }
 
 type fstValues struct {
