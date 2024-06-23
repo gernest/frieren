@@ -9,6 +9,7 @@ import (
 	"time"
 
 	v1 "github.com/gernest/frieren/gen/go/fri/v1"
+	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/predicate"
@@ -238,13 +239,17 @@ func (s MapSet) Build(ctx *predicate.Context, filter *rows.Row) error {
 	histograms = histograms.Intersect(filter)
 	hasHistogram := !histograms.IsEmpty()
 	mapping := map[uint64]int{}
+	hash := new(blob.Hash)
 	for it.HasNext() {
 
-		// Process series individually
-		seriesID := it.Next()
+		// This id is unique only in current view. We create a xxhash of the checksum
+		// to have a global unique series.
+		seriesHashID := it.Next()
+
+		seriesID := hash.Sum(ctx.Tr(constants.MetricsSeries, seriesHashID))
 
 		// Find all rows for each series matching the filter
-		sr, err := sf.EqBSI(ctx.Tx, seriesID, filter)
+		sr, err := sf.EqBSI(ctx.Tx, seriesHashID, filter)
 		if err != nil {
 			return fmt.Errorf("reading columns for series %w", err)
 		}
