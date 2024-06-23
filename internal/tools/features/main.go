@@ -69,30 +69,6 @@ var Loki = []FeatureSet{
 				API:       "GET /loki/api/v1/labels/:name/values",
 				Supported: true,
 			},
-			{
-				API:     "GET /loki/api/v1/series",
-				Planned: true,
-			},
-			{
-				API:     "GET /loki/api/v1/index/stats",
-				Planned: true,
-			},
-			{
-				API:     "GET /loki/api/v1/index/volume",
-				Planned: true,
-			},
-			{
-				API:       "GET /loki/api/v1/index/volume_range",
-				NotPlaned: true,
-			},
-			{
-				API:       "GET /loki/api/v1/patterns",
-				NotPlaned: true,
-			},
-			{
-				API:       "GET /loki/api/v1/tail",
-				NotPlaned: true,
-			},
 		}},
 }
 

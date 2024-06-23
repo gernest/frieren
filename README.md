@@ -25,18 +25,6 @@
 - `GET /loki/api/v1/labels`
 - `GET /loki/api/v1/labels/:name/values`
 
- These endpoints might be supported in the future
-
-- `GET /loki/api/v1/series`
-- `GET /loki/api/v1/index/stats`
-- `GET /loki/api/v1/index/volume`
-
- These endpoints will never be supported
-
-- `GET /loki/api/v1/index/volume_range`
-- `GET /loki/api/v1/patterns`
-- `GET /loki/api/v1/tail`
-
 # Tempo
 
 ### Query endpoints
