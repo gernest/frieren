@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/gernest/frieren/internal/logs"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/grafana/loki/v3/pkg/loghttp"
 	"github.com/grafana/loki/v3/pkg/logproto"
@@ -32,12 +33,14 @@ type QueryResponse struct {
 }
 
 type lokiAPI struct {
-	querier Querier
+	querier logql.Querier
 	engine  *logql.Engine
 }
 
 func newLokiAPI(db *store.Store) *lokiAPI {
-	return &lokiAPI{}
+	return &lokiAPI{
+		querier: logs.NewQuerier(db),
+	}
 }
 
 func (a *lokiAPI) Register(r *route.Router) {
@@ -106,7 +109,7 @@ func (q *lokiAPI) InstantQueryHandler(ctx context.Context, req *queryrange.LokiI
 }
 
 func (q *lokiAPI) LabelHandler(ctx context.Context, req *logproto.LabelRequest) (*logproto.LabelResponse, error) {
-	return q.querier.Label(ctx, req)
+	return nil, nil
 }
 
 func (q *lokiAPI) Do(ctx context.Context, req queryrangebase.Request) (queryrangebase.Response, error) {

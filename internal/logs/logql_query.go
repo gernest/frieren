@@ -25,6 +25,10 @@ type Querier struct {
 	db *store.Store
 }
 
+func NewQuerier(db *store.Store) *Querier {
+	return &Querier{db: db}
+}
+
 var _ logql.Querier = (*Querier)(nil)
 
 func (Querier) SelectSamples(context.Context, logql.SelectSampleParams) (iter.SampleIterator, error) {
