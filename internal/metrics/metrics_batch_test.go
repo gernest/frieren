@@ -4,8 +4,11 @@ import (
 	"context"
 	"testing"
 
+	"github.com/dgraph-io/badger/v4"
+	v1 "github.com/gernest/frieren/gen/go/fri/v1"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/fields"
+	"github.com/gernest/frieren/internal/query"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/internal/util"
 	"github.com/gernest/rbf/short_txkey"
@@ -48,7 +51,24 @@ func TestBach_Append(t *testing.T) {
 		want := []uint64{0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc}
 		require.Equal(t, want, all.ToArray())
 	})
-	t.Error()
+	t.Run("views", func(t *testing.T) {
+		var views []string
+		var shards []uint64
+		err := db.DB.View(func(txn *badger.Txn) error {
+			view, err := query.New(txn, tx, constants.METRICS, util.TS(), util.TS())
+			if err != nil {
+				return err
+			}
+			return view.Traverse(func(shard *v1.Shard, view string) error {
+				views = append(views, view)
+				shards = append(shards, shard.Id)
+				return nil
+			})
+		})
+		require.NoError(t, err)
+		require.Equal(t, []uint64{0}, shards)
+		require.Equal(t, []string{"_20060102"}, views)
+	})
 }
 
 func BenchmarkAppend(b *testing.B) {
