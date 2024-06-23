@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/blevesearch/vellum"
+	re "github.com/blevesearch/vellum/regexp"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/keys"
 	"github.com/grafana/tempo/pkg/traceql"
@@ -61,55 +62,104 @@ func MatchersPlain(field constants.ID, matchers ...*labels.Matcher) []Predicate 
 }
 
 func NewLabels(field constants.ID, matches ...*labels.Matcher) *Labels {
-	if len(matches) == 0 {
-		return &Labels{
-			Field: field,
-		}
-	}
 	return &Labels{
-		Field:     field,
-		Predicate: Matchers(field, matches...),
+		field:    field,
+		matchers: matches,
 	}
 }
 
-func NewLabelValues(field constants.ID, name string, matches ...*labels.Matcher) *Labels {
-	return &Labels{
-		Field: field,
-		Predicate: Matchers(field, append(matches, &labels.Matcher{
-			Type:  labels.MatchRegexp,
-			Name:  name,
-			Value: ".*",
-		})...),
+func NewLabelValues(field constants.ID, name string, matches ...*labels.Matcher) (*Labels, error) {
+	rx, err := re.New(name + "=.*")
+	if err != nil {
+		return nil, err
 	}
+	return &Labels{
+		field:    field,
+		name:     name,
+		re:       rx,
+		matchers: matches,
+	}, nil
 }
 
 type Labels struct {
-	Predicate
-	Field constants.ID
+	matchers []*labels.Matcher
+	name     string
+	re       *re.Regexp
+	field    constants.ID
 }
 
-func (l *Labels) Match(ctx *Context, f func(val []byte) error) error {
-	if l.Predicate == nil {
-		return l.fst(ctx, f)
+var sep = []byte("=")
+
+func (l *Labels) Match(ctx *Context) (result map[string]struct{}, err error) {
+	result = make(map[string]struct{})
+	if l.name != "" {
+		err = l.fstName(ctx, func(val []byte) error {
+			_, value, _ := bytes.Cut(val, sep)
+			if len(l.matchers) == 0 {
+				result[string(value)] = struct{}{}
+				return nil
+			}
+			str := string(value)
+			for _, m := range l.matchers {
+				if !m.Matches(str) {
+					return nil
+				}
+			}
+			result[str] = struct{}{}
+			return nil
+		})
+		return
 	}
-	b, err := l.Extract(ctx)
+	err = l.fst(ctx, func(val []byte) error {
+		key, value, _ := bytes.Cut(val, sep)
+		if len(l.matchers) == 0 {
+			result[string(key)] = struct{}{}
+			return nil
+		}
+		str := string(value)
+		for _, m := range l.matchers {
+			if !m.Matches(str) {
+				return nil
+			}
+		}
+		result[str] = struct{}{}
+		return nil
+	})
+	return
+}
+
+func (l *Labels) fstName(ctx *Context, f func(val []byte) error) error {
+	b := new(bytes.Buffer)
+	key := keys.FST(b, l.field, ctx.Shard.Id, ctx.View)
+	it, err := ctx.Txn.Get(key)
 	if err != nil {
-		return err
+		return fmt.Errorf("reading fst %s %w", b.String(), err)
 	}
-	it := b.Iterator()
-	for it.HasNext() {
-		id := it.Next()
-		err := ctx.TrCall(l.Field, id, f)
+	return it.Value(func(val []byte) error {
+		xf, err := vellum.Load(val)
 		if err != nil {
 			return err
 		}
-	}
-	return nil
+		prefix := []byte(l.name + "=")
+		itr, err := xf.Search(l.re, prefix, nil)
+		for err == nil {
+			k, _ := itr.Current()
+			if !bytes.HasPrefix(k, prefix) {
+				return nil
+			}
+			xe := f(k)
+			if xe != nil {
+				return xe
+			}
+			err = itr.Next()
+		}
+		return nil
+	})
 }
 
 func (l *Labels) fst(ctx *Context, f func(val []byte) error) error {
 	b := new(bytes.Buffer)
-	key := keys.FST(b, l.Field, ctx.Shard.Id, ctx.View)
+	key := keys.FST(b, l.field, ctx.Shard.Id, ctx.View)
 	it, err := ctx.Txn.Get(key)
 	if err != nil {
 		return fmt.Errorf("reading fst %s %w", b.String(), err)

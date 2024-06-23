@@ -18,6 +18,7 @@ import (
 	"github.com/grafana/loki/v3/pkg/iter"
 	"github.com/grafana/loki/v3/pkg/logproto"
 	"github.com/grafana/loki/v3/pkg/logql"
+	"github.com/grafana/loki/v3/pkg/logql/syntax"
 	"github.com/prometheus/prometheus/model/labels"
 )
 
@@ -31,7 +32,34 @@ func NewQuerier(db *store.Store) *Querier {
 
 var _ logql.Querier = (*Querier)(nil)
 
-func (Querier) SelectSamples(context.Context, logql.SelectSampleParams) (iter.SampleIterator, error) {
+func (qr *Querier) Label(ctx context.Context, req *logproto.LabelRequest) (*logproto.LabelResponse, error) {
+	now := time.Now()
+	start, end := now.Add(-time.Hour), now
+	if req.Start != nil {
+		start = *req.Start
+	}
+	if req.End != nil {
+		end = *req.End
+	}
+	if start.After(end) {
+		return &logproto.LabelResponse{}, nil
+	}
+	var matchers []*labels.Matcher
+	if req.Query != "" {
+		var err error
+		matchers, err = syntax.ParseMatchers(req.Query, true)
+		if err != nil {
+			return nil, err
+		}
+	}
+	result, err := query.Labels(qr.db, constants.LOGS, constants.LogsLabels, start, end, req.Name, matchers...)
+	if err != nil {
+		return nil, err
+	}
+	return &logproto.LabelResponse{Values: result}, nil
+}
+
+func (Querier) SelectSamples(_ context.Context, req logql.SelectSampleParams) (iter.SampleIterator, error) {
 	return iter.NoopIterator, nil
 }
 
