@@ -50,6 +50,10 @@ func (s *View) IsEmpty() bool {
 	return len(s.views) == 0
 }
 
+func (s *View) Iter() *Iter {
+	return &Iter{s: s, pos: -1}
+}
+
 func (s *View) Traverse(f func(shard *v1.Shard, view string) error) error {
 	shards := make([]uint64, 0, 64)
 	for i := range s.views {
@@ -67,6 +71,37 @@ func (s *View) Traverse(f func(shard *v1.Shard, view string) error) error {
 			if err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+type Iter struct {
+	s      *View
+	shards []uint64
+	pos    int
+}
+
+func (v *Iter) Next() bool {
+	if v.pos < len(v.s.views) {
+		v.pos++
+		return true
+	}
+	return false
+}
+
+func (v *Iter) Traverse(f func(shard *v1.Shard, view string) error) error {
+	v.shards = v.shards[:0]
+	info := v.s.info[v.pos]
+	for k := range info.Shards {
+		v.shards = append(v.shards, k)
+	}
+	slices.Sort(v.shards)
+
+	for j := range v.shards {
+		err := f(info.Shards[v.shards[j]], v.s.views[v.pos])
+		if err != nil {
+			return err
 		}
 	}
 	return nil
