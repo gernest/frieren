@@ -354,7 +354,7 @@ func (f *fstSorter) Swap(i, j int) {
 
 func ApplyBitDepth(txn *badger.Txn, resource constants.Resource, view string, depth map[uint64]map[uint64]uint64) error {
 	b := &v1.FieldViewInfo{}
-	key := keys.FieldView(new(bytes.Buffer), resource, view)
+	key := keys.FieldView(resource, view)
 	store.Get(txn, key, func(val []byte) error {
 		return proto.Unmarshal(val, b)
 	})
@@ -387,7 +387,7 @@ func ApplyBitDepth(txn *badger.Txn, resource constants.Resource, view string, de
 }
 
 func FieldViewInfo(txn *badger.Txn, resource constants.Resource, view string) (*v1.FieldViewInfo, error) {
-	key := keys.FieldView(new(bytes.Buffer), resource, view)
+	key := keys.FieldView(resource, view)
 	it, err := txn.Get(key)
 	if err != nil {
 		if !errors.Is(err, badger.ErrKeyNotFound) {

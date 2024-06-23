@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	seq uint64 = iota
+	seq byte = iota
 	blobSeq
 	blobID
 	blobHash
@@ -93,8 +93,12 @@ func Metadata(b *bytes.Buffer, name string) []byte {
 	return b.Bytes()
 }
 
-func FieldView(b *bytes.Buffer, resource constants.Resource, view string) []byte {
-	b.Reset()
-	fmt.Fprintf(b, "%s:%d:%d", view, resource, fieldView)
-	return b.Bytes()
+func FieldView(resource constants.Resource, view string) []byte {
+	a := get()
+	defer a.Release()
+	b := a[:]
+	copy(b, view)
+	b = append(b[:len(view)], ':', fieldView, ':')
+	b = strconv.AppendUint(b, uint64(resource), 10)
+	return b
 }
