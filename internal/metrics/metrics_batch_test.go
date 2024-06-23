@@ -55,6 +55,7 @@ func TestBach_Append(t *testing.T) {
 	t.Run("views", func(t *testing.T) {
 		var views []string
 		var shards []uint64
+		var depth []map[uint64]uint64
 		err := db.DB.View(func(txn *badger.Txn) error {
 			view, err := query.New(txn, tx, constants.METRICS, util.TS(), util.TS())
 			if err != nil {
@@ -63,12 +64,16 @@ func TestBach_Append(t *testing.T) {
 			return view.Traverse(func(shard *v1.Shard, view string) error {
 				views = append(views, view)
 				shards = append(shards, shard.Id)
+				depth = append(depth, shard.BitDepth)
 				return nil
 			})
 		})
 		require.NoError(t, err)
 		require.Equal(t, []uint64{0}, shards)
 		require.Equal(t, []string{"_20060102"}, views)
+		require.Equal(t, []map[uint64]uint64{
+			{1: 63, 2: 41, 5: 4},
+		}, depth)
 	})
 }
 
