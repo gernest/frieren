@@ -129,11 +129,11 @@ func (l *Labels) Match(ctx *Context) (result map[string]struct{}, err error) {
 }
 
 func (l *Labels) fstName(ctx *Context, f func(val []byte) error) error {
-	b := new(bytes.Buffer)
+	b := keys.NewBuffer()
 	key := keys.FST(b, l.field, ctx.Shard.Id, ctx.View)
 	it, err := ctx.Txn.Get(key)
 	if err != nil {
-		return fmt.Errorf("reading fst %s %w", b.String(), err)
+		return fmt.Errorf("reading fst %s %w", string(key), err)
 	}
 	return it.Value(func(val []byte) error {
 		xf, err := vellum.Load(val)
@@ -158,11 +158,11 @@ func (l *Labels) fstName(ctx *Context, f func(val []byte) error) error {
 }
 
 func (l *Labels) fst(ctx *Context, f func(val []byte) error) error {
-	b := new(bytes.Buffer)
+	b := keys.NewBuffer()
 	key := keys.FST(b, l.field, ctx.Shard.Id, ctx.View)
 	it, err := ctx.Txn.Get(key)
 	if err != nil {
-		return fmt.Errorf("reading fst %s %w", b.String(), err)
+		return fmt.Errorf("reading fst %s %w", string(key), err)
 	}
 	return it.Value(func(val []byte) error {
 		xf, err := vellum.Load(val)

@@ -350,11 +350,11 @@ func (s *Strings) applyFST(ctx *Context, fp fstPredicate) (*rows.Row, error) {
 
 func (s *Strings) matchFST(ctx *Context, fp fstPredicate) (*roaring64.Bitmap, error) {
 	field := s.Predicates[0].field
-	b := new(bytes.Buffer)
+	b := keys.NewBuffer()
 	key := keys.FST(b, field, ctx.Shard.Id, ctx.View)
 	it, err := ctx.Txn.Get(key)
 	if err != nil {
-		return nil, fmt.Errorf("reading fst %s %w", b.String(), err)
+		return nil, fmt.Errorf("reading fst %s %w", string(key), err)
 	}
 	o := roaring64.New()
 	err = it.Value(func(val []byte) error {

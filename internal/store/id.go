@@ -1,7 +1,6 @@
 package store
 
 import (
-	"bytes"
 	"errors"
 	"math"
 	"sync"
@@ -83,7 +82,7 @@ func (s *Sequence) NextID(id constants.ID) uint64 {
 	s.mu.RUnlock()
 	if !ok {
 		s.mu.Lock()
-		key := keys.Seq(new(bytes.Buffer), id, s.view)
+		key := keys.Seq(keys.NewBuffer(), id, s.view)
 		var err error
 		sq, err = s.db.GetSequence(key, upperLimit)
 		if err != nil {

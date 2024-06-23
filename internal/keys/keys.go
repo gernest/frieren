@@ -19,10 +19,12 @@ const (
 	fieldView
 )
 
-func Seq(b *bytes.Buffer, field constants.ID, view string) []byte {
-	b.Reset()
-	fmt.Fprintf(b, "%s:%d:%d:", view, seq, field)
-	return b.Bytes()
+func Seq(a *Buffer, field constants.ID, view string) []byte {
+	b := a[:]
+	copy(b, view)
+	b = append(b[:len(view)], ':', '4', ':')
+	b = strconv.AppendUint(b, uint64(field), 10)
+	return b
 }
 
 const BufferSize = 16 + //for view
@@ -55,10 +57,14 @@ func BlobHash(a *Buffer, field constants.ID, hash uint64, view string) []byte {
 	return binary.AppendUvarint(b, hash)
 }
 
-func FST(b *bytes.Buffer, field constants.ID, shard uint64, view string) []byte {
-	b.Reset()
-	fmt.Fprintf(b, "%s:%d:%d:%d", view, fst, field, shard)
-	return b.Bytes()
+func FST(a *Buffer, field constants.ID, shard uint64, view string) []byte {
+	b := a[:]
+	copy(b, view)
+	b = append(b[:len(view)], ':', '4', ':')
+	b = strconv.AppendUint(b, uint64(field), 10)
+	b = append(b, ':')
+	b = strconv.AppendUint(b, shard, 10)
+	return b
 }
 
 func Metadata(b *bytes.Buffer, name string) []byte {
