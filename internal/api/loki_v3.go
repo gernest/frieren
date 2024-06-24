@@ -86,9 +86,6 @@ func writeError(w http.ResponseWriter, err error) {
 
 var codec = queryrange.DefaultCodec
 
-func (a *lokiAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-
-}
 func (q *lokiAPI) RangeQueryHandler(ctx context.Context, req *queryrange.LokiRequest) (logqlmodel.Result, error) {
 	params, err := queryrange.ParamsFromRequest(req)
 	if err != nil {
