@@ -137,6 +137,14 @@ type Tx struct {
 	store  *Store
 }
 
+func (ctx *Tx) Tx() *rbf.Tx {
+	return ctx.idx
+}
+
+func (ctx *Tx) Txn() *badger.Txn {
+	return ctx.db
+}
+
 func (ctx *Tx) Discard() {
 	ctx.db.Discard()
 	ctx.blob.Discard()
