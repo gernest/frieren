@@ -195,6 +195,10 @@ func (ctx *Tx) View(shard *v1.Shard, view string) *View {
 
 func (t *View) Tr(field constants.ID, u uint64) []byte {
 	viewBlobKey := keys.BlobID(field, u, t.View)
+	sum := t.sum(viewBlobKey)
+	if v, ok := t.Tx.store.valueCache.Get(sum); ok {
+		return v.([]byte)
+	}
 	it, err := t.Tx.db.Get(viewBlobKey)
 	if err != nil {
 		util.Exit("BUG: reading translated blob key id", "key", string(viewBlobKey), "err", err)
@@ -209,6 +213,7 @@ func (t *View) Tr(field constants.ID, u uint64) []byte {
 	}
 	data := t.Tx.blobGet(Key(checksum))
 	t.Tx.store.valueCache.Set(checksumHash, data, int64(len(data)))
+	t.Tx.store.valueCache.Set(sum, data, int64(len(data)))
 	return data
 }
 
@@ -309,6 +314,8 @@ func (u *View) Upsert(field constants.ID, b []byte) uint64 {
 
 		// Speedup find by caching blob_checksum=> blob
 		u.Tx.store.valueCache.Set(u.sum(baseKey[:]), b, int64(len(b)))
+		// Speedup tr by caching id_key=> blob
+		u.Tx.store.valueCache.Set(u.sum(idKey), b, int64(len(b)))
 		return id
 	}
 	var id uint64
