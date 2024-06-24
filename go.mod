@@ -13,6 +13,7 @@ require (
 	github.com/gernest/rows v1.22.9
 	github.com/go-kit/log v0.2.1
 	github.com/gogo/protobuf v1.3.2
+	github.com/grafana/loki/pkg/push v0.0.0-20231124142027-e52380921608
 	github.com/grafana/loki/v3 v3.0.0
 	github.com/grafana/regexp v0.0.0-20240518133315-a468a5bfb3bc
 	github.com/grafana/tempo v1.5.1-0.20240615003438-e706a6a468a8
@@ -158,7 +159,6 @@ require (
 	github.com/grafana/dskit v0.0.0-20240311184239-73feada6c0d7 // indirect
 	github.com/grafana/gomemcache v0.0.0-20240229205252-cd6a66d6fb56 // indirect
 	github.com/grafana/jsonparser v0.0.0-20240209175146-098958973a2d // indirect
-	github.com/grafana/loki/pkg/push v0.0.0-20231124142027-e52380921608 // indirect
 	github.com/grafana/pyroscope-go/godeltaprof v0.1.6 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.20.0 // indirect
