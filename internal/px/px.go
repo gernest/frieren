@@ -75,7 +75,7 @@ func (x *Ctx) Set(key, value string) uint64 {
 	x.buf.WriteString(key)
 	x.buf.WriteByte('=')
 	x.buf.WriteString(value)
-	id := x.tr.UpsertRef(x.id, x.buf.Bytes())
+	id := x.tr.Upsert(x.id, bytes.Clone(x.buf.Bytes()))
 	x.o.Add(id)
 	return id
 }

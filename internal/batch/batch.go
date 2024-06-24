@@ -236,7 +236,9 @@ func updateFST(buf *bytes.Buffer, _ *rbf.Tx, txn *badger.Txn, tr *store.View, fi
 	for itr.HasNext() {
 		value := itr.Next()
 		sr.values = append(sr.values, value)
-		sr.keys = append(sr.keys, tr.Tr(constants.MetricsLabels, value))
+		key := tr.Tr(field.ID, value)
+		fmt.Println("=> key", string(key), value)
+		sr.keys = append(sr.keys, key)
 	}
 	it, err := txn.Get(fstKey)
 	if err == nil {

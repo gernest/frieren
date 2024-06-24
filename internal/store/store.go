@@ -24,13 +24,17 @@ type Value interface {
 }
 
 type Store struct {
-	Path       string
-	DB         *badger.DB
+	path       string
+	db         *badger.DB
 	blob       *badger.DB
-	Index      *rbf.DB
-	Seq        *Seq
-	HashCache  *ristretto.Cache
-	ValueCache *ristretto.Cache
+	idx        *rbf.DB
+	seq        *Seq
+	hashCache  *ristretto.Cache
+	valueCache *ristretto.Cache
+}
+
+func (s *Store) Path() string {
+	return s.path
 }
 
 const hashItems = (16 << 20) / 16
@@ -81,9 +85,9 @@ func New(path string) (*Store, error) {
 		return nil, err
 	}
 
-	return &Store{Path: path, DB: db, blob: blob, Index: idx,
-		Seq: NewSequence(db), HashCache: hashCache,
-		ValueCache: valueCache}, nil
+	return &Store{path: path, db: db, blob: blob, idx: idx,
+		seq: NewSequence(db), hashCache: hashCache,
+		valueCache: valueCache}, nil
 }
 
 func (s *Store) View(f func(tx *Tx) error) error {
@@ -108,13 +112,13 @@ func (s *Store) tx(update bool, f func(tx *Tx) error) error {
 }
 
 func (s *Store) newCtx(update bool) (*Tx, error) {
-	tx, err := s.Index.Begin(update)
+	tx, err := s.idx.Begin(update)
 	if err != nil {
 		return nil, err
 	}
 	return &Tx{
 		update: update,
-		db:     s.DB.NewTransaction(update),
+		db:     s.db.NewTransaction(update),
 		blob:   s.blob.NewTransaction(update),
 		idx:    tx,
 		store:  s,
@@ -122,11 +126,11 @@ func (s *Store) newCtx(update bool) (*Tx, error) {
 }
 
 func (s *Store) Close() error {
-	s.HashCache.Close()
-	s.ValueCache.Close()
+	s.hashCache.Close()
+	s.valueCache.Close()
 	return errors.Join(
-		s.Seq.Release(),
-		s.Index.Close(), s.DB.Close(),
+		s.seq.Release(),
+		s.idx.Close(), s.db.Close(),
 	)
 }
 
@@ -185,7 +189,7 @@ func (ctx *Tx) View(shard *v1.Shard, view string) *View {
 		Tx:    ctx,
 		View:  view,
 		Shard: shard,
-		Seq:   ctx.store.Seq.Sequence(view),
+		Seq:   ctx.store.seq.Sequence(view),
 	}
 }
 
@@ -200,11 +204,11 @@ func (t *View) Tr(field constants.ID, u uint64) []byte {
 		util.Exit("BUG: reading translated blob checksum", "key", string(viewBlobKey), "err", err)
 	}
 	checksumHash := t.hash.Sum(checksum)
-	if v, ok := t.Tx.store.ValueCache.Get(checksumHash); ok {
+	if v, ok := t.Tx.store.valueCache.Get(checksumHash); ok {
 		return v.([]byte)
 	}
 	data := t.Tx.blobGet(Key(checksum))
-	t.Tx.store.ValueCache.Set(checksumHash, data, int64(len(data)))
+	t.Tx.store.valueCache.Set(checksumHash, data, int64(len(data)))
 	return data
 }
 
@@ -217,7 +221,7 @@ func (f *View) Find(field constants.ID, b []byte) (uint64, bool) {
 
 	viewBlobHash := keys.BlobHash(field, hash, f.View)
 	sum := f.hash.Sum(viewBlobHash)
-	if v, ok := f.Tx.store.HashCache.Get(sum); ok {
+	if v, ok := f.Tx.store.hashCache.Get(sum); ok {
 		return v.(uint64), true
 	}
 	it, err := f.Tx.db.Get(viewBlobHash)
@@ -235,7 +239,7 @@ func (f *View) Find(field constants.ID, b []byte) (uint64, bool) {
 	if err != nil {
 		util.Exit("reading blob id", "err", err)
 	}
-	f.Tx.store.HashCache.Set(sum, id, 1)
+	f.Tx.store.hashCache.Set(sum, id, 1)
 	return id, true
 }
 
@@ -270,7 +274,7 @@ func (u *View) Upsert(field constants.ID, b []byte) uint64 {
 	// Key of the blob hash in the current view
 	blobHashKey := keys.BlobHash(field, hash, u.View)
 	sum := u.sum(blobHashKey)
-	if v, ok := u.Tx.store.HashCache.Get(sum); ok {
+	if v, ok := u.Tx.store.hashCache.Get(sum); ok {
 		return v.(uint64)
 	}
 	it, err := u.Tx.db.Get(blobHashKey)
@@ -290,7 +294,7 @@ func (u *View) Upsert(field constants.ID, b []byte) uint64 {
 		if err != nil {
 			util.Exit("writing blob data", "err", err)
 		}
-		u.Tx.store.HashCache.Set(sum, id, 1)
+		u.Tx.store.hashCache.Set(sum, id, 1)
 		err = u.Tx.db.Set(blobHashKey, encoding.Uint64Bytes(id))
 		if err != nil {
 			util.Exit("writing blob hash key", "err", err)
@@ -304,7 +308,7 @@ func (u *View) Upsert(field constants.ID, b []byte) uint64 {
 		}
 
 		// Speedup find by caching blob_checksum=> blob
-		u.Tx.store.ValueCache.Set(u.sum(baseKey[:]), b, int64(len(b)))
+		u.Tx.store.valueCache.Set(u.sum(baseKey[:]), b, int64(len(b)))
 		return id
 	}
 	var id uint64
@@ -315,70 +319,7 @@ func (u *View) Upsert(field constants.ID, b []byte) uint64 {
 	if err != nil {
 		util.Exit("reading blob id", "err", err)
 	}
-	u.Tx.store.HashCache.Set(sum, id, 1)
-	return id
-}
-
-// Like Upsert  but b can be invalidated. We copy b when saving.
-func (u *View) UpsertRef(field constants.ID, b []byte) uint64 {
-	if len(b) == 0 {
-		b = emptyKey
-	}
-	baseKey := sum(b)
-
-	// We use the same translation logic for short strings and large blobs.
-	// Instead of using actual blob as part of key we use hash of it
-	hash := u.sum(baseKey[:])
-
-	// Key of the blob hash in the current view
-	blobHashKey := keys.BlobHash(field, hash, u.View)
-	sum := u.sum(blobHashKey)
-	if v, ok := u.Tx.store.HashCache.Get(sum); ok {
-		return v.(uint64)
-	}
-	it, err := u.Tx.db.Get(blobHashKey)
-	if err != nil {
-		if !errors.Is(err, badger.ErrKeyNotFound) {
-			util.Exit("unexpected badger error", "err", err)
-		}
-		// Observability generates a large amount of data. Storing each copy per view
-		// is wasteful.
-		//
-		// We save blobs in content addressable manner. Where content is identified
-		// by hash of its content.
-
-		id := u.Seq.NextID(field)
-
-		err = u.Tx.blobSetRef(baseKey, b)
-		if err != nil {
-			util.Exit("writing blob data", "err", err)
-		}
-		u.Tx.store.HashCache.Set(sum, id, 1)
-		err = u.Tx.db.Set(blobHashKey, encoding.Uint64Bytes(id))
-		if err != nil {
-			util.Exit("writing blob hash key", "err", err)
-		}
-		idKey := keys.BlobID(field, id, u.View)
-
-		// store id => block_checksum
-		err = u.Tx.db.Set(idKey, baseKey[:])
-		if err != nil {
-			util.Exit("writing blob id", "err", err)
-		}
-
-		// Speedup find by caching blob_checksum=> blob
-		u.Tx.store.ValueCache.Set(u.sum(baseKey[:]), b, int64(len(b)))
-		return id
-	}
-	var id uint64
-	err = it.Value(func(val []byte) error {
-		id = encoding.Uint64(val)
-		return nil
-	})
-	if err != nil {
-		util.Exit("reading blob id", "err", err)
-	}
-	u.Tx.store.HashCache.Set(sum, id, 1)
+	u.Tx.store.hashCache.Set(sum, id, 1)
 	return id
 }
 

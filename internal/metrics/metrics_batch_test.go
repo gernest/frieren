@@ -25,9 +25,6 @@ func TestBach_Append(t *testing.T) {
 	m := generateOTLPWriteRequest()
 	err = Append(context.TODO(), db, m.Metrics(), util.TS())
 	require.NoError(t, err)
-	tx, err := db.Index.Begin(false)
-	require.NoError(t, err)
-	defer tx.Rollback()
 
 	t.Run("check views", func(t *testing.T) {
 		want := []short_txkey.FieldView{
@@ -40,16 +37,24 @@ func TestBach_Append(t *testing.T) {
 			{Field: "6", View: "_20060102"},
 			{Field: "6", View: "_20060102_exists"},
 		}
-		vs, err := tx.GetSortedFieldViewList()
-		require.NoError(t, err)
-		require.Equal(t, want, vs)
+		db.View(func(tx *store.Tx) error {
+			vs, err := tx.Tx().GetSortedFieldViewList()
+			require.NoError(t, err)
+			require.Equal(t, want, vs)
+			return nil
+		})
 	})
 	t.Run("series", func(t *testing.T) {
-		fra := fields.New(constants.MetricsSeries, 0, "_20060102")
-		all, err := fra.TransposeBSI(tx, nil)
-		require.NoError(t, err)
-		want := []uint64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
-		require.Equal(t, want, all.ToArray())
+
+		db.View(func(tx *store.Tx) error {
+			fra := fields.New(constants.MetricsSeries, 0, "_20060102")
+			all, err := fra.TransposeBSI(tx.Tx(), nil)
+			require.NoError(t, err)
+			want := []uint64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
+			require.Equal(t, want, all.ToArray())
+			return nil
+		})
+
 	})
 	t.Run("views", func(t *testing.T) {
 		var views []string

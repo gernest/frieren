@@ -111,6 +111,7 @@ func (l *Labels) Match(ctx *Context) (result map[string]struct{}, err error) {
 		return
 	}
 	err = l.fst(ctx, func(val []byte) error {
+		fmt.Println(string(val))
 		key, value, _ := bytes.Cut(val, sep)
 		if len(l.matchers) == 0 {
 			result[string(key)] = struct{}{}

@@ -27,7 +27,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/metrics"
 	"github.com/gernest/frieren/internal/self"
 	"github.com/gernest/frieren/internal/store"
@@ -136,7 +135,7 @@ func newPrometheusAPI(db *store.Store) *prometheusAPI {
 
 	query := metrics.NewQueryable(db)
 
-	trackPath := filepath.Join(db.Path, "prometheus", "track")
+	trackPath := filepath.Join(db.Path(), "prometheus", "track")
 	os.MkdirAll(trackPath, 0755)
 	logger := promlog.New(&promlog.Config{})
 	cors, _ := compileCORSRegexString(".*")
@@ -391,16 +390,16 @@ func (api *prometheusAPI) metricMetadata(r *http.Request) apiFuncResult {
 	// Put the elements from the pseudo-set into a slice for marshaling.
 	res := map[string][]metadata.Metadata{}
 
-	api.db.DB.View(func(txn *badger.Txn) error {
+	api.db.View(func(tx *store.Tx) error {
 		if metric != "" {
-			m, err := metrics.GetMetadata(txn, metric)
+			m, err := metrics.GetMetadata(tx.Txn(), metric)
 			if err != nil {
 				return err
 			}
 			res[metric] = []metadata.Metadata{protoToMeta(m)}
 			return nil
 		}
-		ms, err := metrics.ListMetadata(txn)
+		ms, err := metrics.ListMetadata(tx.Txn())
 		if err != nil {
 			return err
 		}
