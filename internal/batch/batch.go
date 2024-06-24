@@ -17,7 +17,6 @@ import (
 	"github.com/blevesearch/vellum"
 	"github.com/dgraph-io/badger/v4"
 	v1 "github.com/gernest/frieren/gen/go/fri/v1"
-	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/keys"
@@ -70,46 +69,34 @@ func (b *Batch) Reset() {
 
 type Func func(field constants.ID, mapping map[uint64]*roaring.Bitmap) error
 
-func (b *Batch) Apply(db *store.Store, resource constants.Resource, view string, cb AppendCallback) error {
-	return db.DB.Update(func(txn *badger.Txn) error {
-		tx, err := db.Index.Begin(true)
+func (b *Batch) Apply(tx *store.Tx, resource constants.Resource, view string, cb AppendCallback) error {
+	err := cb(tx.View(nil, view), b)
+	if err != nil {
+		return err
+	}
+	tr := tx.View(nil, view)
+	err = b.Range(func(field constants.ID, mapping map[uint64]*roaring.Bitmap) error {
+		err := Apply(tx.Tx(), fields.New(field, 0, view), mapping)
 		if err != nil {
 			return err
 		}
-		err = cb(txn, tx, b)
-		if err != nil {
-			tx.Rollback()
-			return err
+		switch field {
+		case constants.MetricsLabels, constants.TracesLabels, constants.LogsLabels:
+			return ApplyFST(tx.Txn(), tx.Tx(), tr, fields.New(field, 0, view), b.labels)
+		default:
+			return nil
 		}
-		err = b.Range(func(field constants.ID, mapping map[uint64]*roaring.Bitmap) error {
-			err := Apply(tx, fields.New(field, 0, view), mapping)
-			if err != nil {
-				return err
-			}
-			switch field {
-			case constants.MetricsLabels, constants.TracesLabels, constants.LogsLabels:
-				return ApplyFST(txn, tx, blob.Translate(txn, db, view), fields.New(field, 0, view), b.labels)
-			default:
-				return nil
-			}
-		})
-		if err != nil {
-			tx.Rollback()
-			return err
-		}
-		err = b.RangeExists(func(field constants.ID, mapping map[uint64]*roaring.Bitmap) error {
-			return Apply(tx, fields.New(field, 0, view+"_exists"), mapping)
-		})
-		if err != nil {
-			tx.Rollback()
-			return err
-		}
-		err = tx.Commit()
-		if err != nil {
-			return err
-		}
-		return ApplyBitDepth(txn, resource, view, b.GetDepth())
 	})
+	if err != nil {
+		return err
+	}
+	err = b.RangeExists(func(field constants.ID, mapping map[uint64]*roaring.Bitmap) error {
+		return Apply(tx.Tx(), fields.New(field, 0, view+"_exists"), mapping)
+	})
+	if err != nil {
+		return err
+	}
+	return ApplyBitDepth(tx.Txn(), resource, view, b.GetDepth())
 }
 
 func (b *Batch) Range(f Func) error {
@@ -228,7 +215,7 @@ func Apply(tx *rbf.Tx, view *fields.Fragment, data map[uint64]*roaring.Bitmap) e
 	return nil
 }
 
-func ApplyFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, field *fields.Fragment, data map[uint64]*roaring64.Bitmap) error {
+func ApplyFST(txn *badger.Txn, tx *rbf.Tx, tr *store.View, field *fields.Fragment, data map[uint64]*roaring64.Bitmap) error {
 	buf := new(bytes.Buffer)
 	for shard, b := range data {
 		err := updateFST(buf, tx, txn, tr, field.WithShard(shard), b)
@@ -239,7 +226,7 @@ func ApplyFST(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, field *fields.Fragment, d
 	return nil
 }
 
-func updateFST(buf *bytes.Buffer, _ *rbf.Tx, txn *badger.Txn, tr blob.Tr, field *fields.Fragment, bm *roaring64.Bitmap) error {
+func updateFST(buf *bytes.Buffer, _ *rbf.Tx, txn *badger.Txn, tr *store.View, field *fields.Fragment, bm *roaring64.Bitmap) error {
 	fstKey := keys.FST(field.ID, field.Shard, field.View)
 
 	sr := newSorter()
@@ -249,7 +236,7 @@ func updateFST(buf *bytes.Buffer, _ *rbf.Tx, txn *badger.Txn, tr blob.Tr, field 
 	for itr.HasNext() {
 		value := itr.Next()
 		sr.values = append(sr.values, value)
-		sr.keys = append(sr.keys, tr(constants.MetricsLabels, value))
+		sr.keys = append(sr.keys, tr.Tr(constants.MetricsLabels, value))
 	}
 	it, err := txn.Get(fstKey)
 	if err == nil {
@@ -427,15 +414,9 @@ func initMetrics() {
 	})
 }
 
-type AppendCallback func(txn *badger.Txn, tx *rbf.Tx, bx *Batch) error
+type AppendCallback func(tx *store.View, bx *Batch) error
 
-func Append(
-	ctx context.Context,
-	resource constants.Resource,
-	store *store.Store,
-	view string,
-	f AppendCallback,
-) error {
+func Append(ctx context.Context, resource constants.Resource, db *store.Store, view string, f AppendCallback) error {
 	ctx, span := self.Start(ctx, fmt.Sprintf("%s.batch", strings.ToLower(resource.String())))
 	defer span.End()
 	start := time.Now()
@@ -447,8 +428,9 @@ func Append(
 	defer bx.Release()
 
 	initMetrics()
-
-	err := bx.Apply(store, resource, view, f)
+	err := db.Update(func(tx *store.Tx) error {
+		return bx.Apply(tx, resource, view, f)
+	})
 	if err != nil {
 		batchFailure.Add(ctx, 1, metric.WithAttributes(res))
 		return err

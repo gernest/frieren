@@ -8,15 +8,11 @@ import (
 	"time"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
-	"github.com/dgraph-io/badger/v4"
-	v1 "github.com/gernest/frieren/gen/go/fri/v1"
-	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/predicate"
 	"github.com/gernest/frieren/internal/query"
 	"github.com/gernest/frieren/internal/store"
-	"github.com/gernest/rbf"
 	"github.com/gernest/rows"
 	"github.com/prometheus/prometheus/model/exemplar"
 	"github.com/prometheus/prometheus/model/labels"
@@ -46,34 +42,17 @@ func (e *ExemplarQueryable) ExemplarQuerier(ctx context.Context) (storage.Exempl
 var _ storage.ExemplarQuerier = (*ExemplarQueryable)(nil)
 
 func (e *ExemplarQueryable) Select(start, end int64, matchers ...[]*labels.Matcher) ([]exemplar.QueryResult, error) {
-	tx, err := e.store.Index.Begin(false)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	txn := e.store.DB.NewTransaction(false)
-	defer txn.Discard()
-
-	view, err := query.New(txn, tx, constants.METRICS, time.UnixMilli(start), time.UnixMilli(end))
-	if err != nil {
-		return nil, err
-	}
-	if view.IsEmpty() {
-		return []exemplar.QueryResult{}, nil
-	}
 	m := make(ExemplarSet)
 	match := predicate.MultiMatchers(constants.MetricsLabels, matchers...)
-	err = view.Traverse(func(shard *v1.Shard, view string) error {
-		ctx := predicate.NewContext(shard, view, e.store, tx, txn)
-		r, err := match.Apply(ctx)
+	err := query.Query(e.store, constants.METRICS, time.UnixMilli(start), time.UnixMilli(end), func(view *store.View) error {
+		r, err := match.Apply(view)
 		if err != nil {
 			return err
 		}
 		if r.IsEmpty() {
 			return nil
 		}
-		return m.Build(txn, tx, ctx.Tr, start, end, view, shard.Id, r)
+		return m.Build(view, r)
 	})
 	if err != nil {
 		return nil, err
@@ -87,13 +66,13 @@ func (e *ExemplarQueryable) Select(start, end int64, matchers ...[]*labels.Match
 
 type ExemplarSet map[uint64]*exemplar.QueryResult
 
-func (s ExemplarSet) Build(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, start, end int64, view string, shard uint64, filter *rows.Row) error {
+func (s ExemplarSet) Build(view *store.View, filter *rows.Row) error {
 	lb := labels.NewScratchBuilder(1 << 10)
 
 	add := func(lf *fields.Fragment, seriesID, validID uint64, exemplars *roaring64.Bitmap) error {
 		sx, ok := s[seriesID]
 		if !ok {
-			lbl, err := lf.Labels(tx, tr, validID)
+			lbl, err := lf.Labels(view, validID)
 			if err != nil {
 				return fmt.Errorf("reading labels %w", err)
 			}
@@ -105,7 +84,7 @@ func (s ExemplarSet) Build(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, start, end i
 		ts := &prompb.TimeSeries{}
 		for it.HasNext() {
 			ts.Reset()
-			ts.Unmarshal(tr(constants.MetricsExemplars, it.Next()))
+			ts.Unmarshal(view.Tr(constants.MetricsExemplars, it.Next()))
 			sx.Exemplars = slices.Grow(sx.Exemplars, len(ts.Exemplars))
 			for i := range ts.Exemplars {
 				ex := &ts.Exemplars[i]
@@ -127,54 +106,37 @@ func (s ExemplarSet) Build(txn *badger.Txn, tx *rbf.Tx, tr blob.Tr, start, end i
 		return nil
 	}
 	// fragments
-	sf := fields.New(constants.MetricsSeries, shard, view)
-	ef := fields.New(constants.MetricsExemplars, shard, view)
-	tf := fields.New(constants.MetricsTimestamp, shard, view)
-	lf := fields.New(constants.MetricsLabels, shard, view)
-
-	// find matching timestamps
-	r, err := tf.Between(tx, uint64(start), uint64(end))
-	if err != nil {
-		return fmt.Errorf("reading timestamp %w", err)
-	}
-	if filter != nil {
-		r = r.Intersect(filter)
-	}
-	if r.IsEmpty() {
-		return nil
-	}
+	sf := fields.From(view, constants.MetricsSeries)
+	ef := fields.From(view, constants.MetricsExemplars)
+	lf := fields.From(view, constants.MetricsLabels)
 
 	// find all series
-	series, err := sf.TransposeBSI(tx, r)
+	series, err := sf.TransposeBSI(view.Index(), filter)
 	if err != nil {
 		return err
-	}
-	if series.IsEmpty() {
-		return nil
 	}
 
 	// iterate on each series
 	it := series.Iterator()
+	hash := new(store.Hash)
 	for it.HasNext() {
 		seriesID := it.Next()
-		sr, err := sf.EqBSI(tx, seriesID)
+		seriesHashID := hash.Sum(view.Tr(constants.MetricsSeries, seriesID))
+		sr, err := sf.EqBSI(view.Index(), seriesID, filter)
 		if err != nil {
 			return fmt.Errorf("reading columns for series %w", err)
 		}
-		sr = sr.Intersect(r)
-		if sr.IsEmpty() {
-			continue
-		}
+
 		var active uint64
 		sr.RangeColumns(func(u uint64) error {
 			active = u
 			return io.EOF
 		})
-		o, err := ef.TransposeBSI(tx, sr)
+		o, err := ef.TransposeBSI(view.Index(), sr)
 		if err != nil {
 			return err
 		}
-		err = add(lf, shard, active, o)
+		err = add(lf, seriesHashID, active, o)
 		if err != nil {
 			return err
 		}

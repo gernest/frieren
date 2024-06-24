@@ -4,7 +4,6 @@ import (
 	"slices"
 	"time"
 
-	v1 "github.com/gernest/frieren/gen/go/fri/v1"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/predicate"
 	"github.com/gernest/frieren/internal/store"
@@ -22,24 +21,9 @@ func Labels(db *store.Store, resource constants.Resource,
 			return nil, err
 		}
 	}
-	txn := db.DB.NewTransaction(false)
-	defer txn.Discard()
-	tx, err := db.Index.Begin(false)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-	view, err := New(txn, tx, resource, start, end)
-	if err != nil {
-		return nil, err
-	}
-	if view.IsEmpty() {
-		return []string{}, nil
-	}
 	o := map[string]struct{}{}
-	err = view.Traverse(func(shard *v1.Shard, view string) error {
-		ctx := predicate.NewContext(shard, view, db, tx, txn)
-		r, err := mx.Match(ctx)
+	err := Query(db, resource, start, end, func(view *store.View) error {
+		r, err := mx.Match(view)
 		if err != nil {
 			return err
 		}
@@ -50,6 +34,9 @@ func Labels(db *store.Store, resource constants.Resource,
 	})
 	if err != nil {
 		return nil, err
+	}
+	if len(o) == 0 {
+		return []string{}, nil
 	}
 	result := make([]string, 0, len(o))
 	for k := range o {

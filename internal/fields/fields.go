@@ -6,9 +6,9 @@ import (
 	"math/bits"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
-	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/shardwidth"
+	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/short_txkey"
 	"github.com/gernest/roaring"
@@ -22,6 +22,12 @@ type Fragment struct {
 	Depth uint64
 	View  string
 	full  string
+}
+
+func From(view *store.View, id constants.ID) *Fragment {
+	f := New(id, view.Shard.Id, view.View)
+	f.Depth = view.Shard.BitDepth[uint64(id)]
+	return f
 }
 
 func New(id constants.ID, shard uint64, view string) *Fragment {
@@ -61,8 +67,8 @@ var eql = []byte("=")
 // Labels reads labels for the column. We use blob.Tr instead of blob.TrCall
 // because most labels are duplicate on several series. We take advantage of
 // caching to speed queries.
-func (f *Fragment) Labels(tx *rbf.Tx, tr blob.Tr, column uint64) (labels.Labels, error) {
-	rows, err := f.Rows(tx, 0, roaring.NewBitmapColumnFilter(column))
+func (f *Fragment) Labels(view *store.View, column uint64) (labels.Labels, error) {
+	rows, err := f.Rows(view.Index(), 0, roaring.NewBitmapColumnFilter(column))
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +77,7 @@ func (f *Fragment) Labels(tx *rbf.Tx, tr blob.Tr, column uint64) (labels.Labels,
 	}
 	o := make(labels.Labels, 0, len(rows))
 	for i := range rows {
-		val := tr(f.ID, rows[i])
+		val := view.Tr(f.ID, rows[i])
 		key, value, _ := bytes.Cut(val, eql)
 		o = append(o, labels.Label{
 			Name:  string(key),

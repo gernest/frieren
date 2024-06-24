@@ -4,14 +4,11 @@ import (
 	"context"
 	"time"
 
-	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/batch"
-	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/metrics/metricsproto"
 	"github.com/gernest/frieren/internal/shardwidth"
 	"github.com/gernest/frieren/internal/store"
-	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/quantum"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/storage/remote/otlptranslator/prometheusremotewrite"
@@ -20,19 +17,18 @@ import (
 
 type LabelFunc func([]prompb.Label) []uint64
 
-func Append(ctx context.Context, store *store.Store, mets pmetric.Metrics, ts time.Time) (err error) {
+func Append(ctx context.Context, db *store.Store, mets pmetric.Metrics, ts time.Time) (err error) {
 	view := quantum.ViewByTimeUnit("", ts, 'D')
-	return batch.Append(ctx, constants.METRICS, store, view,
-		func(txn *badger.Txn, _ *rbf.Tx, bx *batch.Batch) error {
-			seq := store.Seq.Sequence(view)
-			ms := metricsproto.From(mets, blob.Upsert(txn, store, seq, view))
+	return batch.Append(ctx, constants.METRICS, db, view,
+		func(tx *store.View, bx *batch.Batch) error {
+			ms := metricsproto.From(mets, tx)
 			defer ms.Release()
 
 			for _, s := range ms {
-				appendBatch(bx, s, seq)
+				appendBatch(bx, s, tx.Seq)
 			}
 			meta := prometheusremotewrite.OtelMetricsToMetadata(mets, true)
-			return StoreMetadata(txn, meta)
+			return StoreMetadata(tx.Txn(), meta)
 		})
 }
 

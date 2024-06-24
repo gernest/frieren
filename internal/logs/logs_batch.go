@@ -4,27 +4,23 @@ import (
 	"context"
 	"time"
 
-	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/batch"
-	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/logs/logproto"
 	"github.com/gernest/frieren/internal/shardwidth"
 	"github.com/gernest/frieren/internal/store"
-	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/quantum"
 	"go.opentelemetry.io/collector/pdata/plog"
 )
 
-func AppendBatch(ctx context.Context, store *store.Store, ld plog.Logs, ts time.Time) error {
+func AppendBatch(ctx context.Context, db *store.Store, ld plog.Logs, ts time.Time) error {
 	view := quantum.ViewByTimeUnit("", ts, 'D')
-	return batch.Append(ctx, constants.LOGS, store, view,
-		func(txn *badger.Txn, _ *rbf.Tx, bx *batch.Batch) error {
-			seq := store.Seq.Sequence(view)
-			defer seq.Release()
-			all := logproto.FromLogs(ld, blob.Upsert(txn, store, seq, view))
+
+	return batch.Append(ctx, constants.LOGS, db, view,
+		func(tx *store.View, bx *batch.Batch) error {
+			all := logproto.FromLogs(ld, tx)
 			for _, v := range all {
-				appendLogs(bx, seq, v)
+				appendLogs(bx, tx.Seq, v)
 			}
 			return nil
 		})

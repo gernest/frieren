@@ -4,8 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dgraph-io/badger/v4"
-	v1 "github.com/gernest/frieren/gen/go/fri/v1"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/query"
@@ -57,17 +55,11 @@ func TestBach_Append(t *testing.T) {
 		var views []string
 		var shards []uint64
 		var depth []map[uint64]uint64
-		err := db.DB.View(func(txn *badger.Txn) error {
-			view, err := query.New(txn, tx, constants.METRICS, util.TS(), util.TS())
-			if err != nil {
-				return err
-			}
-			return view.Traverse(func(shard *v1.Shard, view string) error {
-				views = append(views, view)
-				shards = append(shards, shard.Id)
-				depth = append(depth, shard.BitDepth)
-				return nil
-			})
+		err := query.Query(db, constants.METRICS, util.TS(), util.TS(), func(view *store.View) error {
+			views = append(views, view.View)
+			shards = append(shards, view.Shard.Id)
+			depth = append(depth, view.Shard.BitDepth)
+			return nil
 		})
 		require.NoError(t, err)
 		require.Equal(t, []uint64{0}, shards)

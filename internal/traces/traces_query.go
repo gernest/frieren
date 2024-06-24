@@ -7,8 +7,8 @@ import (
 	"slices"
 	"time"
 
-	v1 "github.com/gernest/frieren/gen/go/fri/v1"
 	"github.com/gernest/frieren/internal/constants"
+	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/predicate"
 	"github.com/gernest/frieren/internal/query"
 	"github.com/gernest/frieren/internal/store"
@@ -25,22 +25,6 @@ type Query struct {
 }
 
 func (q *Query) FindTraceByID(ctx context.Context, req *tempopb.TraceByIDRequest, timeStart int64, timeEnd int64) (*tempopb.TraceByIDResponse, error) {
-	txn := q.db.DB.NewTransaction(false)
-	defer txn.Discard()
-
-	tx, err := q.db.Index.Begin(false)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	view, err := query.New(txn, tx, constants.TRACES, time.Unix(0, timeStart), time.Unix(0, timeEnd))
-	if err != nil {
-		return nil, err
-	}
-	if view.IsEmpty() {
-		return &tempopb.TraceByIDResponse{}, nil
-	}
 
 	pre := []predicate.Predicate{
 		predicate.NewString(constants.TracesLabels, traceql.OpEqual, "trace:id", hex.EncodeToString(req.TraceID)),
@@ -59,9 +43,8 @@ func (q *Query) FindTraceByID(ctx context.Context, req *tempopb.TraceByIDRequest
 	resource := map[uint64]*resourcev1.Resource{}
 	resources := make([]uint64, 0, 64)
 	scopes := make([]uint64, 0, 64)
-
-	err = view.Traverse(func(shard *v1.Shard, view string) error {
-		ctx := predicate.NewContext(shard, view, q.db, tx, txn)
+	err := query.Query(q.db, constants.TRACES, time.Unix(0, timeStart), time.Unix(0, timeEnd), func(view *store.View) error {
+		ctx := view
 		r, err := all.Apply(ctx)
 		if err != nil {
 			return err
@@ -82,12 +65,12 @@ func (q *Query) FindTraceByID(ctx context.Context, req *tempopb.TraceByIDRequest
 			mapping[columns[i]] = i
 		}
 		// read contest
-		resourceField := ctx.Field(constants.TracesResource)
-		scopesField := ctx.Field(constants.TracesScope)
-		spansField := ctx.Field(constants.TracesSpan)
+		resourceField := fields.From(ctx, constants.TracesResource)
+		scopesField := fields.From(ctx, constants.TracesScope)
+		spansField := fields.From(ctx, constants.TracesSpan)
 
 		resources = slices.Grow(resources[:0], int(count))[:count]
-		err = resourceField.ExtractBSI(ctx.Tx, r, mapping, func(i int, v uint64) error {
+		err = resourceField.ExtractBSI(ctx.Index(), r, mapping, func(i int, v uint64) error {
 			resources[i] = v
 			_, ok := m[v]
 			if !ok {
@@ -105,7 +88,7 @@ func (q *Query) FindTraceByID(ctx context.Context, req *tempopb.TraceByIDRequest
 			return err
 		}
 		scopes = slices.Grow(scopes[:0], int(count))[:count]
-		err = scopesField.ExtractBSI(ctx.Tx, r, mapping, func(i int, v uint64) error {
+		err = scopesField.ExtractBSI(ctx.Index(), r, mapping, func(i int, v uint64) error {
 			scopes[i] = v
 			if len(m[resources[i]][v]) == 0 {
 				var x commonv1.InstrumentationScope
@@ -120,7 +103,7 @@ func (q *Query) FindTraceByID(ctx context.Context, req *tempopb.TraceByIDRequest
 		if err != nil {
 			return err
 		}
-		return spansField.ExtractBSI(ctx.Tx, r, mapping, func(i int, v uint64) error {
+		return spansField.ExtractBSI(ctx.Index(), r, mapping, func(i int, v uint64) error {
 			var x tempov1.Span
 			err := x.Unmarshal(ctx.Tr(constants.TracesSpan, v))
 			if err != nil {
@@ -129,7 +112,9 @@ func (q *Query) FindTraceByID(ctx context.Context, req *tempopb.TraceByIDRequest
 			m[resources[i]][scopes[i]] = append(m[resources[i]][scopes[i]], &x)
 			return nil
 		})
+
 	})
+
 	if err != nil {
 		return nil, err
 	}

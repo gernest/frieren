@@ -5,20 +5,33 @@ import (
 	"slices"
 	"time"
 
-	"github.com/dgraph-io/badger/v4"
 	v1 "github.com/gernest/frieren/gen/go/fri/v1"
 	"github.com/gernest/frieren/internal/batch"
 	"github.com/gernest/frieren/internal/constants"
-	"github.com/gernest/rbf"
+	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/rbf/quantum"
 )
 
-type View struct {
+type xView struct {
 	info  []*v1.FieldViewInfo
 	views []string
 }
 
-func New(txn *badger.Txn, tx *rbf.Tx, resource constants.Resource, start, end time.Time) (*View, error) {
+type Callback func(view *store.View) error
+
+func Query(db *store.Store, resource constants.Resource, start, end time.Time, f Callback) error {
+	return db.View(func(tx *store.Tx) error {
+		views, err := newView(tx, resource, start, end)
+		if err != nil {
+			return err
+		}
+		return views.Traverse(func(shard *v1.Shard, view string) error {
+			return f(tx.View(shard, view))
+		})
+	})
+}
+
+func newView(tx *store.Tx, resource constants.Resource, start, end time.Time) (*xView, error) {
 	var views []string
 	if date(start).Equal(date(end)) {
 		// Same day generate a single view
@@ -33,7 +46,7 @@ func New(txn *badger.Txn, tx *rbf.Tx, resource constants.Resource, start, end ti
 	ids := make([]string, 0, len(views))
 	shards := make([]*v1.FieldViewInfo, 0, len(views))
 	for i := range views {
-		info, err := batch.FieldViewInfo(txn, resource, views[i])
+		info, err := batch.FieldViewInfo(tx.Txn(), resource, views[i])
 		if err != nil {
 			return nil, fmt.Errorf("reading view info   %w", err)
 		}
@@ -43,18 +56,21 @@ func New(txn *badger.Txn, tx *rbf.Tx, resource constants.Resource, start, end ti
 		ids = append(ids, views[i])
 		shards = append(shards, info)
 	}
-	return &View{info: shards, views: ids}, nil
+	return &xView{info: shards, views: ids}, nil
 }
 
-func (s *View) IsEmpty() bool {
+func (s *xView) IsEmpty() bool {
 	return len(s.views) == 0
 }
 
-func (s *View) Iter() *Iter {
+func (s *xView) Iter() *Iter {
 	return &Iter{s: s, pos: -1}
 }
 
-func (s *View) Traverse(f func(shard *v1.Shard, view string) error) error {
+func (s *xView) Traverse(f func(shard *v1.Shard, view string) error) error {
+	if s.IsEmpty() {
+		return nil
+	}
 	shards := make([]uint64, 0, 64)
 	for i := range s.views {
 		info := s.info[i]
@@ -77,7 +93,7 @@ func (s *View) Traverse(f func(shard *v1.Shard, view string) error) error {
 }
 
 type Iter struct {
-	s      *View
+	s      *xView
 	shards []uint64
 	pos    int
 }

@@ -4,9 +4,9 @@ import (
 	"math"
 	"slices"
 
-	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/px"
+	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/internal/util"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
@@ -44,7 +44,7 @@ type Span struct {
 
 // Spans can be processed individually during ingest. To save memory, instead of
 // returning a list we accept a callback that receives a fully decoded span.
-func From(td ptrace.Traces, tr blob.Func) Traces {
+func From(td ptrace.Traces, tr *store.View) Traces {
 	if td.SpanCount() == 0 {
 		return Traces{}
 	}
@@ -136,18 +136,18 @@ type message interface {
 	MarshalTo([]byte) (int, error)
 }
 
-func marshal(tr blob.Func) func(id constants.ID, msg message) uint64 {
+func marshal(tr *store.View) func(id constants.ID, msg message) uint64 {
 	var buf []byte
 	return func(id constants.ID, msg message) uint64 {
 		size := msg.Size()
 		if size == 0 {
-			return tr(id, []byte{})
+			return tr.Upsert(id, []byte{})
 		}
 		buf = slices.Grow(buf, size)[:size]
 		_, err := msg.MarshalTo(buf)
 		if err != nil {
 			util.Exit("marshal trace message", "err", err)
 		}
-		return tr(id, buf)
+		return tr.Upsert(id, buf)
 	}
 }

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/px"
+	"github.com/gernest/frieren/internal/store"
 	"github.com/prometheus/prometheus/storage/remote/otlptranslator/prometheus"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
@@ -49,7 +49,7 @@ const (
 	attrServiceName = "service.name"
 )
 
-func FromLogs(ld plog.Logs, tr blob.Func) map[uint64]*Stream {
+func FromLogs(ld plog.Logs, tr *store.View) map[uint64]*Stream {
 	if ld.LogRecordCount() == 0 {
 		return nil
 	}

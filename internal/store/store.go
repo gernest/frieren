@@ -9,6 +9,7 @@ import (
 	"github.com/cespare/xxhash/v2"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/dgraph-io/ristretto"
+	v1 "github.com/gernest/frieren/gen/go/fri/v1"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/encoding"
 	"github.com/gernest/frieren/internal/keys"
@@ -163,22 +164,34 @@ func (ctx *Tx) Commit() error {
 	)
 }
 
-type Translate struct {
-	ctx  *Tx
-	view string
-	hash Hash
+type View struct {
+	Tx    *Tx
+	View  string
+	hash  Hash
+	Seq   *Sequence
+	Shard *v1.Shard
 }
 
-func (ctx *Tx) Translate(view string) *Translate {
-	return &Translate{
-		ctx:  ctx,
-		view: view,
+func (v *View) Txn() *badger.Txn {
+	return v.Tx.db
+}
+
+func (v *View) Index() *rbf.Tx {
+	return v.Tx.idx
+}
+
+func (ctx *Tx) View(shard *v1.Shard, view string) *View {
+	return &View{
+		Tx:    ctx,
+		View:  view,
+		Shard: shard,
+		Seq:   ctx.store.Seq.Sequence(view),
 	}
 }
 
-func (t *Translate) Tr(field constants.ID, u uint64) []byte {
-	viewBlobKey := keys.BlobID(field, u, t.view)
-	it, err := t.ctx.db.Get(viewBlobKey)
+func (t *View) Tr(field constants.ID, u uint64) []byte {
+	viewBlobKey := keys.BlobID(field, u, t.View)
+	it, err := t.Tx.db.Get(viewBlobKey)
 	if err != nil {
 		util.Exit("BUG: reading translated blob key id", "key", string(viewBlobKey), "err", err)
 	}
@@ -187,40 +200,27 @@ func (t *Translate) Tr(field constants.ID, u uint64) []byte {
 		util.Exit("BUG: reading translated blob checksum", "key", string(viewBlobKey), "err", err)
 	}
 	checksumHash := t.hash.Sum(checksum)
-	if v, ok := t.ctx.store.ValueCache.Get(checksumHash); ok {
+	if v, ok := t.Tx.store.ValueCache.Get(checksumHash); ok {
 		return v.([]byte)
 	}
-	data := t.ctx.blobGet(Key(checksum))
-	t.ctx.store.ValueCache.Set(checksumHash, data, int64(len(data)))
+	data := t.Tx.blobGet(Key(checksum))
+	t.Tx.store.ValueCache.Set(checksumHash, data, int64(len(data)))
 	return data
 }
 
-type Finder struct {
-	ctx  *Tx
-	view string
-	hash Hash
-}
-
-func (ctx *Tx) Finder(view string) *Finder {
-	return &Finder{
-		ctx:  ctx,
-		view: view,
-	}
-}
-
-func (f *Finder) Find(field constants.ID, b []byte) (uint64, bool) {
+func (f *View) Find(field constants.ID, b []byte) (uint64, bool) {
 	if len(b) == 0 {
 		b = emptyKey
 	}
 	baseKey := sum(b)
 	hash := f.hash.Sum(baseKey[:])
 
-	viewBlobHash := keys.BlobHash(field, hash, f.view)
+	viewBlobHash := keys.BlobHash(field, hash, f.View)
 	sum := f.hash.Sum(viewBlobHash)
-	if v, ok := f.ctx.store.HashCache.Get(sum); ok {
+	if v, ok := f.Tx.store.HashCache.Get(sum); ok {
 		return v.(uint64), true
 	}
-	it, err := f.ctx.db.Get(viewBlobHash)
+	it, err := f.Tx.db.Get(viewBlobHash)
 	if err != nil {
 		if !errors.Is(err, badger.ErrKeyNotFound) {
 			util.Exit("finding blob id", "err", err)
@@ -235,7 +235,7 @@ func (f *Finder) Find(field constants.ID, b []byte) (uint64, bool) {
 	if err != nil {
 		util.Exit("reading blob id", "err", err)
 	}
-	f.ctx.store.HashCache.Set(sum, id, 1)
+	f.Tx.store.HashCache.Set(sum, id, 1)
 	return id, true
 }
 
@@ -249,13 +249,6 @@ func (h *Hash) Sum(b []byte) uint64 {
 	return h.Sum64()
 }
 
-type Upsert struct {
-	view string
-	ctx  *Tx
-	hash xxhash.Digest
-	seq  *Sequence
-}
-
 var emptyKey = []byte{
 	0x00, 0x00, 0x00,
 	0x4d, 0x54, 0x4d, 0x54, // MTMT
@@ -264,7 +257,7 @@ var emptyKey = []byte{
 	0x00,
 }
 
-func (u *Upsert) Upsert(field constants.ID, b []byte) uint64 {
+func (u *View) Upsert(field constants.ID, b []byte) uint64 {
 	if len(b) == 0 {
 		b = emptyKey
 	}
@@ -275,12 +268,12 @@ func (u *Upsert) Upsert(field constants.ID, b []byte) uint64 {
 	hash := u.sum(baseKey[:])
 
 	// Key of the blob hash in the current view
-	blobHashKey := keys.BlobHash(field, hash, u.view)
+	blobHashKey := keys.BlobHash(field, hash, u.View)
 	sum := u.sum(blobHashKey)
-	if v, ok := u.ctx.store.HashCache.Get(sum); ok {
+	if v, ok := u.Tx.store.HashCache.Get(sum); ok {
 		return v.(uint64)
 	}
-	it, err := u.ctx.db.Get(blobHashKey)
+	it, err := u.Tx.db.Get(blobHashKey)
 	if err != nil {
 		if !errors.Is(err, badger.ErrKeyNotFound) {
 			util.Exit("unexpected badger error", "err", err)
@@ -291,27 +284,27 @@ func (u *Upsert) Upsert(field constants.ID, b []byte) uint64 {
 		// We save blobs in content addressable manner. Where content is identified
 		// by hash of its content.
 
-		id := u.seq.NextID(field)
+		id := u.Seq.NextID(field)
 
-		err = u.ctx.blobSet(baseKey, b)
+		err = u.Tx.blobSet(baseKey, b)
 		if err != nil {
 			util.Exit("writing blob data", "err", err)
 		}
-		u.ctx.store.HashCache.Set(sum, id, 1)
-		err = u.ctx.db.Set(blobHashKey, encoding.Uint64Bytes(id))
+		u.Tx.store.HashCache.Set(sum, id, 1)
+		err = u.Tx.db.Set(blobHashKey, encoding.Uint64Bytes(id))
 		if err != nil {
 			util.Exit("writing blob hash key", "err", err)
 		}
-		idKey := keys.BlobID(field, id, u.view)
+		idKey := keys.BlobID(field, id, u.View)
 
 		// store id => block_checksum
-		err = u.ctx.db.Set(idKey, baseKey[:])
+		err = u.Tx.db.Set(idKey, baseKey[:])
 		if err != nil {
 			util.Exit("writing blob id", "err", err)
 		}
 
 		// Speedup find by caching blob_checksum=> blob
-		u.ctx.store.ValueCache.Set(u.sum(baseKey[:]), b, int64(len(b)))
+		u.Tx.store.ValueCache.Set(u.sum(baseKey[:]), b, int64(len(b)))
 		return id
 	}
 	var id uint64
@@ -322,12 +315,12 @@ func (u *Upsert) Upsert(field constants.ID, b []byte) uint64 {
 	if err != nil {
 		util.Exit("reading blob id", "err", err)
 	}
-	u.ctx.store.HashCache.Set(sum, id, 1)
+	u.Tx.store.HashCache.Set(sum, id, 1)
 	return id
 }
 
 // Like Upsert  but b can be invalidated. We copy b when saving.
-func (u *Upsert) UpsertRef(field constants.ID, b []byte) uint64 {
+func (u *View) UpsertRef(field constants.ID, b []byte) uint64 {
 	if len(b) == 0 {
 		b = emptyKey
 	}
@@ -338,12 +331,12 @@ func (u *Upsert) UpsertRef(field constants.ID, b []byte) uint64 {
 	hash := u.sum(baseKey[:])
 
 	// Key of the blob hash in the current view
-	blobHashKey := keys.BlobHash(field, hash, u.view)
+	blobHashKey := keys.BlobHash(field, hash, u.View)
 	sum := u.sum(blobHashKey)
-	if v, ok := u.ctx.store.HashCache.Get(sum); ok {
+	if v, ok := u.Tx.store.HashCache.Get(sum); ok {
 		return v.(uint64)
 	}
-	it, err := u.ctx.db.Get(blobHashKey)
+	it, err := u.Tx.db.Get(blobHashKey)
 	if err != nil {
 		if !errors.Is(err, badger.ErrKeyNotFound) {
 			util.Exit("unexpected badger error", "err", err)
@@ -354,27 +347,27 @@ func (u *Upsert) UpsertRef(field constants.ID, b []byte) uint64 {
 		// We save blobs in content addressable manner. Where content is identified
 		// by hash of its content.
 
-		id := u.seq.NextID(field)
+		id := u.Seq.NextID(field)
 
-		err = u.ctx.blobSetRef(baseKey, b)
+		err = u.Tx.blobSetRef(baseKey, b)
 		if err != nil {
 			util.Exit("writing blob data", "err", err)
 		}
-		u.ctx.store.HashCache.Set(sum, id, 1)
-		err = u.ctx.db.Set(blobHashKey, encoding.Uint64Bytes(id))
+		u.Tx.store.HashCache.Set(sum, id, 1)
+		err = u.Tx.db.Set(blobHashKey, encoding.Uint64Bytes(id))
 		if err != nil {
 			util.Exit("writing blob hash key", "err", err)
 		}
-		idKey := keys.BlobID(field, id, u.view)
+		idKey := keys.BlobID(field, id, u.View)
 
 		// store id => block_checksum
-		err = u.ctx.db.Set(idKey, baseKey[:])
+		err = u.Tx.db.Set(idKey, baseKey[:])
 		if err != nil {
 			util.Exit("writing blob id", "err", err)
 		}
 
 		// Speedup find by caching blob_checksum=> blob
-		u.ctx.store.ValueCache.Set(u.sum(baseKey[:]), b, int64(len(b)))
+		u.Tx.store.ValueCache.Set(u.sum(baseKey[:]), b, int64(len(b)))
 		return id
 	}
 	var id uint64
@@ -385,22 +378,14 @@ func (u *Upsert) UpsertRef(field constants.ID, b []byte) uint64 {
 	if err != nil {
 		util.Exit("reading blob id", "err", err)
 	}
-	u.ctx.store.HashCache.Set(sum, id, 1)
+	u.Tx.store.HashCache.Set(sum, id, 1)
 	return id
 }
 
-func (u *Upsert) sum(b []byte) uint64 {
+func (u *View) sum(b []byte) uint64 {
 	u.hash.Reset()
 	u.hash.Write(b)
 	return u.hash.Sum64()
-}
-
-func (ctx *Tx) Upsert(view string) *Upsert {
-	return &Upsert{
-		view: view,
-		ctx:  ctx,
-		seq:  ctx.store.Seq.Sequence(view),
-	}
 }
 
 func (ctx *Tx) blobGet(key Key) []byte {

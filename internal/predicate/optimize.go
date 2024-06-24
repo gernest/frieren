@@ -12,6 +12,7 @@ import (
 	"github.com/blevesearch/vellum"
 	re "github.com/blevesearch/vellum/regexp"
 	"github.com/gernest/frieren/internal/constants"
+	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/keys"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rows"
@@ -258,8 +259,8 @@ func (s *Strings) ELTE(ctx *Context) (*roaring64.Bitmap, error) {
 
 func (s *Strings) NRE(ctx *Context) (*rows.Row, error) {
 	field := s.Predicates[0].field
-	f := ctx.Field(field)
-	exists, err := f.ExistsSet(ctx.Tx)
+	f := fields.From(ctx, field)
+	exists, err := f.ExistsSet(ctx.Index())
 	if err != nil {
 		return nil, err
 	}
@@ -283,9 +284,9 @@ func (s *Strings) ENRE(ctx *Context) (*roaring64.Bitmap, error) {
 
 func (s *Strings) extractNot(ctx *Context, b *roaring64.Bitmap) (*roaring64.Bitmap, error) {
 	field := s.Predicates[0].field
-	f := ctx.Field(field)
+	f := fields.From(ctx, field)
 	o := roaring64.New()
-	err := f.RowsBitmap(ctx.Tx, 0, o)
+	err := f.RowsBitmap(ctx.Index(), 0, o)
 	if err != nil {
 		return nil, err
 	}
@@ -351,7 +352,7 @@ func (s *Strings) applyFST(ctx *Context, fp fstPredicate) (*rows.Row, error) {
 func (s *Strings) matchFST(ctx *Context, fp fstPredicate) (*roaring64.Bitmap, error) {
 	field := s.Predicates[0].field
 	key := keys.FST(field, ctx.Shard.Id, ctx.View)
-	it, err := ctx.Txn.Get(key)
+	it, err := ctx.Txn().Get(key)
 	if err != nil {
 		return nil, fmt.Errorf("reading fst %s %w", string(key), err)
 	}
@@ -392,12 +393,12 @@ func (s *Strings) matchFST(ctx *Context, fp fstPredicate) (*roaring64.Bitmap, er
 
 func (s *Strings) NEQ(ctx *Context) (*rows.Row, error) {
 	field := s.Predicates[0].field
-	f := ctx.Field(field)
+	f := fields.From(ctx, field)
 	r, err := s.EQ(ctx)
 	if err != nil {
 		return nil, err
 	}
-	all, err := f.ExistsSet(ctx.Tx)
+	all, err := f.ExistsSet(ctx.Index())
 	if err != nil {
 		return nil, err
 	}
@@ -456,10 +457,10 @@ func (s *Strings) EEQ(ctx *Context) (*roaring64.Bitmap, error) {
 
 func (s *Strings) apply(ctx *Context, columns []uint64) (*rows.Row, error) {
 	field := s.Predicates[0].field
-	f := ctx.Field(field)
+	f := fields.From(ctx, field)
 	r := rows.NewRow()
 	for _, id := range columns {
-		rx, err := f.Row(ctx.Tx, id)
+		rx, err := f.Row(ctx.Index(), id)
 		if err != nil {
 			return nil, err
 		}
@@ -499,7 +500,7 @@ func (f *Ints) Extract(_ *Context) (*roaring64.Bitmap, error) {
 }
 func (f *Ints) Apply(ctx *Context) (*rows.Row, error) {
 	field := f.Predicates[0].field
-	fx := ctx.Field(field)
+	fx := fields.From(ctx, field)
 	switch f.Predicates[0].op {
 	case traceql.OpEqual:
 		return f.apply(ctx, func(tx *rbf.Tx, u uint64) (*rows.Row, error) {
@@ -522,7 +523,7 @@ func (f *Ints) Apply(ctx *Context) (*rows.Row, error) {
 func (f *Ints) apply(ctx *Context, fn func(*rbf.Tx, uint64) (*rows.Row, error)) (*rows.Row, error) {
 	r := rows.NewRow()
 	for i, v := range f.Predicates {
-		rx, err := fn(ctx.Tx, v.value)
+		rx, err := fn(ctx.Index(), v.value)
 		if err != nil {
 			return nil, err
 		}

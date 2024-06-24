@@ -25,7 +25,7 @@ func TestUpsert(t *testing.T) {
 	}
 	view := "test"
 	err = db.Update(func(tx *Tx) error {
-		up := tx.Upsert(view)
+		up := tx.View(nil, view)
 		for _, v := range samples {
 			o := make([]uint64, len(v.ids))
 			for i := range v.value {
@@ -38,7 +38,7 @@ func TestUpsert(t *testing.T) {
 	require.NoError(t, err)
 
 	err = db.View(func(tx *Tx) error {
-		tr := tx.Translate(view)
+		tr := tx.View(nil, view)
 		for _, v := range samples {
 			o := make([]string, len(v.ids))
 			for i := range v.ids {

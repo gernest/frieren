@@ -5,14 +5,14 @@ import (
 	"crypto/sha512"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
-	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
+	"github.com/gernest/frieren/internal/store"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 )
 
 type Ctx struct {
 	o   roaring64.Bitmap
-	tr  blob.Func
+	tr  *store.View
 	buf bytes.Buffer
 	id  constants.ID
 }
@@ -22,11 +22,11 @@ func (x *Ctx) ID(field constants.ID) uint64 {
 	x.o.RunOptimize()
 	x.o.WriteTo(&x.buf)
 	sum := sha512.Sum512(x.buf.Bytes())
-	return x.tr(field, sum[:])
+	return x.tr.Upsert(field, sum[:])
 }
 
 func (x *Ctx) Tr(k []byte) uint64 {
-	return x.tr(x.id, k)
+	return x.tr.Upsert(x.id, k)
 }
 
 func (x *Ctx) Or(o *Ctx) {
@@ -46,7 +46,7 @@ func (x *Ctx) Bitmap() *roaring64.Bitmap {
 	return &x.o
 }
 
-func New(id constants.ID, tr blob.Func) *Ctx {
+func New(id constants.ID, tr *store.View) *Ctx {
 	return &Ctx{id: id, tr: tr}
 }
 
@@ -75,7 +75,7 @@ func (x *Ctx) Set(key, value string) uint64 {
 	x.buf.WriteString(key)
 	x.buf.WriteByte('=')
 	x.buf.WriteString(value)
-	id := x.tr(x.id, bytes.Clone(x.buf.Bytes()))
+	id := x.tr.UpsertRef(x.id, x.buf.Bytes())
 	x.o.Add(id)
 	return id
 }

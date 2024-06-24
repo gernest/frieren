@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
-	v1 "github.com/gernest/frieren/gen/go/fri/v1"
-	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/predicate"
@@ -65,7 +63,7 @@ func (Querier) SelectSamples(_ context.Context, req logql.SelectSampleParams) (i
 
 var sep = []byte("=")
 
-func (qr *Querier) SelectLogs(ctx context.Context, req logql.SelectLogParams) (iter.EntryIterator, error) {
+func (qr *Querier) SelectLogs(ctx context.Context, req logql.SelectLogParams) (result iter.EntryIterator, err error) {
 	expr, err := req.LogSelector()
 	if err != nil {
 		return nil, err
@@ -74,21 +72,6 @@ func (qr *Querier) SelectLogs(ctx context.Context, req logql.SelectLogParams) (i
 	if len(matchers) == 0 {
 		return iter.NoopIterator, nil
 	}
-	txn := qr.db.DB.NewTransaction(false)
-	defer txn.Discard()
-	tx, err := qr.db.Index.Begin(false)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-	views, err := query.New(txn, tx, constants.LOGS, req.Start, req.End)
-	if err != nil {
-		return nil, err
-	}
-	if views.IsEmpty() {
-		return iter.NoopIterator, nil
-	}
-
 	plain := predicate.MatchersPlain(constants.LogsLabels, matchers...)
 	plain = append(plain, &predicate.Between{
 		Field: constants.LogsTimestamp,
@@ -98,33 +81,29 @@ func (qr *Querier) SelectLogs(ctx context.Context, req logql.SelectLogParams) (i
 	plain = predicate.Optimize(plain, true)
 	match := predicate.And(plain)
 
-	hash := new(blob.Hash)
+	hash := new(store.Hash)
 
 	streamSet := map[uint64]*logproto.Stream{}
-
-	err = views.Traverse(func(shard *v1.Shard, view string) error {
-		filterCtx := predicate.NewContext(shard, view, qr.db, tx, txn)
-		r, err := match.Apply(filterCtx)
+	err = query.Query(qr.db, constants.LOGS, req.Start, req.End, func(view *store.View) error {
+		r, err := match.Apply(view)
 		if err != nil {
 			return err
 		}
 		if r.IsEmpty() {
 			return nil
 		}
-
 		//Find all unique streams
-		stream := fields.New(constants.LogsStreamID, shard.Id, view)
-		streams, err := stream.TransposeBSI(tx, r)
+		stream := fields.From(view, constants.LogsStreamID)
+		streams, err := stream.TransposeBSI(view.Index(), r)
 		if err != nil {
 			return err
 		}
 		it := streams.Iterator()
-
 		mapping := map[uint64]int{}
-		ts := filterCtx.Field(constants.LogsTimestamp)
-		line := filterCtx.Field(constants.LogsLine)
-		labels := filterCtx.Field(constants.LogsLabels)
-		meta := filterCtx.Field(constants.LogsMetadata)
+		ts := fields.From(view, constants.LogsTimestamp)
+		line := fields.From(view, constants.LogsLine)
+		labels := fields.From(view, constants.LogsLabels)
+		meta := fields.From(view, constants.LogsMetadata)
 		b := roaring64.New()
 		for it.HasNext() {
 			streamHashID := it.Next()
@@ -132,10 +111,10 @@ func (qr *Querier) SelectLogs(ctx context.Context, req logql.SelectLogParams) (i
 			// unique stream hash.
 			//
 			// We use Tr to make sure the hash blob is cached.
-			streamID := hash.Sum(filterCtx.Tr(constants.LogsStreamID, streamHashID))
+			streamID := hash.Sum(view.Tr(constants.LogsStreamID, streamHashID))
 
 			// find all rows for the current stream ID matching the filter.
-			streamRows, err := stream.EqBSI(tx, streamHashID, r)
+			streamRows, err := stream.EqBSI(view.Index(), streamHashID, r)
 			if err != nil {
 				return err
 			}
@@ -146,22 +125,22 @@ func (qr *Querier) SelectLogs(ctx context.Context, req logql.SelectLogParams) (i
 			}
 			result := make([]logproto.Entry, len(columns))
 
-			err = ts.ExtractBSI(tx, r, mapping, func(i int, v uint64) error {
+			err = ts.ExtractBSI(view.Index(), r, mapping, func(i int, v uint64) error {
 				result[i].Timestamp = time.Unix(0, int64(v))
 				return nil
 			})
 			if err != nil {
 				return err
 			}
-			err = line.ExtractBSI(tx, r, mapping, func(i int, v uint64) error {
-				result[i].Line = string(filterCtx.Tr(constants.LogsLine, v))
+			err = line.ExtractBSI(view.Index(), r, mapping, func(i int, v uint64) error {
+				result[i].Line = string(view.Tr(constants.LogsLine, v))
 				return nil
 			})
 			if err != nil {
 				return err
 			}
 			for i, column := range columns {
-				o, err := attr(filterCtx, b, meta, column)
+				o, err := attr(view, b, meta, column)
 				if err != nil {
 					return err
 				}
@@ -169,7 +148,7 @@ func (qr *Querier) SelectLogs(ctx context.Context, req logql.SelectLogParams) (i
 			}
 			sx, ok := streamSet[streamID]
 			if !ok {
-				o, err := attrString(filterCtx, b, labels, columns[0])
+				o, err := attrString(view, b, labels, columns[0])
 				if err != nil {
 					return err
 				}
@@ -198,7 +177,7 @@ func (qr *Querier) SelectLogs(ctx context.Context, req logql.SelectLogParams) (i
 
 func attr(ctx *predicate.Context, b *roaring64.Bitmap, f *fields.Fragment, column uint64) ([]push.LabelAdapter, error) {
 	b.Clear()
-	err := f.RowsBitmap(ctx.Tx, 0, b, roaring.NewBitmapColumnFilter(column))
+	err := f.RowsBitmap(ctx.Index(), 0, b, roaring.NewBitmapColumnFilter(column))
 	if err != nil {
 		return nil, err
 	}
@@ -208,23 +187,18 @@ func attr(ctx *predicate.Context, b *roaring64.Bitmap, f *fields.Fragment, colum
 	o := make([]push.LabelAdapter, 0, b.GetCardinality())
 	x := b.Iterator()
 	for x.HasNext() {
-		err = ctx.TrCall(constants.LogsLabels, x.Next(), func(v []byte) error {
-			key, value, _ := bytes.Cut(v, sep)
-			o = append(o, push.LabelAdapter{
-				Name: string(key), Value: string(value),
-			})
-			return nil
+		value := ctx.Tr(constants.LogsLabels, x.Next())
+		key, value, _ := bytes.Cut(value, sep)
+		o = append(o, push.LabelAdapter{
+			Name: string(key), Value: string(value),
 		})
-		if err != nil {
-			return nil, err
-		}
 	}
 	return o, nil
 }
 
 func attrString(ctx *predicate.Context, b *roaring64.Bitmap, f *fields.Fragment, column uint64) (labels.Labels, error) {
 	b.Clear()
-	err := f.RowsBitmap(ctx.Tx, 0, b, roaring.NewBitmapColumnFilter(column))
+	err := f.RowsBitmap(ctx.Index(), 0, b, roaring.NewBitmapColumnFilter(column))
 	if err != nil {
 		return nil, err
 	}
@@ -235,16 +209,11 @@ func attrString(ctx *predicate.Context, b *roaring64.Bitmap, f *fields.Fragment,
 	o := make(labels.Labels, 0, b.GetCardinality())
 	x := b.Iterator()
 	for x.HasNext() {
-		err = ctx.TrCall(constants.LogsLabels, x.Next(), func(v []byte) error {
-			key, value, _ := bytes.Cut(v, sep)
-			o = append(o, labels.Label{
-				Name: string(key), Value: string(value),
-			})
-			return nil
+		v := ctx.Tr(constants.LogsLabels, x.Next())
+		key, value, _ := bytes.Cut(v, sep)
+		o = append(o, labels.Label{
+			Name: string(key), Value: string(value),
 		})
-		if err != nil {
-			return nil, err
-		}
 	}
 	return o, nil
 }

@@ -12,10 +12,10 @@ import (
 	"unicode/utf8"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
-	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/metrics/metricsproto/prometheusremotewrite"
 	"github.com/gernest/frieren/internal/px"
+	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/internal/util"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/timestamp"
@@ -114,7 +114,7 @@ func (s *Series) Add(ts int64, v float64, flags pmetric.DataPointFlags) {
 	}
 }
 
-func From(md pmetric.Metrics, tr blob.Func) SeriesMap {
+func From(md pmetric.Metrics, tr *store.View) SeriesMap {
 	if md.DataPointCount() == 0 {
 		return nil
 	}
@@ -204,7 +204,7 @@ func addGaugeNumberDataPoints(name string,
 }
 
 func addSumNumberDataPoints(name string,
-	tr blob.Func,
+	tr *store.View,
 	data pmetric.NumberDataPointSlice,
 	resource, scope, attr *px.Ctx, series SeriesMap) {
 	nameID := attr.Set(model.MetricNameLabel, name)
@@ -236,7 +236,7 @@ func addSumNumberDataPoints(name string,
 }
 
 func addHistogramDataPoints(name string,
-	tr blob.Func,
+	tr *store.View,
 	data pmetric.HistogramDataPointSlice,
 	resource, scope, attr *px.Ctx, series SeriesMap) {
 	sumID := attr.Set(model.MetricNameLabel, name+sumStr)
@@ -309,7 +309,7 @@ func (m byBucketBoundsData) Less(i, j int) bool { return m[i].bound < m[j].bound
 func (m byBucketBoundsData) Swap(i, j int)      { m[i], m[j] = m[j], m[i] }
 
 func addExponentialHistogramDataPoints(name string,
-	tr blob.Func,
+	tr *store.View,
 	data pmetric.ExponentialHistogramDataPointSlice,
 	resource, scope, attr *px.Ctx, series SeriesMap) error {
 	nameID := attr.Set(model.MetricNameLabel, name)
@@ -328,7 +328,7 @@ func addExponentialHistogramDataPoints(name string,
 		size := hs.Size()
 		buf = slices.Grow(buf, size)[:size]
 		hs.MarshalToSizedBuffer(buf)
-		id := tr(constants.MetricsHistogram, bytes.Clone(buf))
+		id := tr.Upsert(constants.MetricsHistogram, bytes.Clone(buf))
 
 		sample := series.Get(attr)
 		sample.Histograms = append(sample.Histograms, id)
@@ -372,7 +372,7 @@ type exemplarType interface {
 	Exemplars() pmetric.ExemplarSlice
 }
 
-func getPromExemplars[T exemplarType](pt T, tr blob.Func, f ...func(*prompb.Exemplar, uint64)) {
+func getPromExemplars[T exemplarType](pt T, tr *store.View, f ...func(*prompb.Exemplar, uint64)) {
 	promExemplar := &prompb.Exemplar{}
 	var buf []byte
 	for i := 0; i < pt.Exemplars().Len(); i++ {
@@ -424,7 +424,7 @@ func getPromExemplars[T exemplarType](pt T, tr blob.Func, f ...func(*prompb.Exem
 		size := promExemplar.Size()
 		buf = slices.Grow(buf, size)[:size]
 		promExemplar.MarshalToSizedBuffer(buf)
-		v := tr(constants.MetricsExemplars, bytes.Clone(buf))
+		v := tr.Upsert(constants.MetricsExemplars, bytes.Clone(buf))
 		if len(f) > 0 {
 			f[0](promExemplar, v)
 		}

@@ -4,26 +4,21 @@ import (
 	"context"
 	"time"
 
-	"github.com/dgraph-io/badger/v4"
 	"github.com/gernest/frieren/internal/batch"
-	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/shardwidth"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/internal/traces/traceproto"
-	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/quantum"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
 
-func AppendBatch(ctx context.Context, store *store.Store, td ptrace.Traces, ts time.Time) error {
+func AppendBatch(ctx context.Context, db *store.Store, td ptrace.Traces, ts time.Time) error {
 	view := quantum.ViewByTimeUnit("", ts, 'D')
-	return batch.Append(ctx, constants.TRACES, store, view,
-		func(txn *badger.Txn, _ *rbf.Tx, bx *batch.Batch) error {
-			seq := store.Seq.Sequence(view)
-			defer seq.Release()
-			a := appendTrace(bx, seq)
-			all := traceproto.From(td, blob.Upsert(txn, store, seq, view))
+	return batch.Append(ctx, constants.TRACES, db, view,
+		func(tx *store.View, bx *batch.Batch) error {
+			a := appendTrace(bx, tx.Seq)
+			all := traceproto.From(td, tx)
 			for _, t := range all {
 				a(t)
 			}

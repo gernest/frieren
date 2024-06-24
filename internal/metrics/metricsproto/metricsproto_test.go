@@ -8,8 +8,6 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/dgraph-io/badger/v4"
-	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gogo/protobuf/jsonpb"
@@ -23,13 +21,13 @@ func TestFrom(t *testing.T) {
 	defer db.Close()
 	var m SeriesMap
 	view := "test"
-	sea := db.Seq.Sequence(view)
 	o := new(bytes.Buffer)
 
-	err = db.DB.Update(func(txn *badger.Txn) error {
-		m = From(Sample(), blob.Upsert(txn, db, sea, view))
+	err = db.Update(func(tx *store.Tx) error {
+		vx := tx.View(nil, view)
+		m = From(Sample(), vx)
 		defer m.Release()
-		return m.Serialize(o, blob.Translate(txn, db, view))
+		return m.Serialize(o, vx)
 	})
 	require.NoError(t, err)
 	// err = os.WriteFile("testdata/series", o.Bytes(), 0600)
@@ -39,7 +37,7 @@ func TestFrom(t *testing.T) {
 	require.Equal(t, string(data), o.String())
 }
 
-func (m SeriesMap) Serialize(b *bytes.Buffer, tr blob.Tr) error {
+func (m SeriesMap) Serialize(b *bytes.Buffer, tr *store.View) error {
 	b.Reset()
 	keys := make([]uint64, 0, len(m))
 	for k := range m {
@@ -67,12 +65,12 @@ func (m SeriesMap) Serialize(b *bytes.Buffer, tr blob.Tr) error {
 
 var sep = []byte("=")
 
-func (s *Series) To(o *prompb.TimeSeries, tr blob.Tr) error {
+func (s *Series) To(o *prompb.TimeSeries, tr *store.View) error {
 	o.Reset()
 	if len(s.Labels) > 0 {
 		o.Labels = make([]prompb.Label, len(s.Labels))
 		for i := range s.Labels {
-			v := tr(constants.MetricsLabels, s.Labels[i])
+			v := tr.Tr(constants.MetricsLabels, s.Labels[i])
 			key, value, _ := bytes.Cut(v, sep)
 			o.Labels[i] = prompb.Label{
 				Name:  string(key),
@@ -85,7 +83,7 @@ func (s *Series) To(o *prompb.TimeSeries, tr blob.Tr) error {
 		o.Exemplars = make([]prompb.Exemplar, len(s.Exemplars))
 		for i := range o.Exemplars {
 			e := &o.Exemplars[i]
-			err := e.Unmarshal(tr(constants.MetricsExemplars, s.Exemplars[i]))
+			err := e.Unmarshal(tr.Tr(constants.MetricsExemplars, s.Exemplars[i]))
 			if err != nil {
 				return err
 			}
@@ -96,7 +94,7 @@ func (s *Series) To(o *prompb.TimeSeries, tr blob.Tr) error {
 		o.Histograms = make([]prompb.Histogram, len(s.Histograms))
 		for i := range o.Histograms {
 			h := &o.Histograms[i]
-			err := h.Unmarshal(tr(constants.MetricsHistogram, s.Histograms[i]))
+			err := h.Unmarshal(tr.Tr(constants.MetricsHistogram, s.Histograms[i]))
 			if err != nil {
 				return err
 			}

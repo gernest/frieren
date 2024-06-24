@@ -2,44 +2,14 @@ package predicate
 
 import (
 	"github.com/RoaringBitmap/roaring/roaring64"
-	"github.com/dgraph-io/badger/v4"
-	v1 "github.com/gernest/frieren/gen/go/fri/v1"
-	"github.com/gernest/frieren/internal/blob"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/store"
-	"github.com/gernest/rbf"
 	"github.com/gernest/rows"
 	"github.com/grafana/tempo/pkg/traceql"
 )
 
-type Context struct {
-	Shard  *v1.Shard
-	View   string
-	Tx     *rbf.Tx
-	Txn    *badger.Txn
-	Find   blob.Find
-	Tr     blob.Tr
-	TrCall blob.TrCall
-}
-
-func NewContext(shard *v1.Shard, view string, db *store.Store, tx *rbf.Tx, txn *badger.Txn) *Context {
-	return &Context{
-		Shard:  shard,
-		View:   view,
-		Tx:     tx,
-		Txn:    txn,
-		Find:   blob.Finder(txn, db, view),
-		Tr:     blob.Translate(txn, db, view),
-		TrCall: blob.TranslateCall(txn, db, view),
-	}
-}
-
-func (ctx *Context) Field(id constants.ID) *fields.Fragment {
-	f := fields.New(id, ctx.Shard.Id, ctx.View)
-	f.Depth = ctx.Shard.BitDepth[uint64(id)]
-	return f
-}
+type Context = store.View
 
 type Predicate interface {
 	Apply(ctx *Context) (*rows.Row, error)
@@ -218,6 +188,7 @@ func (f Or) Apply(ctx *Context) (*rows.Row, error) {
 	}
 	return r, nil
 }
+
 func (f Or) Extract(ctx *Context) (*roaring64.Bitmap, error) {
 	if len(f) == 0 {
 		return roaring64.NewBitmap(), nil
@@ -256,6 +227,6 @@ func (f *Between) Extract(_ *Context) (*roaring64.Bitmap, error) {
 }
 
 func (f *Between) Apply(ctx *Context) (*rows.Row, error) {
-	fx := ctx.Field(f.Field)
-	return fx.Between(ctx.Tx, f.Start, f.End)
+	fx := fields.From(ctx, f.Field)
+	return fx.Between(ctx.Tx.Tx(), f.Start, f.End)
 }
