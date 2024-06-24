@@ -21,7 +21,7 @@ func (x *Ctx) ID(field constants.ID) uint64 {
 	x.buf.Reset()
 	x.o.RunOptimize()
 	x.o.WriteTo(&x.buf)
-	sum := sha512.Sum512(x.buf.Bytes())
+	sum := sha512.Sum512_256(x.buf.Bytes())
 	return x.tr.Upsert(field, sum[:])
 }
 
