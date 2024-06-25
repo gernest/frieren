@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"math"
 	"testing"
 
 	"github.com/gernest/frieren/internal/constants"
@@ -55,6 +56,20 @@ func TestBach_Append(t *testing.T) {
 			return nil
 		})
 
+	})
+	t.Run("values", func(t *testing.T) {
+		query.Query(db, constants.METRICS, util.TS(), util.TS(), func(view *store.View) error {
+			field := fields.From(view, constants.MetricsValue)
+			all, _ := field.TransposeBSI(view.Index(), nil)
+			a := all.ToArray()
+			o := make([]float64, len(a))
+			for i := range a {
+				o[i] = math.Float64frombits(a[i])
+			}
+			want := []float64{0.0, 2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 30.0}
+			require.Equal(t, want, o)
+			return nil
+		})
 	})
 	t.Run("views", func(t *testing.T) {
 		var views []string
