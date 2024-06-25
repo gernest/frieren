@@ -1,4 +1,38 @@
 
+# frieren
+
+Ultra  fast alternative to prometheus, loki and tempo for open telemetry
+data in testing environments.
+
+Test , experiment and verify your open telemetry instrumentation before pushing things 
+to production.
+
+
+# Features
+
+- Painless: Just point your otel collector, or send the data directly via otlp.
+
+```yaml
+exporters:
+  otlp:
+    endpoint: localhost:4317
+    tls:
+      insecure: true
+service:
+  pipelines:
+    traces:
+      exporters: [otlp]
+    metrics:
+      exporters: [otlp]
+    logs:
+      exporters: [otlp]
+```
+
+- Familiar API: query metrics with prometheus api, logs with loki api and traces with tempo api
+- Crazy fast: We use compressed roaring bitmaps for extremely fast queries.
+- Realtime: There is no batching/compaction steps. If the sample is accepted it
+ is ready to be queried right away.
+- Unlimited cardinality.
 
 # Prometheus
 
