@@ -27,7 +27,7 @@ func Matchers(field constants.ID, matchers ...*labels.Matcher) Predicate {
 
 func MatchersPlain(field constants.ID, matchers ...*labels.Matcher) []Predicate {
 	if len(matchers) == 0 {
-		return nil
+		return []Predicate{}
 	}
 	o := make([]Predicate, 0, len(matchers))
 	for _, m := range matchers {
