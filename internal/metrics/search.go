@@ -194,6 +194,7 @@ func (s MapSet) Build(ctx *predicate.Context, filter *rows.Row) error {
 		// to have a global unique series.
 		seriesHashID := it.Next()
 
+		// Globally unique ID for the current series.
 		seriesID := hash.Sum(ctx.Tr(constants.MetricsSeries, seriesHashID))
 
 		// Find all rows for each series matching the filter
