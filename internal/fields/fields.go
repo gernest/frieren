@@ -132,11 +132,11 @@ func (f *Fragment) EqBSI(tx *rbf.Tx, value uint64, filter ...*rows.Row) (*rows.R
 }
 
 func (f *Fragment) False(tx *rbf.Tx) (*rows.Row, error) {
-	return f.Row(tx, falseRowOffset)
+	return f.Row(tx, falseRowID)
 }
 
 func (f *Fragment) True(tx *rbf.Tx) (*rows.Row, error) {
-	return f.Row(tx, trueRowOffset)
+	return f.Row(tx, trueRowID)
 }
 
 func (f *Fragment) Exists(tx *rbf.Tx) (*rows.Row, error) {

@@ -117,19 +117,17 @@ func NewSeriesSet(m MapSet) *SeriesSet {
 	for i := range keys {
 		s = append(s, storage.NewListSeries(m[keys[i]].Labels, m[keys[i]].Samples))
 	}
-	return &SeriesSet{
-		series: s, pos: -1,
-	}
+	return &SeriesSet{series: s}
 }
 
 var _ storage.SeriesSet = (*SeriesSet)(nil)
 
 func (s *SeriesSet) Next() bool {
-	s.pos++
 	return s.pos < len(s.series)
 }
 
 func (s *SeriesSet) At() storage.Series {
+	defer func() { s.pos++ }()
 	return s.series[s.pos]
 }
 
@@ -186,6 +184,7 @@ func (s MapSet) Build(ctx *predicate.Context, filter *rows.Row) error {
 	}
 	histograms = histograms.Intersect(filter)
 	hasHistogram := !histograms.IsEmpty()
+
 	mapping := map[uint64]int{}
 	hash := new(store.Hash)
 	for it.HasNext() {
