@@ -10,6 +10,7 @@ to production.
 
 # Features
 
+- Single binary,zero dependency: One `frieren` binary to rule them all.
 - Supports `PromQL` , `LogQL` and `TraceQL`
 - Painless: Just point your otel collector, or send the data directly via otlp.
 
