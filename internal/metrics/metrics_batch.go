@@ -46,6 +46,7 @@ func appendBatch(b *batch.Batch, series *metricsproto.Series, seq *store.Sequenc
 		b.BSI(constants.MetricsTimestamp, shard, id, series.Timestamp[i])
 		b.BSI(constants.MetricsValue, shard, id, series.Values[i])
 		b.Set(constants.MetricsLabels, shard, id, series.Labels)
+		b.Bool(constants.MetricsHistogram, shard, id, false)
 		b.Set(constants.MetricsExemplars, shard, id, series.Exemplars)
 	}
 	currentShard = ^uint64(0)

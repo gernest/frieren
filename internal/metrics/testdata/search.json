@@ -16,6 +16,26 @@
       ],
       [
         1136214240,
+        "2"
+      ],
+      [
+        1136214240,
+        "8"
+      ],
+      [
+        1136214240,
+        "12"
+      ],
+      [
+        1136214240,
+        "10"
+      ],
+      [
+        1136214240,
+        "10"
+      ],
+      [
+        1136214240,
         "10"
       ],
       [
@@ -28,35 +48,11 @@
       ],
       [
         1136214240,
-        "10"
-      ],
-      [
-        1136214240,
-        "2"
-      ],
-      [
-        1136214240,
         "4"
       ],
       [
         1136214240,
         "6"
-      ],
-      [
-        1136214240,
-        "8"
-      ],
-      [
-        1136214240,
-        "10"
-      ],
-      [
-        1136214240,
-        "12"
-      ],
-      [
-        1136214240,
-        "0"
       ]
     ]
   },
@@ -80,26 +76,23 @@
   },
   {
     "metric": {
-      "__name__": "test_histogram_count",
+      "__name__": "test_histogram_bucket",
       "foo_bar": "baz",
       "host_name": "test-host",
       "instance": "test-instance",
       "job": "test-service",
+      "le": "3",
       "service_instance_id": "test-instance",
       "service_name": "test-service"
     },
     "values": [
       [
         1136214240,
-        "10"
-      ],
-      [
-        1136214240,
         "8"
       ],
       [
         1136214240,
-        "0"
+        "10"
       ]
     ]
   },
@@ -123,15 +116,24 @@
   },
   {
     "metric": {
-      "__name__": "test_gauge",
+      "__name__": "test_histogram_bucket",
       "foo_bar": "baz",
       "host_name": "test-host",
       "instance": "test-instance",
       "job": "test-service",
+      "le": "3",
       "service_instance_id": "test-instance",
       "service_name": "test-service"
     },
     "values": [
+      [
+        1136214240,
+        "8"
+      ],
+      [
+        1136214240,
+        "12"
+      ],
       [
         1136214240,
         "10"
@@ -143,39 +145,28 @@
       [
         1136214240,
         "4"
-      ],
-      [
-        1136214240,
-        "8"
-      ],
-      [
-        1136214240,
-        "12"
-      ],
-      [
-        1136214240,
-        "0"
       ]
     ]
   },
   {
     "metric": {
-      "__name__": "test_histogram_sum",
+      "__name__": "test_histogram_bucket",
       "foo_bar": "baz",
       "host_name": "test-host",
       "instance": "test-instance",
       "job": "test-service",
+      "le": "+Inf",
       "service_instance_id": "test-instance",
       "service_name": "test-service"
     },
     "values": [
       [
         1136214240,
-        "30"
+        "10"
       ],
       [
         1136214240,
-        "10"
+        "30"
       ],
       [
         1136214240,

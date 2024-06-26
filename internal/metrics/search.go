@@ -185,10 +185,17 @@ func (s MapSet) Build(ctx *predicate.Context, filter *rows.Row) error {
 	histograms = histograms.Intersect(filter)
 	hasHistogram := !histograms.IsEmpty()
 
+	// Filter to check if series is of histogram type
+	floats, err := hf.False(ctx.Index())
+	if err != nil {
+		return fmt.Errorf("reading histogram %w", err)
+	}
+	floats = floats.Intersect(filter)
+	hasFloats := !floats.IsEmpty()
+
 	mapping := map[uint64]int{}
 	hash := new(store.Hash)
 	for it.HasNext() {
-
 		// This id is unique only in current view. We create a xxhash of the checksum
 		// to have a global unique series.
 		seriesHashID := it.Next()
@@ -209,48 +216,48 @@ func (s MapSet) Build(ctx *predicate.Context, filter *rows.Row) error {
 
 		chunks := make([]chunks.Sample, len(columns))
 
-		if hasHistogram && histograms.Includes(columns[0]) {
-			isFloat := false
-			first := true
-			hs := &prompb.Histogram{}
-			err := vf.ExtractBSI(ctx.Index(), sr, mapping, func(i int, v uint64) error {
-				hs.Reset()
-				err = hs.Unmarshal(ctx.Tr(constants.MetricsHistogram, v))
-				if err != nil {
-					return fmt.Errorf("reading histogram blob %w", err)
-				}
-				if first {
-					_, isFloat = hs.Count.(*prompb.Histogram_CountFloat)
-					first = false
-				}
-				if isFloat {
-					chunks[i] = NewFH(hs)
+		if hasHistogram {
+			hf := histograms.Intersect(sr)
+			if hf.Any() {
+				hs := &prompb.Histogram{}
+				err := vf.ExtractBSI(ctx.Index(), hf, mapping, func(i int, v uint64) error {
+					hs.Reset()
+					err = hs.Unmarshal(ctx.Tr(constants.MetricsHistogram, v))
+					if err != nil {
+						return fmt.Errorf("reading histogram blob %w", err)
+					}
+					if _, isFloat := hs.Count.(*prompb.Histogram_CountFloat); isFloat {
+						chunks[i] = NewFH(hs)
+					} else {
+						chunks[i] = NewH(hs)
+					}
 					return nil
+				})
+				if err != nil {
+					return fmt.Errorf("extracting values %w", err)
 				}
-				chunks[i] = NewH(hs)
-				return nil
-			})
-			if err != nil {
-				return fmt.Errorf("extracting values %w", err)
 			}
-		} else {
-			// This is a float series
-			for i := range chunks {
-				chunks[i] = &V{}
-			}
-			err := vf.ExtractBSI(ctx.Index(), sr, mapping, func(i int, v uint64) error {
-				chunks[i].(*V).f = math.Float64frombits(v)
-				return nil
-			})
-			if err != nil {
-				return fmt.Errorf("extracting values %w", err)
-			}
-			err = tf.ExtractBSI(ctx.Index(), sr, mapping, func(i int, v uint64) error {
-				chunks[i].(*V).ts = int64(v)
-				return nil
-			})
-			if err != nil {
-				return fmt.Errorf("extracting timestamp %w", err)
+		}
+		if hasFloats {
+			ff := floats.Intersect(sr)
+			if ff.Any() {
+				fmt.Println("=> floats ", ff.Columns())
+				err := vf.ExtractBSI(ctx.Index(), ff, mapping, func(i int, v uint64) error {
+					chunks[i] = &V{
+						f: math.Float64frombits(v),
+					}
+					return nil
+				})
+				if err != nil {
+					return fmt.Errorf("extracting values %w", err)
+				}
+				err = tf.ExtractBSI(ctx.Index(), ff, mapping, func(i int, v uint64) error {
+					chunks[i].(*V).ts = int64(v)
+					return nil
+				})
+				if err != nil {
+					return fmt.Errorf("extracting timestamp %w", err)
+				}
 			}
 		}
 		err = add(lf, seriesID, columns[0], chunks)
