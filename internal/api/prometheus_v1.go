@@ -731,7 +731,7 @@ func (api *prometheusAPI) respond(w http.ResponseWriter, _ *http.Request, data i
 		Data:   data,
 	}
 
-	b, err := json.Marshal(resp)
+	b, err := JSONCodec{}.Encode(resp)
 	if err != nil {
 		slog.Error("msg", "error marshaling response", "err", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
