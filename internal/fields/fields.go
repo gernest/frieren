@@ -264,7 +264,7 @@ func (f *Fragment) rangeEQ(tx *rbf.Tx, predicate uint64, filter ...*rows.Row) (*
 	if len(filter) > 0 {
 		b = b.Intersect(filter[0])
 	}
-	bitDepth := bits.Len64(predicate)
+	bitDepth := bits.LeadingZeros64(predicate)
 	// Filter any bits that don't match the current bit value.
 	for i := int(bitDepth - 1); i >= 0; i-- {
 		row, err := f.Row(tx, uint64(bsiOffsetBit+i))

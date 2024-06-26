@@ -2,27 +2,27 @@ package px
 
 import (
 	"bytes"
-	"crypto/sha512"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
+	"github.com/cespare/xxhash/v2"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/store"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 )
 
 type Ctx struct {
-	o   roaring64.Bitmap
-	tr  *store.View
-	buf bytes.Buffer
-	id  constants.ID
+	o    roaring64.Bitmap
+	tr   *store.View
+	buf  bytes.Buffer
+	id   constants.ID
+	hash xxhash.Digest
 }
 
 func (x *Ctx) ID(field constants.ID) uint64 {
-	x.buf.Reset()
+	x.hash.Reset()
 	x.o.RunOptimize()
-	x.o.WriteTo(&x.buf)
-	sum := sha512.Sum512_256(x.buf.Bytes())
-	return x.tr.Upsert(field, sum[:])
+	x.o.WriteTo(&x.hash)
+	return x.tr.Upsert(field, x.hash.Sum(make([]byte, 8)[:0]))
 }
 
 func (x *Ctx) Tr(k []byte) uint64 {

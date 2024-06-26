@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"slices"
@@ -194,14 +195,13 @@ func (s MapSet) Build(ctx *predicate.Context, filter *rows.Row) error {
 	hasFloats := !floats.IsEmpty()
 
 	mapping := map[uint64]int{}
-	hash := new(store.Hash)
 	for it.HasNext() {
 		// This id is unique only in current view. We create a xxhash of the checksum
 		// to have a global unique series.
 		seriesHashID := it.Next()
 
 		// Globally unique ID for the current series.
-		seriesID := hash.Sum(ctx.Tr(constants.MetricsSeries, seriesHashID))
+		seriesID := binary.BigEndian.Uint64(ctx.Tr(constants.MetricsSeries, seriesHashID))
 
 		// Find all rows for each series matching the filter
 		sr, err := sf.EqBSI(ctx.Index(), seriesHashID, filter)
@@ -241,7 +241,6 @@ func (s MapSet) Build(ctx *predicate.Context, filter *rows.Row) error {
 		if hasFloats {
 			ff := floats.Intersect(sr)
 			if ff.Any() {
-				fmt.Println("=> floats ", ff.Columns())
 				err := vf.ExtractBSI(ctx.Index(), ff, mapping, func(i int, v uint64) error {
 					chunks[i] = &V{
 						f: math.Float64frombits(v),
