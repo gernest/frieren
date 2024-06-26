@@ -3,6 +3,7 @@ package logs
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"time"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
@@ -81,8 +82,6 @@ func (qr *Querier) SelectLogs(ctx context.Context, req logql.SelectLogParams) (r
 	plain = predicate.Optimize(plain, true)
 	match := predicate.And(plain)
 
-	hash := new(store.Hash)
-
 	streamSet := map[uint64]*logproto.Stream{}
 	err = query.Query(qr.db, constants.LOGS, req.Start, req.End, func(view *store.View) error {
 		r, err := match.Apply(view)
@@ -111,7 +110,7 @@ func (qr *Querier) SelectLogs(ctx context.Context, req logql.SelectLogParams) (r
 			// unique stream hash.
 			//
 			// We use Tr to make sure the hash blob is cached.
-			streamID := hash.Sum(view.Tr(constants.LogsStreamID, streamHashID))
+			streamID := binary.BigEndian.Uint64(view.Tr(constants.LogsStreamID, streamHashID))
 
 			// find all rows for the current stream ID matching the filter.
 			streamRows, err := stream.EqBSI(view.Index(), streamHashID, r)
