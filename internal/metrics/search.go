@@ -3,7 +3,9 @@ package metrics
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"io"
 	"math"
 	"slices"
 	"time"
@@ -86,7 +88,7 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 	})
 
 	match := predicate.And(predicate.Optimize(matchSet, true))
-
+	isSeriesQuery := hints.Func == "series"
 	err := query.Query(s.store, constants.METRICS, s.start, s.end, func(view *store.View) error {
 		r, err := match.Apply(view)
 		if err != nil {
@@ -94,6 +96,9 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 		}
 		if r.IsEmpty() {
 			return nil
+		}
+		if isSeriesQuery {
+			return m.Series(view, r)
 		}
 		return m.Build(view, r)
 	})
@@ -262,6 +267,57 @@ func (s MapSet) Build(ctx *predicate.Context, filter *rows.Row) error {
 		err = add(lf, seriesID, columns[0], chunks)
 		if err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// Series is like build but avoids reading samples. It is optimized for /series endpoint.
+func (s MapSet) Series(ctx *predicate.Context, filter *rows.Row) error {
+	// fragments
+	sf := fields.From(ctx, constants.MetricsSeries)
+	lf := fields.From(ctx, constants.MetricsLabels)
+
+	// find all series
+	series, err := sf.TransposeBSI(ctx.Index(), filter)
+	if err != nil {
+		return err
+	}
+	if series.IsEmpty() {
+		return nil
+	}
+
+	// iterate on each series
+	it := series.Iterator()
+
+	for it.HasNext() {
+		// This id is unique only in current view. We create a xxhash of the checksum
+		// to have a global unique series.
+		seriesHashID := it.Next()
+
+		// Globally unique ID for the current series.
+		seriesID := binary.BigEndian.Uint64(ctx.Tr(constants.MetricsSeries, seriesHashID))
+		if _, seenSeries := s[seriesID]; seenSeries {
+			continue
+		}
+		// Find all rows for each series matching the filter
+		sr, err := sf.EqBSI(ctx.Index(), seriesHashID, filter)
+		if err != nil {
+			return fmt.Errorf("reading columns for series %w", err)
+		}
+		err = sr.RangeColumns(func(u uint64) error {
+			labels, err := lf.Labels(ctx, u)
+			if err != nil {
+				return err
+			}
+			s[seriesID] = &S{Labels: labels}
+			// Make sure we only iterate once
+			return io.EOF
+		})
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				return fmt.Errorf("reading series labels %w", err)
+			}
 		}
 	}
 	return nil
