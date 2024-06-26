@@ -115,7 +115,6 @@ type apiFuncResult struct {
 type apiFunc func(r *http.Request) apiFuncResult
 
 type prometheusAPI struct {
-	cors     *regexp.Regexp
 	qe       *promql.Engine
 	qs       ps.Queryable
 	examplar ps.ExemplarQueryable
@@ -128,7 +127,12 @@ func Add(mux *http.ServeMux, db *store.Store) {
 	newPrometheusAPI(db).Register(api)
 	newLokiAPI(db).Register(api)
 	newTempoAPI(db).Register(api)
-	mux.Handle("/api/", api)
+	cors, _ := compileCORSRegexString(".*")
+
+	mux.Handle("/api/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		httputil.SetCORS(w, cors, r)
+		api.ServeHTTP(w, r)
+	}))
 }
 
 func newPrometheusAPI(db *store.Store) *prometheusAPI {
@@ -138,7 +142,6 @@ func newPrometheusAPI(db *store.Store) *prometheusAPI {
 	trackPath := filepath.Join(db.Path(), "prometheus", "track")
 	os.MkdirAll(trackPath, 0755)
 	logger := promlog.New(&promlog.Config{})
-	cors, _ := compileCORSRegexString(".*")
 
 	eo := promql.EngineOpts{
 		Logger:                   log.With(logger, "component", "query engine"),
@@ -153,7 +156,6 @@ func newPrometheusAPI(db *store.Store) *prometheusAPI {
 	queryEngine := promql.NewEngine(eo)
 	return &prometheusAPI{
 		db:       db,
-		cors:     cors,
 		qe:       queryEngine,
 		qs:       query,
 		examplar: metrics.NewExemplarQueryable(db),
@@ -168,10 +170,10 @@ func compileCORSRegexString(s string) (*regexp.Regexp, error) {
 	}
 	return r.Regexp, nil
 }
+
 func (api *prometheusAPI) Register(r *route.Router) {
 	wrap := func(f apiFunc) http.HandlerFunc {
 		hf := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			httputil.SetCORS(w, api.cors, r)
 			result := f(r)
 			if result.finalizer != nil {
 				defer result.finalizer()
