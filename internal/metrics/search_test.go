@@ -69,6 +69,11 @@ func promSeries(s storage.Series) promql.Series {
 			o.Histograms = append(o.Histograms, promql.HPoint{
 				T: v, H: f,
 			})
+		case chunkenc.ValHistogram:
+			v, f := it.AtHistogram(nil)
+			o.Histograms = append(o.Histograms, promql.HPoint{
+				T: v, H: f.ToFloat(nil),
+			})
 		}
 	}
 	return o
