@@ -30,9 +30,10 @@ service:
 
 - Familiar API: query metrics with prometheus api, logs with loki api and traces with tempo api
 - Crazy fast: We use compressed roaring bitmaps for extremely fast queries.
-- Realtime: There is no batching/compaction steps. If the sample is accepted it
- is ready to be queried right away.
+- Realtime:  If the sample is accepted it is ready to be queried right away.
 - Unlimited cardinality.
+- Efficient: numeric data is stored in 2d compressed roaring bitmaps. Blobs are stored
+ in content addressable store.
 
 # Prometheus
 
