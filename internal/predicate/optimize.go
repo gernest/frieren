@@ -53,50 +53,9 @@ func (f *Strings) Apply(ctx *Context) (*rows.Row, error) {
 	return rows.NewRow(), nil
 }
 
-func (f *Strings) Extract(ctx *Context) (*roaring64.Bitmap, error) {
-	switch f.Predicates[0].op {
-	case traceql.OpEqual:
-		return f.EEQ(ctx)
-	case traceql.OpNotEqual:
-		return f.ENEQ(ctx)
-	case traceql.OpRegex:
-		return f.ERE(ctx)
-	case traceql.OpNotRegex:
-		return f.ENRE(ctx)
-	case traceql.OpLess:
-		return f.ELT(ctx)
-	case traceql.OpLessEqual:
-		return f.ELTE(ctx)
-	case traceql.OpGreater:
-		return f.EGT(ctx)
-	case traceql.OpGreaterEqual:
-		return f.EGTE(ctx)
-	}
-	return roaring64.New(), nil
-}
-
 func (s *Strings) GTE(ctx *Context) (*rows.Row, error) {
 	b := new(bytes.Buffer)
 	return s.applyFST(ctx, func(p *String) (opts fstOptions, err error) {
-		b.WriteString(p.key)
-		b.WriteByte('=')
-		prefix := bytes.Clone(b.Bytes())
-		b.WriteString(p.value)
-		full := bytes.Clone(b.Bytes())
-		return fstOptions{
-			a:     &vellum.AlwaysMatch{},
-			start: full,
-			end:   nil,
-			match: func(b []byte) bool {
-				return bytes.HasPrefix(b, prefix)
-			},
-		}, nil
-	})
-}
-
-func (s *Strings) EGTE(ctx *Context) (*roaring64.Bitmap, error) {
-	b := new(bytes.Buffer)
-	return s.matchFST(ctx, func(p *String) (opts fstOptions, err error) {
 		b.WriteString(p.key)
 		b.WriteByte('=')
 		prefix := bytes.Clone(b.Bytes())
@@ -138,53 +97,9 @@ func (s *Strings) GT(ctx *Context) (*rows.Row, error) {
 	})
 }
 
-func (s *Strings) EGT(ctx *Context) (*roaring64.Bitmap, error) {
-	b := new(bytes.Buffer)
-	return s.matchFST(ctx, func(p *String) (opts fstOptions, err error) {
-		b.WriteString(p.key)
-		b.WriteByte('=')
-		prefix := bytes.Clone(b.Bytes())
-		b.WriteString(p.value)
-		full := bytes.Clone(b.Bytes())
-		return fstOptions{
-			a:     &vellum.AlwaysMatch{},
-			start: full,
-			end:   nil,
-			match: func(b []byte) bool {
-				return bytes.HasPrefix(b, prefix)
-			},
-			after: func(it *vellum.FST, b *roaring64.Bitmap, err error) {
-				v, ok, _ := it.Get(full)
-				if ok {
-					b.Remove(v)
-				}
-			},
-		}, nil
-	})
-}
-
 func (s *Strings) LT(ctx *Context) (*rows.Row, error) {
 	b := new(bytes.Buffer)
 	return s.applyFST(ctx, func(p *String) (opts fstOptions, err error) {
-		b.WriteString(p.key)
-		b.WriteByte('=')
-		prefix := bytes.Clone(b.Bytes())
-		b.WriteString(p.value)
-		full := bytes.Clone(b.Bytes())
-		return fstOptions{
-			a:     &vellum.AlwaysMatch{},
-			start: prefix,
-			end:   full,
-			match: func(b []byte) bool {
-				return bytes.HasPrefix(b, prefix)
-			},
-		}, nil
-	})
-}
-
-func (s *Strings) ELT(ctx *Context) (*roaring64.Bitmap, error) {
-	b := new(bytes.Buffer)
-	return s.matchFST(ctx, func(p *String) (opts fstOptions, err error) {
 		b.WriteString(p.key)
 		b.WriteByte('=')
 		prefix := bytes.Clone(b.Bytes())
@@ -229,34 +144,6 @@ func (s *Strings) LTE(ctx *Context) (*rows.Row, error) {
 	})
 }
 
-func (s *Strings) ELTE(ctx *Context) (*roaring64.Bitmap, error) {
-	b := new(bytes.Buffer)
-	return s.matchFST(ctx, func(p *String) (opts fstOptions, err error) {
-		b.WriteString(p.key)
-		b.WriteByte('=')
-		prefix := bytes.Clone(b.Bytes())
-		b.WriteString(p.value)
-		full := bytes.Clone(b.Bytes())
-		return fstOptions{
-			a:     &vellum.AlwaysMatch{},
-			start: prefix,
-			end:   full,
-			match: func(b []byte) bool {
-				return bytes.HasPrefix(b, prefix)
-			},
-			after: func(it *vellum.FST, b *roaring64.Bitmap, err error) {
-				if err != nil {
-					return
-				}
-				v, ok, _ := it.Get(full)
-				if ok {
-					b.Add(v)
-				}
-			},
-		}, nil
-	})
-}
-
 func (s *Strings) NRE(ctx *Context) (*rows.Row, error) {
 	field := s.Predicates[0].field
 	f := fields.From(ctx, field)
@@ -274,40 +161,9 @@ func (s *Strings) NRE(ctx *Context) (*rows.Row, error) {
 	return exists.Difference(r), nil
 }
 
-func (s *Strings) ENRE(ctx *Context) (*roaring64.Bitmap, error) {
-	o, err := s.ERE(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return s.extractNot(ctx, o)
-}
-
-func (s *Strings) extractNot(ctx *Context, b *roaring64.Bitmap) (*roaring64.Bitmap, error) {
-	field := s.Predicates[0].field
-	f := fields.From(ctx, field)
-	o := roaring64.New()
-	err := f.RowsBitmap(ctx.Index(), 0, o)
-	if err != nil {
-		return nil, err
-	}
-	o.AndNot(b)
-	return o, nil
-}
-
 func (s *Strings) RE(ctx *Context) (*rows.Row, error) {
 	b := new(bytes.Buffer)
 	return s.applyFST(ctx, func(p *String) (opts fstOptions, err error) {
-		re, err := Compile(b, p.key, p.value)
-		if err != nil {
-			return fstOptions{}, err
-		}
-		return fstOptions{a: re, match: always}, nil
-	})
-}
-
-func (s *Strings) ERE(ctx *Context) (*roaring64.Bitmap, error) {
-	b := new(bytes.Buffer)
-	return s.matchFST(ctx, func(p *String) (opts fstOptions, err error) {
 		re, err := Compile(b, p.key, p.value)
 		if err != nil {
 			return fstOptions{}, err
@@ -405,14 +261,6 @@ func (s *Strings) NEQ(ctx *Context) (*rows.Row, error) {
 	return all.Difference(r), nil
 }
 
-func (s *Strings) ENEQ(ctx *Context) (*roaring64.Bitmap, error) {
-	r, err := s.EEQ(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return s.extractNot(ctx, r)
-}
-
 func (s *Strings) EQ(ctx *Context) (*rows.Row, error) {
 	field := s.Predicates[0].field
 	buf := new(bytes.Buffer)
@@ -432,27 +280,6 @@ func (s *Strings) EQ(ctx *Context) (*rows.Row, error) {
 		ids = append(ids, id)
 	}
 	return s.apply(ctx, ids)
-}
-
-func (s *Strings) EEQ(ctx *Context) (*roaring64.Bitmap, error) {
-	field := s.Predicates[0].field
-	buf := new(bytes.Buffer)
-	o := roaring64.New()
-	for _, v := range s.Predicates {
-		buf.Reset()
-		buf.WriteString(v.key)
-		buf.WriteByte('=')
-		buf.WriteString(v.value)
-		id, ok := ctx.Find(field, buf.Bytes())
-		if !ok {
-			if s.All {
-				return roaring64.New(), nil
-			}
-			continue
-		}
-		o.Add(id)
-	}
-	return o, nil
 }
 
 func (s *Strings) apply(ctx *Context, columns []uint64) (*rows.Row, error) {
@@ -495,9 +322,6 @@ func (f *Ints) Index() int {
 	return f.Predicates[0].Index()
 }
 
-func (f *Ints) Extract(_ *Context) (*roaring64.Bitmap, error) {
-	return roaring64.New(), nil
-}
 func (f *Ints) Apply(ctx *Context) (*rows.Row, error) {
 	field := f.Predicates[0].field
 	fx := fields.From(ctx, field)

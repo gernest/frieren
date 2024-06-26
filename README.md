@@ -2,7 +2,7 @@
 # frieren
 
 Ultra  fast alternative to prometheus, loki and tempo for open telemetry
-data in testing environments.
+data in (development | testing | staging ) environments.
 
 Test , experiment and verify your open telemetry instrumentation before pushing things 
 to production.
