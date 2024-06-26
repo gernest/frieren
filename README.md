@@ -10,6 +10,7 @@ to production.
 
 # Features
 
+- Supports `PromQL` , `LogQL` and `TraceQL`
 - Painless: Just point your otel collector, or send the data directly via otlp.
 
 ```yaml
