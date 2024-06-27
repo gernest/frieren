@@ -133,6 +133,8 @@ func Main() *cli.Command {
 			// register http api
 			api.Add(mux, db)
 
+			mux.HandleFunc("/backup", db.BackupHandler)
+
 			gs := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()))
 			defer gs.Stop()
 
