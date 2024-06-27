@@ -17,7 +17,7 @@ import (
 )
 
 func (s *Store) BackupHandler(w http.ResponseWriter, r *http.Request) {
-	name := ulid.Make().String() + "frieren_backup.tar"
+	name := ulid.Make().String() + "_frieren_backup.tar"
 	path := filepath.Join(s.path, name)
 	tmp, err := os.Create(path)
 	if err != nil {

@@ -108,17 +108,17 @@ func Main() *cli.Command {
 			otlp := c.String("otlp")
 			httpAPI := c.String("api")
 			slog.Info("Initializing server", "data", data, "otlp", otlp, "api", httpAPI)
-			ol, err := net.Listen("tcp", otlp)
+			otlpListen, err := net.Listen("tcp", otlp)
 			if err != nil {
 				return err
 			}
-			defer ol.Close()
+			defer otlpListen.Close()
 
-			al, err := net.Listen("tcp", httpAPI)
+			httpListen, err := net.Listen("tcp", httpAPI)
 			if err != nil {
 				return err
 			}
-			defer al.Close()
+			defer httpListen.Close()
 
 			db, err := store.New(data)
 			if err != nil {
@@ -145,7 +145,7 @@ func Main() *cli.Command {
 			go func() {
 				defer cancel()
 				slog.Info("starting gRPC otel collector server", "address", otlp)
-				err := gs.Serve(ol)
+				err := gs.Serve(otlpListen)
 				if err != nil {
 					slog.Error("exited grpc service", "err", err)
 				}
@@ -159,7 +159,7 @@ func Main() *cli.Command {
 					Handler:     oh,
 					BaseContext: func(l net.Listener) context.Context { return ctx },
 				}
-				err := svr.Serve(ol)
+				err := svr.Serve(httpListen)
 				if err != nil {
 					slog.Error("exited grpc service", "err", err)
 				}
