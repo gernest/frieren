@@ -25,3 +25,19 @@ message Entry {
   string line = 4;
   repeated bytes meatadata = 5;
 }
+
+// Sample models metrics sample similar to prometheus. Histogram is an integer
+// histogram since we rely on prometheus trnaslation of otel.
+message Sample {
+  bytes series = 1;
+  repeated string labels = 2;
+  repeated bytes exemplars = 3;
+  Kind kind = 4;
+  double value = 5;
+  bytes histogram = 6;
+
+  enum Kind {
+    Float = 0;
+    Histogram = 1;
+  }
+}
