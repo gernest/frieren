@@ -11,3 +11,17 @@ message Shard {
   // Upper bounnd is 64.
   map<uint64, uint64> bit_depth = 2;
 }
+
+// Entry defines model for storing log entries. We use string for line to
+// support regular expression and fuxxy search for logs.
+//
+// Metadata are never searched, we store them as blobs. We use repeaded field to
+// take advantage of dupes, since metadata are similar to labels, they are just
+// not indexed.
+message Entry {
+  bytes stream = 1;
+  repeated string labels = 2;
+  uint64 timestamp = 3;
+  string line = 4;
+  repeated bytes meatadata = 5;
+}
