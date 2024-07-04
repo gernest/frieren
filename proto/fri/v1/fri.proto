@@ -41,3 +41,47 @@ message Sample {
     Histogram = 1;
   }
 }
+
+// Span models tempo spans. When retrieving trace by ID we recostruct the
+// response as a  message. To avoid excess work, we store full messages and
+// extract searchable properties to fiends. This way, we can return the span as
+// it was observed faster.
+//
+// We are agressive in indexing all indexable attributes. The goal is to have
+// maximum performance and speeds, enough to allow cheaper setup/teardown in CI
+// environments.
+//
+// There is  no cost in storing the messages because the underlying storage
+// engine uses content addressable storage, data is only stored once.
+message Span {
+  // Otel resource message
+  bytes resource = 1;
+  repeated string resource_attributes = 2;
+  // Otel scope message
+  bytes scope = 3;
+  repeated string scope_attributes = 4;
+  string scope_name = 5;
+  string scope_version = 6;
+  // Otel span message
+  bytes span = 7;
+  repeated string span_attributes = 8;
+  string span_name = 9;
+  string span_status = 10;
+  string span_status_message = 11;
+  string span_kind = 12;
+  string event_name = 13;
+  repeated string event_attributes = 14;
+  bytes link_span_id = 15;
+  bytes link_trace_id = 16;
+  repeated string likn_attributes = 17;
+
+  bytes trace_id = 18;
+  bytes span_id = 19;
+  string trace_root_name = 20;
+  string trace_root_service = 22;
+  bytes parent_id = 23;
+  uint64 span_start_nano = 24;
+  uint64 span_end_nano = 25;
+  uint64 trace_start_nano = 26;
+  uint64 trace_end_nano = 27;
+}
