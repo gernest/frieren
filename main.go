@@ -36,15 +36,36 @@ func main() {
 type Metrics struct {
 	db *metrics.Store
 	pmetricotlp.UnimplementedGRPCServer
+
+	buffer chan *pmetricotlp.ExportRequest
+}
+
+func newMetrics(db *metrics.Store) *Metrics {
+	return &Metrics{
+		db:     db,
+		buffer: make(chan *pmetricotlp.ExportRequest, 1<<10),
+	}
+}
+
+func (m *Metrics) Start(ctx context.Context) {
+	slog.Info("starting metrics processing loop")
+
+	for {
+		select {
+		case <-ctx.Done():
+			slog.Info("exiting metrics processing loop")
+			return
+		case req := <-m.buffer:
+			err := m.db.Save(req.Metrics())
+			if err != nil {
+				slog.Error("failed saving metrics sample", "err", err)
+			}
+		}
+	}
 }
 
 func (m *Metrics) Export(ctx context.Context, req pmetricotlp.ExportRequest) (pmetricotlp.ExportResponse, error) {
-	ctx, span := self.Start(ctx, "METRICS.export")
-	defer span.End()
-	err := m.db.Save(req.Metrics())
-	if err != nil {
-		return pmetricotlp.ExportResponse{}, err
-	}
+	m.buffer <- &req
 	return pmetricotlp.ExportResponse{}, nil
 }
 
@@ -145,7 +166,9 @@ func Main() *cli.Command {
 			defer gs.Stop()
 
 			plogotlp.RegisterGRPCServer(gs, &Logs{})
-			pmetricotlp.RegisterGRPCServer(gs, &Metrics{db: mdb})
+			ms := newMetrics(mdb)
+			go ms.Start(ctx)
+			pmetricotlp.RegisterGRPCServer(gs, ms)
 			ptraceotlp.RegisterGRPCServer(gs, &Trace{})
 
 			go func() {
