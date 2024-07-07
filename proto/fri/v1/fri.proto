@@ -35,6 +35,7 @@ message Sample {
   Kind kind = 4;
   double value = 5;
   bytes histogram = 6;
+  int64 timestamp = 7;
 
   enum Kind {
     Float = 0;

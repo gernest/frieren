@@ -126,12 +126,18 @@ func Main() *cli.Command {
 			}
 			defer db.Close()
 
+			mdb, err := metrics.New(data)
+			if err != nil {
+				return err
+			}
+			defer mdb.Close()
+
 			self.Setup()
 
 			mux := http.NewServeMux()
 
 			// register http api
-			api.Add(mux, db)
+			api.Add(mux, db, mdb)
 
 			mux.HandleFunc("/backup", db.BackupHandler)
 

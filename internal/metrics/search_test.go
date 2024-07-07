@@ -6,7 +6,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/internal/util"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql"
@@ -16,15 +15,15 @@ import (
 )
 
 func TestSelect(t *testing.T) {
-	db, err := store.New(t.TempDir())
+	db, err := New(t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 
 	m := generateOTLPWriteRequest()
-	err = Append(context.TODO(), db, m.Metrics(), util.TS())
-	require.NoError(t, err)
 
-	q := NewQueryable(db)
+	require.NoError(t, db.Save(m.Metrics()))
+
+	q := db.Queryable()
 	t.Run("all metrics", func(t *testing.T) {
 		ts := util.TS()
 		ms := ts.UnixMilli()

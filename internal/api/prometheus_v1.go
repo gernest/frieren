@@ -118,13 +118,13 @@ type prometheusAPI struct {
 	qe       *promql.Engine
 	qs       ps.Queryable
 	examplar ps.ExemplarQueryable
-	db       *store.Store
+	db       *metrics.Store
 	now      func() time.Time
 }
 
-func Add(mux *http.ServeMux, db *store.Store) {
+func Add(mux *http.ServeMux, db *store.Store, mdb *metrics.Store) {
 	api := route.New()
-	newPrometheusAPI(db).Register(api)
+	newPrometheusAPI(mdb).Register(api)
 	newLokiAPI(db).Register(api)
 	newTempoAPI(db).Register(api)
 	cors, _ := compileCORSRegexString(".*")
@@ -135,9 +135,9 @@ func Add(mux *http.ServeMux, db *store.Store) {
 	}))
 }
 
-func newPrometheusAPI(db *store.Store) *prometheusAPI {
+func newPrometheusAPI(db *metrics.Store) *prometheusAPI {
 
-	query := metrics.NewQueryable(db)
+	query := db.Queryable()
 
 	trackPath := filepath.Join(db.Path(), "prometheus", "track")
 	os.MkdirAll(trackPath, 0755)
@@ -158,7 +158,7 @@ func newPrometheusAPI(db *store.Store) *prometheusAPI {
 		db:       db,
 		qe:       queryEngine,
 		qs:       query,
-		examplar: metrics.NewExemplarQueryable(db),
+		examplar: db,
 		now:      func() time.Time { return time.Now().UTC() },
 	}
 }
@@ -387,29 +387,10 @@ func (api *prometheusAPI) queryExemplars(r *http.Request) apiFuncResult {
 
 func (api *prometheusAPI) metricMetadata(r *http.Request) apiFuncResult {
 
-	metric := r.FormValue("metric")
+	// metric := r.FormValue("metric")
 
 	// Put the elements from the pseudo-set into a slice for marshaling.
 	res := map[string][]metadata.Metadata{}
-
-	api.db.View(func(tx *store.Tx) error {
-		if metric != "" {
-			m, err := metrics.GetMetadata(tx.Txn(), metric)
-			if err != nil {
-				return err
-			}
-			res[metric] = []metadata.Metadata{protoToMeta(m)}
-			return nil
-		}
-		ms, err := metrics.ListMetadata(tx.Txn())
-		if err != nil {
-			return err
-		}
-		for i := range ms {
-			res[ms[i].MetricFamilyName] = append(res[ms[i].MetricFamilyName], protoToMeta(ms[i]))
-		}
-		return nil
-	})
 	return apiFuncResult{res, nil, nil, nil}
 }
 

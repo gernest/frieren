@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -8,13 +9,23 @@ import (
 	"io"
 	"math"
 	"slices"
+	"strings"
 	"time"
 
+	"github.com/RoaringBitmap/roaring/roaring64"
+	"github.com/blevesearch/vellum"
+	v1 "github.com/gernest/frieren/gen/go/fri/v1"
 	"github.com/gernest/frieren/internal/constants"
 	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/predicate"
-	"github.com/gernest/frieren/internal/query"
-	"github.com/gernest/frieren/internal/store"
+	"github.com/gernest/rbf"
+	"github.com/gernest/rbf/dsl"
+	"github.com/gernest/rbf/dsl/bsi"
+	"github.com/gernest/rbf/dsl/cursor"
+	"github.com/gernest/rbf/dsl/mutex"
+	rq "github.com/gernest/rbf/dsl/query"
+	"github.com/gernest/rbf/dsl/tx"
+	"github.com/gernest/roaring"
 	"github.com/gernest/rows"
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
@@ -27,27 +38,28 @@ import (
 )
 
 type Queryable struct {
-	store *store.Store
-}
-
-func NewQueryable(db *store.Store) *Queryable {
-	return &Queryable{store: db}
+	store *Store
 }
 
 var _ storage.Queryable = (*Queryable)(nil)
 
 func (q *Queryable) Querier(mints, maxts int64) (storage.Querier, error) {
+	r, err := q.store.Reader()
+	if err != nil {
+		return nil, err
+	}
+	defer r.Release()
+
 	return &Querier{
-		store: q.store,
-		start: time.UnixMilli(mints),
-		end:   time.UnixMilli(maxts),
+		store:  q.store,
+		shards: r.Range(time.UnixMilli(mints).UTC(), time.UnixMilli(maxts).UTC()),
 	}, nil
 
 }
 
 type Querier struct {
-	store      *store.Store
-	start, end time.Time
+	store  *Store
+	shards []dsl.Shard
 }
 
 var _ storage.Querier = (*Querier)(nil)
@@ -57,55 +69,294 @@ func (q *Querier) Close() error {
 }
 
 func (s *Querier) LabelValues(ctx context.Context, name string, matchers ...*labels.Matcher) ([]string, annotations.Annotations, error) {
-	o, err := query.Labels(s.store, constants.METRICS, constants.MetricsLabels, s.start, s.end, name, matchers...)
+	r, err := s.store.Reader()
 	if err != nil {
 		return nil, nil, err
 	}
+	defer r.Release()
+
+	m := map[string]struct{}{}
+	prefix := []byte(name + "=")
+	err = r.Tr().Search("labels", &vellum.AlwaysMatch{}, prefix, nil, func(key []byte, value uint64) error {
+		if !bytes.HasPrefix(key, prefix) {
+			return io.EOF
+		}
+		m[string(bytes.TrimPrefix(key, prefix))] = struct{}{}
+		return nil
+	})
+	if err != nil {
+		if !errors.Is(err, io.EOF) {
+			return nil, nil, err
+		}
+	}
+	o := make([]string, 0, len(m))
+	for k := range m {
+		o = append(o, k)
+	}
+	slices.Sort(o)
 	return o, nil, nil
 }
 
 func (s *Querier) LabelNames(ctx context.Context, matchers ...*labels.Matcher) ([]string, annotations.Annotations, error) {
-	o, err := query.Labels(s.store, constants.METRICS, constants.MetricsLabels, s.start, s.end, "", matchers...)
+	r, err := s.store.Reader()
 	if err != nil {
 		return nil, nil, err
 	}
+	defer r.Release()
+
+	m := map[string]struct{}{}
+	split := []byte("=")
+	err = r.Tr().Search("labels", &vellum.AlwaysMatch{}, nil, nil, func(key []byte, value uint64) error {
+		name, _, _ := bytes.Cut(key, split)
+		m[string(name)] = struct{}{}
+		return nil
+	})
+	if err != nil {
+		if !errors.Is(err, io.EOF) {
+			return nil, nil, err
+		}
+	}
+	o := make([]string, 0, len(m))
+	for k := range m {
+		o = append(o, k)
+	}
+	slices.Sort(o)
 	return o, nil, nil
 }
 
 func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.SelectHints, matchers ...*labels.Matcher) storage.SeriesSet {
-	if len(matchers) == 0 {
+	if len(matchers) == 0 || len(s.shards) == 0 {
 		return storage.EmptySeriesSet()
 	}
 
 	m := make(MapSet)
 
-	matchSet := predicate.MatchersPlain(constants.MetricsLabels, matchers...)
+	// We use timestamp filter as the base filter
+	base := bsi.Filter("timestamp", bsi.RANGE, hints.Start, hints.End)
 
-	matchSet = append(matchSet, &predicate.Between{
-		Field: constants.MetricsTimestamp,
-		Start: uint64(hints.Start),
-		End:   uint64(hints.End),
-	})
-
-	match := predicate.And(predicate.Optimize(matchSet, true))
-	isSeriesQuery := hints.Func == "series"
-	err := query.Query(s.store, constants.METRICS, s.start, s.end, func(view *store.View) error {
-		r, err := match.Apply(view)
-		if err != nil {
-			return err
+	// all matchers use AND
+	filter := make(rq.And, 0, len(matchers))
+	var b bytes.Buffer
+	for _, m := range matchers {
+		var op mutex.OP
+		b.Reset()
+		b.WriteString(m.Name)
+		b.WriteByte('=')
+		switch m.Type {
+		case labels.MatchEqual:
+			op = mutex.EQ
+			b.WriteString(m.Value)
+		case labels.MatchNotEqual:
+			op = mutex.NEQ
+			b.WriteString(m.Value)
+		case labels.MatchRegexp:
+			op = mutex.RE
+			b.WriteString(clean(m.Value))
+		case labels.MatchNotRegexp:
+			op = mutex.NRE
+			b.WriteString(clean(m.Value))
 		}
-		if r.IsEmpty() {
-			return nil
-		}
-		if isSeriesQuery {
-			return m.Series(view, r)
-		}
-		return m.Build(view, r)
-	})
+		filter = append(filter, &mutex.MatchString{
+			Field: "labels",
+			Op:    op,
+			Value: b.String(),
+		})
+	}
+	r, err := s.store.Reader()
 	if err != nil {
 		return storage.ErrSeriesSet(err)
 	}
+	defer r.Release()
+	bitmap := roaring64.New()
+	isSeriesQuery := hints.Func == "series"
+	for i := range s.shards {
+		r.View(s.shards[i], func(txn *tx.Tx) error {
+			r, err := base.Apply(txn, nil)
+			if err != nil {
+				return err
+			}
+			if r.IsEmpty() {
+				return nil
+			}
+			f, err := filter.Apply(txn, r)
+			if err != nil {
+				return err
+			}
+			if f.IsEmpty() {
+				return nil
+			}
+
+			// Get all series
+			bitmap.Clear()
+			err = mutex.Distinct(txn, "series", bitmap, f)
+			if err != nil {
+				return err
+			}
+			it := bitmap.Iterator()
+
+			// a single cursor for series so we can reuse it for all ops on this shard.
+			seriesCursor, err := txn.Tx.Cursor(txn.Key("series"))
+			if err != nil {
+				return err
+			}
+			defer seriesCursor.Close()
+			labels, err := txn.Tx.Cursor(txn.Key("labels"))
+			if err != nil {
+				return err
+			}
+			defer labels.Close()
+
+			if isSeriesQuery {
+				// Fast path for series queries. We only need to read series labels no need
+				// to process samples.
+				for it.HasNext() {
+					series := it.Next()
+					if _, exists := m[series]; exists {
+						continue
+					}
+
+					// Find all rows for this series + filter
+					row, err := cursor.Row(seriesCursor, txn.Shard, series)
+					if err != nil {
+						return err
+					}
+					row = row.Intersect(f)
+					err = row.RangeColumns(func(u uint64) error {
+						lbl, err := readLabels(labels, txn, u)
+						if err != nil {
+							return err
+						}
+						m[series] = &S{Labels: lbl}
+						// We are only reading a single column
+						return io.EOF
+					})
+					if err != nil {
+						if !errors.Is(err, io.EOF) {
+							return err
+						}
+					}
+				}
+				return nil
+			}
+
+			// maps  column to sample
+			kind := map[uint64]v1.Sample_Kind{}
+			err = txn.Cursor("kind", func(c *rbf.Cursor, tx *tx.Tx) error {
+				return mutex.Extract(c, tx.Shard, f, func(column, value uint64) error {
+					kind[column] = v1.Sample_Kind(value)
+					return nil
+				})
+			})
+			if err != nil {
+				return err
+			}
+			ts := map[uint64]int64{}
+			err = txn.Cursor("timestamp", func(c *rbf.Cursor, tx *tx.Tx) error {
+				return bsi.Extract(c, tx.Shard, f, func(column uint64, value int64) error {
+					ts[column] = value
+					return nil
+				})
+			})
+			if err != nil {
+				return err
+			}
+			value, err := txn.Tx.Cursor(txn.Key("value"))
+			if err != nil {
+				return err
+			}
+			defer value.Close()
+
+			hist, err := txn.Tx.Cursor(txn.Key("histogram"))
+			if err != nil {
+				return err
+			}
+			defer hist.Close()
+
+			for it.HasNext() {
+				series := it.Next()
+
+				// Find all rows for this series + filter
+				row, err := cursor.Row(seriesCursor, txn.Shard, series)
+				if err != nil {
+					return err
+				}
+				row = row.Intersect(f)
+
+				columns := row.Columns()
+				mapping := make(map[uint64]int, len(columns))
+				for i := range columns {
+					mapping[columns[i]] = i
+				}
+				chunks := make([]chunks.Sample, len(columns))
+
+				switch kind[columns[0]] {
+				case v1.Sample_Float:
+					bsi.Extract(value, txn.Shard, row, func(column uint64, value int64) error {
+						chunks[mapping[column]] = &V{
+							f:  math.Float64frombits(uint64(value)),
+							ts: ts[column],
+						}
+						return nil
+					})
+				case v1.Sample_Histogram:
+					hs := &prompb.Histogram{}
+					err = mutex.Extract(hist, txn.Shard, row, func(column, value uint64) error {
+						hs.Reset()
+						err := hs.Unmarshal(txn.Tr.Blob("histogram", value))
+						if err != nil {
+							return err
+						}
+						if _, isFloat := hs.Count.(*prompb.Histogram_CountFloat); isFloat {
+							chunks[i] = NewFH(hs)
+						} else {
+							chunks[i] = NewH(hs)
+						}
+						return nil
+					})
+					if err != nil {
+						return err
+					}
+				}
+
+				sx, seen := m[series]
+				if !seen {
+					// read labels
+					lbl, err := readLabels(labels, txn, columns[0])
+					if err != nil {
+						return err
+					}
+					m[series] = &S{
+						Labels:  lbl,
+						Samples: chunks,
+					}
+					continue
+				}
+				sx.Samples = append(sx.Samples, chunks...)
+			}
+			return nil
+		})
+	}
+
 	return NewSeriesSet(m)
+}
+
+var eq = []byte("=")
+
+func readLabels(c *rbf.Cursor, txn *tx.Tx, column uint64) (o labels.Labels, err error) {
+	err = cursor.Rows(c, 0, func(row uint64) error {
+		name, value, _ := bytes.Cut(txn.Tr.Key("labels", row), eq)
+		o = append(o, labels.Label{
+			Name:  string(name),
+			Value: string(value),
+		})
+		return nil
+	}, roaring.NewBitmapColumnFilter(column))
+	return
+}
+func clean(s string) string {
+	s = strings.TrimPrefix(s, "^")
+	s = strings.TrimSuffix(s, "$")
+	return s
 }
 
 type SeriesSet struct {
@@ -146,131 +397,6 @@ func (s *SeriesSet) Warnings() annotations.Annotations {
 }
 
 type MapSet map[uint64]*S
-
-func (s MapSet) Build(ctx *predicate.Context, filter *rows.Row) error {
-	add := func(lf *fields.Fragment, seriesID, validID uint64, samples []chunks.Sample) error {
-		sx, ok := s[seriesID]
-		if ok {
-			sx.Samples = append(sx.Samples, samples...)
-			return nil
-		}
-		lbl, err := lf.Labels(ctx, validID)
-		if err != nil {
-			return fmt.Errorf("reading labels %w", err)
-		}
-		s[seriesID] = &S{
-			Labels:  lbl,
-			Samples: samples,
-		}
-		return nil
-	}
-	// fragments
-	sf := fields.From(ctx, constants.MetricsSeries)
-	hf := fields.From(ctx, constants.MetricsHistogram)
-	vf := fields.From(ctx, constants.MetricsValue)
-	tf := fields.From(ctx, constants.MetricsTimestamp)
-	lf := fields.From(ctx, constants.MetricsLabels)
-
-	// find all series
-	series, err := sf.TransposeBSI(ctx.Index(), filter)
-	if err != nil {
-		return err
-	}
-	if series.IsEmpty() {
-		return nil
-	}
-
-	// iterate on each series
-	it := series.Iterator()
-
-	// Filter to check if series is of histogram type
-	histograms, err := hf.True(ctx.Index())
-	if err != nil {
-		return fmt.Errorf("reading histogram %w", err)
-	}
-	histograms = histograms.Intersect(filter)
-	hasHistogram := !histograms.IsEmpty()
-
-	// Filter to check if series is of histogram type
-	floats, err := hf.False(ctx.Index())
-	if err != nil {
-		return fmt.Errorf("reading histogram %w", err)
-	}
-	floats = floats.Intersect(filter)
-	hasFloats := !floats.IsEmpty()
-
-	mapping := map[uint64]int{}
-	for it.HasNext() {
-		// This id is unique only in current view. We create a xxhash of the checksum
-		// to have a global unique series.
-		seriesHashID := it.Next()
-
-		// Globally unique ID for the current series.
-		seriesID := binary.BigEndian.Uint64(ctx.Tr(constants.MetricsSeries, seriesHashID))
-
-		// Find all rows for each series matching the filter
-		sr, err := sf.EqBSI(ctx.Index(), seriesHashID, filter)
-		if err != nil {
-			return fmt.Errorf("reading columns for series %w", err)
-		}
-		columns := sr.Columns()
-		clear(mapping)
-		for i := range columns {
-			mapping[columns[i]] = i
-		}
-
-		chunks := make([]chunks.Sample, len(columns))
-
-		if hasHistogram {
-			hf := histograms.Intersect(sr)
-			if hf.Any() {
-				hs := &prompb.Histogram{}
-				err := vf.ExtractBSI(ctx.Index(), hf, mapping, func(i int, v uint64) error {
-					hs.Reset()
-					err = hs.Unmarshal(ctx.Tr(constants.MetricsHistogram, v))
-					if err != nil {
-						return fmt.Errorf("reading histogram blob %w", err)
-					}
-					if _, isFloat := hs.Count.(*prompb.Histogram_CountFloat); isFloat {
-						chunks[i] = NewFH(hs)
-					} else {
-						chunks[i] = NewH(hs)
-					}
-					return nil
-				})
-				if err != nil {
-					return fmt.Errorf("extracting values %w", err)
-				}
-			}
-		}
-		if hasFloats {
-			ff := floats.Intersect(sr)
-			if ff.Any() {
-				err := vf.ExtractBSI(ctx.Index(), ff, mapping, func(i int, v uint64) error {
-					chunks[i] = &V{
-						f: math.Float64frombits(v),
-					}
-					return nil
-				})
-				if err != nil {
-					return fmt.Errorf("extracting values %w", err)
-				}
-				err = tf.ExtractBSI(ctx.Index(), ff, mapping, func(i int, v uint64) error {
-					chunks[i].(*V).ts = int64(v)
-					return nil
-				})
-				if err != nil {
-					return fmt.Errorf("extracting timestamp %w", err)
-				}
-			}
-		}
-		err = add(lf, seriesID, columns[0], chunks)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
 
 // Series is like build but avoids reading samples. It is optimized for /series endpoint.
 func (s MapSet) Series(ctx *predicate.Context, filter *rows.Row) error {

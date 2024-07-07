@@ -1,27 +1,50 @@
 package metrics
 
 import (
-	"bytes"
+	"path/filepath"
 
-	"github.com/RoaringBitmap/roaring/roaring64"
-	"github.com/gernest/frieren/internal/constants"
-	"github.com/gernest/frieren/internal/store"
-	"github.com/prometheus/prometheus/prompb"
+	v1 "github.com/gernest/frieren/gen/go/fri/v1"
+	"github.com/gernest/frieren/internal/metrics/metricsproto"
+	"github.com/gernest/rbf/dsl"
+	"go.opentelemetry.io/collector/pdata/pmetric"
 )
 
-func UpsertLabels(b *store.View) LabelFunc {
-	m := roaring64.New()
-	var h bytes.Buffer
-	return func(l []prompb.Label) []uint64 {
-		m.Clear()
-		for i := range l {
-			h.Reset()
-			h.WriteString(l[i].Name)
-			h.WriteByte('=')
-			h.WriteString(l[i].Value)
-			id := b.Upsert(constants.MetricsLabels, bytes.Clone(h.Bytes()))
-			m.Add(id)
-		}
-		return m.ToArray()
+type Store struct {
+	*dsl.Store[*v1.Sample]
+	path string
+}
+
+func New(path string) (*Store, error) {
+	dbPath := filepath.Join(path, "metrics")
+	db, err := dsl.New[*v1.Sample](dbPath)
+	if err != nil {
+		return nil, err
 	}
+	return &Store{Store: db, path: path}, nil
+}
+
+func (s *Store) Path() string {
+	return s.path
+}
+
+func (s *Store) Queryable() *Queryable {
+	return &Queryable{store: s}
+}
+
+func (s *Store) Save(pm pmetric.Metrics) error {
+	samples, err := metricsproto.From2(pm)
+	if err != nil {
+		return err
+	}
+	schema, err := s.Schema()
+	if err != nil {
+		return err
+	}
+	for i := range samples {
+		err = schema.Write(samples[i])
+		if err != nil {
+			return err
+		}
+	}
+	return schema.Save()
 }
