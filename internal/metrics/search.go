@@ -3,9 +3,7 @@ package metrics
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"math"
 	"slices"
@@ -15,9 +13,6 @@ import (
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/blevesearch/vellum"
 	v1 "github.com/gernest/frieren/gen/go/fri/v1"
-	"github.com/gernest/frieren/internal/constants"
-	"github.com/gernest/frieren/internal/fields"
-	"github.com/gernest/frieren/internal/predicate"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/dsl"
 	"github.com/gernest/rbf/dsl/bsi"
@@ -26,7 +21,6 @@ import (
 	rq "github.com/gernest/rbf/dsl/query"
 	"github.com/gernest/rbf/dsl/tx"
 	"github.com/gernest/roaring"
-	"github.com/gernest/rows"
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/prompb"
@@ -397,57 +391,6 @@ func (s *SeriesSet) Warnings() annotations.Annotations {
 }
 
 type MapSet map[uint64]*S
-
-// Series is like build but avoids reading samples. It is optimized for /series endpoint.
-func (s MapSet) Series(ctx *predicate.Context, filter *rows.Row) error {
-	// fragments
-	sf := fields.From(ctx, constants.MetricsSeries)
-	lf := fields.From(ctx, constants.MetricsLabels)
-
-	// find all series
-	series, err := sf.TransposeBSI(ctx.Index(), filter)
-	if err != nil {
-		return err
-	}
-	if series.IsEmpty() {
-		return nil
-	}
-
-	// iterate on each series
-	it := series.Iterator()
-
-	for it.HasNext() {
-		// This id is unique only in current view. We create a xxhash of the checksum
-		// to have a global unique series.
-		seriesHashID := it.Next()
-
-		// Globally unique ID for the current series.
-		seriesID := binary.BigEndian.Uint64(ctx.Tr(constants.MetricsSeries, seriesHashID))
-		if _, seenSeries := s[seriesID]; seenSeries {
-			continue
-		}
-		// Find all rows for each series matching the filter
-		sr, err := sf.EqBSI(ctx.Index(), seriesHashID, filter)
-		if err != nil {
-			return fmt.Errorf("reading columns for series %w", err)
-		}
-		err = sr.RangeColumns(func(u uint64) error {
-			labels, err := lf.Labels(ctx, u)
-			if err != nil {
-				return err
-			}
-			s[seriesID] = &S{Labels: labels}
-			// Make sure we only iterate once
-			return io.EOF
-		})
-		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				return fmt.Errorf("reading series labels %w", err)
-			}
-		}
-	}
-	return nil
-}
 
 type S struct {
 	Labels  labels.Labels

@@ -2,7 +2,6 @@ package predicate
 
 import (
 	"github.com/gernest/frieren/internal/constants"
-	"github.com/gernest/frieren/internal/fields"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/rows"
 	"github.com/grafana/tempo/pkg/traceql"
@@ -163,6 +162,5 @@ func (f *Between) Index() int {
 }
 
 func (f *Between) Apply(ctx *Context) (*rows.Row, error) {
-	fx := fields.From(ctx, f.Field)
-	return fx.Between(ctx.Tx.Tx(), f.Start, f.End)
+	return rows.NewRow(), nil
 }

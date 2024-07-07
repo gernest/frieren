@@ -112,7 +112,6 @@ func CompileConditions(conds []traceql.Condition, start, end uint64, allConditio
 	all = append(all, s...)
 	all = append(all, ev...)
 	all = append(all, ls...)
-	all = predicate.Optimize(all, allConditions)
 	if allConditions {
 		return predicate.And(all), nil
 	}
