@@ -1,120 +1,24 @@
 package metrics
 
 import (
-	"context"
-	"math"
 	"testing"
 
-	"github.com/gernest/frieren/internal/constants"
-	"github.com/gernest/frieren/internal/fields"
-	"github.com/gernest/frieren/internal/query"
-	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/internal/util"
-	"github.com/gernest/rbf/short_txkey"
-	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
 )
 
-func TestBach_Append(t *testing.T) {
-	db, err := store.New(t.TempDir())
-	require.NoError(t, err)
-	defer db.Close()
-
-	m := generateOTLPWriteRequest()
-	err = Append(context.TODO(), db, m.Metrics(), util.TS())
-	require.NoError(t, err)
-
-	t.Run("check views", func(t *testing.T) {
-		want := []short_txkey.FieldView{
-			{Field: "1", View: "_20060102"},
-			{Field: "2", View: "_20060102"},
-			{Field: "3", View: "_20060102"},
-			{Field: "3", View: "_20060102_exists"},
-			{Field: "4", View: "_20060102"},
-			{Field: "5", View: "_20060102"},
-			{Field: "6", View: "_20060102"},
-			{Field: "6", View: "_20060102_exists"},
-		}
-		db.View(func(tx *store.Tx) error {
-			vs, err := tx.Tx().GetSortedFieldViewList()
-			require.NoError(t, err)
-			require.Equal(t, want, vs)
-			return nil
-		})
-	})
-	t.Run("series", func(t *testing.T) {
-
-		db.View(func(tx *store.Tx) error {
-			fra := fields.New(constants.MetricsSeries, 0, "_20060102")
-			all, err := fra.TransposeBSI(tx.Tx(), nil)
-			require.NoError(t, err)
-			want := []uint64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
-			require.Equal(t, want, all.ToArray())
-			return nil
-		})
-
-	})
-	t.Run("values", func(t *testing.T) {
-		query.Query(db, constants.METRICS, util.TS(), util.TS(), func(view *store.View) error {
-			field := fields.From(view, constants.MetricsValue)
-			all, _ := field.TransposeBSI(view.Index(), nil)
-			a := all.ToArray()
-			o := make([]float64, len(a))
-			for i := range a {
-				o[i] = math.Float64frombits(a[i])
-			}
-			want := []float64{0.0, 2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 30.0}
-			require.Equal(t, want, o)
-			return nil
-		})
-	})
-	t.Run("views", func(t *testing.T) {
-		var views []string
-		var shards []uint64
-		var depth []map[uint64]uint64
-		err := query.Query(db, constants.METRICS, util.TS(), util.TS(), func(view *store.View) error {
-			views = append(views, view.View)
-			shards = append(shards, view.Shard.Id)
-			depth = append(depth, view.Shard.BitDepth)
-			return nil
-		})
-		require.NoError(t, err)
-		require.Equal(t, []uint64{0}, shards)
-		require.Equal(t, []string{"_20060102"}, views)
-		require.Equal(t, []map[uint64]uint64{
-			{1: 63, 2: 41, 5: 4},
-		}, depth)
-	})
-
-	t.Run("Label names", func(t *testing.T) {
-		names, err := query.Labels(db, constants.METRICS, constants.MetricsLabels, util.TS(), util.TS(), "")
-		require.NoError(t, err)
-		require.Equal(t, []string{"__name__", "foo_bar",
-			"host_name", "instance", "job", "le", "service_instance_id", "service_name"}, names)
-	})
-
-	t.Run("Label values", func(t *testing.T) {
-		values, err := query.Labels(db, constants.METRICS, constants.MetricsLabels, util.TS(), util.TS(), model.MetricNameLabel)
-		require.NoError(t, err)
-		require.Equal(t, []string{"test_counter_total", "test_exponential_histogram", "test_gauge",
-			"test_histogram_bucket", "test_histogram_count", "test_histogram_sum"}, values)
-	})
-}
-
 func BenchmarkAppend(b *testing.B) {
-	db, err := store.New(b.TempDir())
+	db, err := New(b.TempDir())
 	require.NoError(b, err)
 	defer db.Close()
 
-	m := generateOTLPWriteRequest()
-
-	ctx := context.TODO()
+	m := generateOTLPWriteRequest().Metrics()
 	b.ResetTimer()
 	for range b.N {
-		Append(ctx, db, m.Metrics(), util.TS())
+		db.Save(m)
 	}
 }
 

@@ -34,14 +34,14 @@ func main() {
 }
 
 type Metrics struct {
-	db *store.Store
+	db *metrics.Store
 	pmetricotlp.UnimplementedGRPCServer
 }
 
 func (m *Metrics) Export(ctx context.Context, req pmetricotlp.ExportRequest) (pmetricotlp.ExportResponse, error) {
 	ctx, span := self.Start(ctx, "METRICS.export")
 	defer span.End()
-	err := metrics.Append(ctx, m.db, req.Metrics(), time.Now().UTC())
+	err := m.db.Save(req.Metrics())
 	if err != nil {
 		return pmetricotlp.ExportResponse{}, err
 	}
@@ -145,7 +145,7 @@ func Main() *cli.Command {
 			defer gs.Stop()
 
 			plogotlp.RegisterGRPCServer(gs, &Logs{})
-			pmetricotlp.RegisterGRPCServer(gs, &Metrics{db: db})
+			pmetricotlp.RegisterGRPCServer(gs, &Metrics{db: mdb})
 			ptraceotlp.RegisterGRPCServer(gs, &Trace{})
 
 			go func() {
