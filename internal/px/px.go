@@ -2,63 +2,58 @@ package px
 
 import (
 	"bytes"
+	"crypto/sha512"
+	"slices"
 
-	"github.com/RoaringBitmap/roaring/roaring64"
-	"github.com/cespare/xxhash/v2"
-	"github.com/gernest/frieren/internal/constants"
-	"github.com/gernest/frieren/internal/store"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 )
 
 type Ctx struct {
-	o    roaring64.Bitmap
-	tr   *store.View
-	buf  bytes.Buffer
-	id   constants.ID
-	hash xxhash.Digest
+	buf    bytes.Buffer
+	labels map[string]struct{}
 }
 
-func (x *Ctx) ID(field constants.ID) uint64 {
-	x.hash.Reset()
-	x.o.RunOptimize()
-	x.o.WriteTo(&x.hash)
-	return x.tr.Upsert(field, x.hash.Sum(make([]byte, 8)[:0]))
-}
-
-func (x *Ctx) Tr(k []byte) uint64 {
-	return x.tr.Upsert(x.id, k)
+func New() *Ctx {
+	return &Ctx{labels: make(map[string]struct{})}
 }
 
 func (x *Ctx) Or(o *Ctx) {
-	x.o.Or(&o.o)
-}
-
-func (x *Ctx) ToArray() []uint64 {
-	return x.o.ToArray()
-}
-func (x *Ctx) Remove(values ...uint64) {
-	for i := range values {
-		x.o.Remove(values[i])
+	for k := range o.labels {
+		x.labels[k] = struct{}{}
 	}
 }
 
-func (x *Ctx) Bitmap() *roaring64.Bitmap {
-	return &x.o
+func (x *Ctx) Sum() ([]byte, []string) {
+	h := sha512.New512_224()
+	o := make([]string, 0, len(x.labels))
+	for k := range x.labels {
+		h.Write([]byte(k))
+		o = append(o, k)
+	}
+	slices.Sort(o)
+	return h.Sum(nil), o
 }
 
-func New(id constants.ID, tr *store.View) *Ctx {
-	return &Ctx{id: id, tr: tr}
+func (x *Ctx) Metadata() [][]byte {
+	o := make([][]byte, 0, len(x.labels))
+	for k := range x.labels {
+		o = append(o, []byte(k))
+	}
+	slices.SortFunc(o, bytes.Compare)
+	return o
+}
+func (x *Ctx) Labels() []string {
+	o := make([]string, 0, len(x.labels))
+	for k := range x.labels {
+		o = append(o, k)
+	}
+	slices.Sort(o)
+	return o
 }
 
 func (x *Ctx) Reset() {
-	x.o.Clear()
 	x.buf.Reset()
-}
-
-func (x *Ctx) Attr(prefix string) func(key string, value pcommon.Value) bool {
-	return func(key string, value pcommon.Value) bool {
-		return x.SetAttribute(prefix+key, value)
-	}
+	clear(x.labels)
 }
 
 func (x *Ctx) SetAttribute(key string, value pcommon.Value) bool {
@@ -66,16 +61,10 @@ func (x *Ctx) SetAttribute(key string, value pcommon.Value) bool {
 	return true
 }
 
-func (x *Ctx) Add(id uint64) {
-	x.o.Add(id)
-}
-
-func (x *Ctx) Set(key, value string) uint64 {
+func (x *Ctx) Set(key, value string) {
 	x.buf.Reset()
 	x.buf.WriteString(key)
 	x.buf.WriteByte('=')
 	x.buf.WriteString(value)
-	id := x.tr.Upsert(x.id, bytes.Clone(x.buf.Bytes()))
-	x.o.Add(id)
-	return id
+	x.labels[x.buf.String()] = struct{}{}
 }

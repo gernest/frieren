@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gernest/frieren/internal/constants"
+	v1 "github.com/gernest/frieren/gen/go/fri/v1"
 	"github.com/gernest/frieren/internal/px"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/prometheus/prometheus/storage/remote/otlptranslator/prometheus"
@@ -49,17 +49,16 @@ const (
 	attrServiceName = "service.name"
 )
 
-func FromLogs(ld plog.Logs, tr *store.View) map[uint64]*Stream {
+func FromLogs(ld plog.Logs, tr *store.View) []*v1.Entry {
 	if ld.LogRecordCount() == 0 {
 		return nil
 	}
-
+	entries := make([]*v1.Entry, 0, ld.LogRecordCount())
 	rls := ld.ResourceLogs()
-	pushRequestsByStream := make(map[uint64]*Stream, rls.Len())
-	streamCtx := px.New(constants.LogsLabels, tr)
-	rsCtx := px.New(constants.LogsLabels, tr)
-	scopeCtx := px.New(constants.LogsLabels, tr)
-	attrCtx := px.New(constants.LogsLabels, tr)
+	streamCtx := px.New()
+	rsCtx := px.New()
+	scopeCtx := px.New()
+	attrCtx := px.New()
 	for i := 0; i < rls.Len(); i++ {
 		sls := rls.At(i).ScopeLogs()
 		res := rls.At(i).Resource()
@@ -82,26 +81,12 @@ func FromLogs(ld plog.Logs, tr *store.View) map[uint64]*Stream {
 			return true
 		})
 
-		streamID := streamCtx.ID(constants.LogsStreamID)
-
-		if _, ok := pushRequestsByStream[streamID]; !ok {
-			pushRequestsByStream[streamID] = &Stream{
-				ID:     streamID,
-				Labels: streamCtx.ToArray(),
-			}
-		}
+		streamID, labels := streamCtx.Sum()
 
 		for j := 0; j < sls.Len(); j++ {
 			scope := sls.At(j).Scope()
 			logs := sls.At(j).LogRecords()
 			scopeAttrs := scope.Attributes()
-
-			// it would be rare to have multiple scopes so if the entries slice is empty, pre-allocate it for the number of log entries
-			if cap(pushRequestsByStream[streamID].Entries) == 0 {
-				stream := pushRequestsByStream[streamID]
-				stream.Entries = make([]*Entry, 0, logs.Len())
-				pushRequestsByStream[streamID] = stream
-			}
 
 			scopeCtx.Reset()
 			scopeAttrs.Range(func(k string, v pcommon.Value) bool {
@@ -124,16 +109,15 @@ func FromLogs(ld plog.Logs, tr *store.View) map[uint64]*Stream {
 				attrCtx.Reset()
 				attrCtx.Or(rsCtx)
 				attrCtx.Or(scopeCtx)
-				entry := entry(attrCtx, log)
-				stream := pushRequestsByStream[streamID]
-				stream.Entries = append(stream.Entries, entry)
+				entry := entry(attrCtx, log, streamID, labels)
+				entries = append(entries, entry)
 			}
 		}
 	}
-	return pushRequestsByStream
+	return entries
 }
 
-func entry(x *px.Ctx, log plog.LogRecord) *Entry {
+func entry(x *px.Ctx, log plog.LogRecord, stream []byte, labels []string) *v1.Entry {
 	x.Reset()
 	// copy log attributes and all the fields from log(except log.Body) to structured metadata
 	logAttrs := log.Attributes()
@@ -168,10 +152,12 @@ func entry(x *px.Ctx, log plog.LogRecord) *Entry {
 		x.Set("span_id", hex.EncodeToString(spanID[:]))
 	}
 
-	return &Entry{
+	return &v1.Entry{
+		Stream:    stream,
+		Labels:    labels,
 		Timestamp: timestampFromLogRecord(log),
-		Line:      x.Tr([]byte(log.Body().AsString())),
-		Metadata:  x.ToArray(),
+		Line:      []byte(log.Body().AsString()),
+		Metadata:  x.Metadata(),
 	}
 }
 

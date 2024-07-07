@@ -12,8 +12,7 @@ message Shard {
   map<uint64, uint64> bit_depth = 2;
 }
 
-// Entry defines model for storing log entries. We use string for line to
-// support regular expression and fuxxy search for logs.
+// Entry defines model for storing log entries.
 //
 // Metadata are never searched, we store them as blobs. We use repeaded field to
 // take advantage of dupes, since metadata are similar to labels, they are just
@@ -22,8 +21,8 @@ message Entry {
   bytes stream = 1;
   repeated string labels = 2;
   uint64 timestamp = 3;
-  string line = 4;
-  repeated bytes meatadata = 5;
+  bytes line = 4;
+  repeated bytes metadata = 5;
 }
 
 // Sample models metrics sample similar to prometheus. Histogram is an integer
@@ -70,10 +69,10 @@ message Span {
   string span_status = 10;
   string span_status_message = 11;
   string span_kind = 12;
-  string event_name = 13;
+  repeated string event_name = 13;
   repeated string event_attributes = 14;
-  bytes link_span_id = 15;
-  bytes link_trace_id = 16;
+  repeated bytes link_span_id = 15;
+  repeated bytes link_trace_id = 16;
   repeated string likn_attributes = 17;
 
   bytes trace_id = 18;
@@ -81,8 +80,9 @@ message Span {
   string trace_root_name = 20;
   string trace_root_service = 22;
   bytes parent_id = 23;
-  uint64 span_start_nano = 24;
-  uint64 span_end_nano = 25;
-  uint64 trace_start_nano = 26;
-  uint64 trace_end_nano = 27;
+  int64 span_start_nano = 24;
+  int64 span_end_nano = 25;
+  int64 trace_start_nano = 26;
+  int64 trace_end_nano = 27;
+  int64 trace_duration = 28;
 }

@@ -1,10 +1,7 @@
 package traceproto
 
 import (
-	"math"
-	"slices"
-
-	"github.com/gernest/frieren/internal/constants"
+	v1 "github.com/gernest/frieren/gen/go/fri/v1"
 	"github.com/gernest/frieren/internal/px"
 	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/internal/util"
@@ -12,59 +9,46 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 )
 
-type Trace struct {
-	Start uint64
-	End   uint64
-	Spans []*Span
-}
-
-type Traces map[uint64]*Trace
-
-func (t Traces) add(id uint64, span *Span) {
-	x, ok := t[id]
-	if !ok {
-		x = &Trace{
-			Spans: make([]*Span, 0, 64),
-			Start: math.MaxUint64,
-		}
-		t[id] = x
-	}
-	x.Start = min(x.Start, span.Start)
-	x.End = max(x.End, span.End)
-	x.Spans = append(x.Spans, span)
-}
-
-type Span struct {
-	Resource   uint64
-	Scope      uint64
-	Span       uint64
-	Tags       []uint64
-	Start, End uint64
-}
-
 // Spans can be processed individually during ingest. To save memory, instead of
 // returning a list we accept a callback that receives a fully decoded span.
-func From(td ptrace.Traces, tr *store.View) Traces {
+func From(td ptrace.Traces, tr *store.View) (result []*v1.Span) {
 	if td.SpanCount() == 0 {
-		return Traces{}
+		return []*v1.Span{}
 	}
 	tx, err := from(td)
 	if err != nil {
 		util.Exit("converting ptrace.Traces to tempopb.Traces")
 	}
-	traces := make(Traces)
+	result = make([]*v1.Span, 0, td.SpanCount())
 	rls := td.ResourceSpans()
-	resourceCtx := px.New(constants.TracesLabels, tr)
-	scopeCtx := px.New(constants.TracesLabels, tr)
-	attrCtx := px.New(constants.TracesLabels, tr)
-	encode := marshal(tr)
+	resourceCtx := px.New()
+	scopeCtx := px.New()
+	attrCtx := px.New()
+
+	durations := map[string]*v1.Span{}
+
+	defer clear(durations)
+
+	update := func(e *v1.Span, id string) {
+		x, ok := durations[id]
+		if !ok {
+			e.TraceStartNano = e.SpanStartNano
+			e.TraceEndNano = e.SpanEndNano
+			e.TraceDuration = e.TraceEndNano - e.TraceStartNano
+			return
+		}
+		e.TraceStartNano = min(e.SpanStartNano, x.TraceStartNano)
+		e.TraceEndNano = max(e.SpanEndNano, x.TraceEndNano)
+		e.TraceDuration = e.TraceEndNano - e.TraceStartNano
+	}
 	for i := 0; i < rls.Len(); i++ {
 		sls := rls.At(i).ScopeSpans()
 		res := rls.At(i).Resource()
 		resAttrs := res.Attributes()
 		resourceCtx.Reset()
-		resAttrs.Range(resourceCtx.Attr("resource."))
-		resourceID := encode(constants.TracesResource, tx.Batches[i].GetResource())
+		resAttrs.Range(resourceCtx.SetAttribute)
+		resource, _ := tx.Batches[i].GetResource().Marshal()
+		resourceLabels := resourceCtx.Labels()
 		var serviceName string
 		if v, ok := resAttrs.Get(string(semconv.ServiceNameKey)); ok {
 			serviceName = v.AsString()
@@ -74,80 +58,90 @@ func From(td ptrace.Traces, tr *store.View) Traces {
 			spans := sls.At(j).Spans()
 			scopeAttrs := scope.Attributes()
 			scopeCtx.Reset()
-			scopeAttrs.Range(scopeCtx.Attr("scope."))
-			if scopeName := scope.Name(); scopeName != "" {
-				scopeCtx.Set("scope:name", scopeName)
-			}
-			if scopeVersion := scope.Version(); scopeVersion != "" {
-				scopeCtx.Set("scope:version", scopeVersion)
-			}
-			scopeID := encode(constants.TracesScope, tx.Batches[i].ScopeSpans[j].GetScope())
+			scopeAttrs.Range(scopeCtx.SetAttribute)
+
+			scopeName := scope.Name()
+			scopeVersion := scope.Version()
+			scopeData, _ := tx.Batches[i].ScopeSpans[j].GetScope().Marshal()
+			scopeLabels := scopeCtx.Labels()
 			for k := 0; k < spans.Len(); k++ {
-				spanID := encode(constants.TracesSpan, tx.Batches[i].ScopeSpans[j].Spans[k])
+				spanData, _ := tx.Batches[i].ScopeSpans[j].Spans[k].Marshal()
 				span := spans.At(k)
-				o := &Span{}
-				o.Resource = resourceID
-				o.Scope = scopeID
-				o.Span = spanID
+				o := &v1.Span{
+					Resource:           resource,
+					ResourceAttributes: resourceLabels,
+					Scope:              scopeData,
+					ScopeAttributes:    scopeLabels,
+					ScopeName:          scopeName,
+					ScopeVersion:       scopeVersion,
+					Span:               spanData,
+
+					SpanName:          span.Name(),
+					SpanStatus:        status[span.Status().Code()],
+					SpanStatusMessage: span.Status().Message(),
+					SpanKind:          kind[span.Kind()],
+				}
 
 				attrCtx.Reset()
-				attrCtx.Or(resourceCtx)
-				attrCtx.Or(scopeCtx)
-				span.Attributes().Range(attrCtx.Attr("span."))
-				attrCtx.Set("span:name", span.Name())
-				attrCtx.Set("span:status", status[span.Status().Code()])
-				attrCtx.Set("span:statusMessage", span.Status().Message())
-				attrCtx.Set("span:kind", kind[span.Kind()])
+				span.Attributes().Range(attrCtx.SetAttribute)
+				o.SpanAttributes = attrCtx.Labels()
+
 				ev := span.Events()
-				for idx := 0; idx < ev.Len(); idx++ {
-					e := ev.At(idx)
-					attrCtx.Set("event:name", e.Name())
-					e.Attributes().Range(attrCtx.Attr("event."))
+				attrCtx.Reset()
+				if ev.Len() > 0 {
+					names := map[string]struct{}{}
+					attrCtx.Reset()
+					for idx := 0; idx < ev.Len(); idx++ {
+						e := ev.At(idx)
+						names[e.Name()] = struct{}{}
+						e.Attributes().Range(attrCtx.SetAttribute)
+					}
+					o.EventName = make([]string, 0, len(names))
+					for n := range names {
+						o.EventName = append(o.EventName, n)
+					}
+					o.EventAttributes = attrCtx.Labels()
 				}
+
 				lk := span.Links()
-				for idx := 0; idx < lk.Len(); idx++ {
-					e := lk.At(idx)
-					attrCtx.Set("link:spanID", e.SpanID().String())
-					attrCtx.Set("link:traceID", e.TraceID().String())
-					e.Attributes().Range(attrCtx.Attr("link."))
+				if lk.Len() > 0 {
+					sid := map[string]struct{}{}
+					tid := map[string]struct{}{}
+
+					attrCtx.Reset()
+
+					for idx := 0; idx < lk.Len(); idx++ {
+						e := lk.At(idx)
+						sid[e.SpanID().String()] = struct{}{}
+						tid[e.TraceID().String()] = struct{}{}
+						e.Attributes().Range(attrCtx.SetAttribute)
+					}
+
+					o.LinkSpanId = make([][]byte, 0, len(sid))
+					for k := range sid {
+						o.LinkSpanId = append(o.LinkSpanId, []byte(k))
+					}
+					o.LinkTraceId = make([][]byte, 0, len(sid))
+					for k := range tid {
+						o.LinkTraceId = append(o.LinkTraceId, []byte(k))
+					}
 				}
-				traceID := attrCtx.Set("trace:id", span.TraceID().String())
-				attrCtx.Set("span:id", span.SpanID().String())
+				traceId := span.TraceID().String()
+				o.TraceId = []byte(traceId)
+				o.SpanId = []byte(span.SpanID().String())
 				parent := span.ParentSpanID()
 				if parent.IsEmpty() {
-					attrCtx.Set("trace:rootName", span.Name())
-					attrCtx.Set("trace:rootService", serviceName)
+					o.TraceRootName = span.Name()
+					o.TraceRootService = serviceName
 				} else {
-					attrCtx.Set("parent:id", parent.String())
+					o.ParentId = []byte(parent.String())
 				}
-				o.Tags = attrCtx.ToArray()
-				o.Start = uint64(span.StartTimestamp())
-				o.End = uint64(span.EndTimestamp())
-				traces.add(traceID, o)
+
+				o.SpanStartNano = int64(span.StartTimestamp())
+				o.SpanEndNano = int64(span.EndTimestamp())
+				update(o, traceId)
 			}
 		}
-
 	}
-	return traces
-}
-
-type message interface {
-	Size() int
-	MarshalTo([]byte) (int, error)
-}
-
-func marshal(tr *store.View) func(id constants.ID, msg message) uint64 {
-	var buf []byte
-	return func(id constants.ID, msg message) uint64 {
-		size := msg.Size()
-		if size == 0 {
-			return tr.Upsert(id, []byte{})
-		}
-		buf = slices.Grow(buf, size)[:size]
-		_, err := msg.MarshalTo(buf)
-		if err != nil {
-			util.Exit("marshal trace message", "err", err)
-		}
-		return tr.Upsert(id, buf)
-	}
+	return
 }
