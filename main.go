@@ -202,9 +202,7 @@ func Main() *cli.Command {
 			mux := http.NewServeMux()
 
 			// register http api
-			api.Add(mux, db, mdb)
-
-			mux.HandleFunc("/backup", db.BackupHandler)
+			api.Add(mux, mdb, tdb, ldb)
 
 			gs := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()))
 			defer gs.Stop()

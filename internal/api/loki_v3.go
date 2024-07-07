@@ -10,7 +10,6 @@ import (
 	"net/http"
 
 	"github.com/gernest/frieren/internal/logs"
-	"github.com/gernest/frieren/internal/store"
 	"github.com/grafana/loki/v3/pkg/loghttp"
 	"github.com/grafana/loki/v3/pkg/logproto"
 	"github.com/grafana/loki/v3/pkg/logql"
@@ -37,9 +36,9 @@ type lokiAPI struct {
 	engine  *logql.Engine
 }
 
-func newLokiAPI(db *store.Store) *lokiAPI {
+func newLokiAPI(db *logs.Store) *lokiAPI {
 	return &lokiAPI{
-		querier: logs.NewQuerier(db),
+		querier: db,
 	}
 }
 

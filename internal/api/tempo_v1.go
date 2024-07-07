@@ -10,7 +10,7 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/gernest/frieren/internal/store"
+	"github.com/gernest/frieren/internal/traces"
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/grafana/tempo/pkg/api"
 	"github.com/grafana/tempo/pkg/model/trace"
@@ -31,7 +31,7 @@ type tempoAPI struct {
 	engine Engine
 }
 
-func newTempoAPI(db *store.Store) *tempoAPI {
+func newTempoAPI(_ *traces.Store) *tempoAPI {
 	return &tempoAPI{}
 }
 

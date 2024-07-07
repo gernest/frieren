@@ -27,9 +27,10 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gernest/frieren/internal/logs"
 	"github.com/gernest/frieren/internal/metrics"
 	"github.com/gernest/frieren/internal/self"
-	"github.com/gernest/frieren/internal/store"
+	"github.com/gernest/frieren/internal/traces"
 	"github.com/go-kit/log"
 	"github.com/grafana/regexp"
 	"github.com/prometheus/client_golang/prometheus"
@@ -122,11 +123,11 @@ type prometheusAPI struct {
 	now      func() time.Time
 }
 
-func Add(mux *http.ServeMux, db *store.Store, mdb *metrics.Store) {
+func Add(mux *http.ServeMux, mdb *metrics.Store, tdb *traces.Store, ldb *logs.Store) {
 	api := route.New()
 	newPrometheusAPI(mdb).Register(api)
-	newLokiAPI(db).Register(api)
-	newTempoAPI(db).Register(api)
+	newLokiAPI(ldb).Register(api)
+	newTempoAPI(tdb).Register(api)
 	cors, _ := compileCORSRegexString(".*")
 
 	mux.Handle("/api/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
