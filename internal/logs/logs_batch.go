@@ -1,47 +1,29 @@
 package logs
 
 import (
-	"context"
-	"time"
+	"os"
+	"path/filepath"
 
-	"github.com/gernest/frieren/internal/batch"
-	"github.com/gernest/frieren/internal/constants"
+	v1 "github.com/gernest/frieren/gen/go/fri/v1"
 	"github.com/gernest/frieren/internal/logs/logproto"
-	"github.com/gernest/frieren/internal/shardwidth"
-	"github.com/gernest/frieren/internal/store"
-	"github.com/gernest/rbf/quantum"
+	"github.com/gernest/rbf/dsl"
 	"go.opentelemetry.io/collector/pdata/plog"
 )
 
-func AppendBatch(ctx context.Context, db *store.Store, ld plog.Logs, ts time.Time) error {
-	view := quantum.ViewByTimeUnit("", ts, 'D')
-
-	return batch.Append(ctx, constants.LOGS, db, view,
-		func(tx *store.View, bx *batch.Batch) error {
-			all := logproto.FromLogs(ld, tx)
-			for _, v := range all {
-				appendLogs(bx, tx.Seq, v)
-			}
-			return nil
-		})
+type Store struct {
+	*dsl.Store[*v1.Entry]
 }
 
-func appendLogs(b *batch.Batch, seq *store.Sequence, m *logproto.Stream) {
-	currentShard := ^uint64(0)
-	for _, e := range m.Entries {
-		id := seq.NextID(constants.LogsRow)
-		b.Rows++
-		shard := id / shardwidth.ShardWidth
-		if shard != currentShard {
-			currentShard = shard
-			b.Shard(shard)
-		}
-		b.BSI(constants.LogsStreamID, shard, id, m.ID)
-		b.BSI(constants.LogsTimestamp, shard, id, uint64(e.Timestamp))
-		b.BSI(constants.LogsLine, shard, id, e.Line)
-		b.Set(constants.LogsLabels, shard, id, m.Labels)
-		if len(e.Metadata) > 0 {
-			b.Set(constants.LogsMetadata, shard, id, e.Metadata)
-		}
+func New(path string) (*Store, error) {
+	dbPath := filepath.Join(path, "logs")
+	os.MkdirAll(dbPath, 0755)
+	db, err := dsl.New[*v1.Entry](dbPath)
+	if err != nil {
+		return nil, err
 	}
+	return &Store{Store: db}, nil
+}
+
+func (s *Store) Save(ld plog.Logs) error {
+	return s.Append(logproto.FromLogs(ld))
 }

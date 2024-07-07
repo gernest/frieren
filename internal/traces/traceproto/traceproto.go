@@ -3,7 +3,6 @@ package traceproto
 import (
 	v1 "github.com/gernest/frieren/gen/go/fri/v1"
 	"github.com/gernest/frieren/internal/px"
-	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/internal/util"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
@@ -11,7 +10,7 @@ import (
 
 // Spans can be processed individually during ingest. To save memory, instead of
 // returning a list we accept a callback that receives a fully decoded span.
-func From(td ptrace.Traces, tr *store.View) (result []*v1.Span) {
+func From(td ptrace.Traces) (result []*v1.Span) {
 	if td.SpanCount() == 0 {
 		return []*v1.Span{}
 	}

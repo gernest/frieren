@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"time"
 
 	"github.com/gernest/frieren/internal/api"
 	"github.com/gernest/frieren/internal/logs"
@@ -49,7 +48,6 @@ func newMetrics(db *metrics.Store) *Metrics {
 
 func (m *Metrics) Start(ctx context.Context) {
 	slog.Info("starting metrics processing loop")
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -70,32 +68,66 @@ func (m *Metrics) Export(ctx context.Context, req pmetricotlp.ExportRequest) (pm
 }
 
 type Trace struct {
-	db *store.Store
+	db *traces.Store
 	ptraceotlp.UnimplementedGRPCServer
+	buffer chan *ptraceotlp.ExportRequest
+}
+
+func newTrace(db *traces.Store) *Trace {
+	return &Trace{db: db, buffer: make(chan *ptraceotlp.ExportRequest, 1<<10)}
+}
+
+func (tr *Trace) Start(ctx context.Context) {
+	slog.Info("starting traces processing loop")
+
+	for {
+		select {
+		case <-ctx.Done():
+			slog.Info("exiting traces processing loop")
+			return
+		case req := <-tr.buffer:
+			err := tr.db.Save(req.Traces())
+			if err != nil {
+				slog.Error("failed saving traces", "err", err)
+			}
+		}
+	}
 }
 
 func (tr *Trace) Export(ctx context.Context, req ptraceotlp.ExportRequest) (ptraceotlp.ExportResponse, error) {
-	ctx, span := self.Start(ctx, "TRACES.export")
-	defer span.End()
-	err := traces.AppendBatch(ctx, tr.db, req.Traces(), time.Now())
-	if err != nil {
-		return ptraceotlp.ExportResponse{}, err
-	}
+	tr.buffer <- &req
 	return ptraceotlp.ExportResponse{}, nil
 }
 
 type Logs struct {
-	db *store.Store
+	db *logs.Store
 	plogotlp.UnimplementedGRPCServer
+	buffer chan *plogotlp.ExportRequest
+}
+
+func newLogs(ldb *logs.Store) *Logs {
+	return &Logs{db: ldb, buffer: make(chan *plogotlp.ExportRequest, 1<<10)}
+}
+
+func (l *Logs) Start(ctx context.Context) {
+	slog.Info("starting logs processing loop")
+
+	for {
+		select {
+		case <-ctx.Done():
+			slog.Info("exiting logs processing loop")
+			return
+		case req := <-l.buffer:
+			err := l.db.Save(req.Logs())
+			if err != nil {
+				slog.Error("failed saving logs", "err", err)
+			}
+		}
+	}
 }
 
 func (l *Logs) Export(ctx context.Context, req plogotlp.ExportRequest) (plogotlp.ExportResponse, error) {
-	ctx, span := self.Start(ctx, "LOGS.export")
-	defer span.End()
-	err := logs.AppendBatch(ctx, l.db, req.Logs(), time.Now())
-	if err != nil {
-		return plogotlp.ExportResponse{}, err
-	}
+	l.buffer <- &req
 	return plogotlp.ExportResponse{}, nil
 }
 
@@ -153,6 +185,18 @@ func Main() *cli.Command {
 			}
 			defer mdb.Close()
 
+			ldb, err := logs.New(data)
+			if err != nil {
+				return err
+			}
+			defer ldb.Close()
+
+			tdb, err := traces.New(data)
+			if err != nil {
+				return err
+			}
+			defer tdb.Close()
+
 			self.Setup()
 
 			mux := http.NewServeMux()
@@ -165,11 +209,18 @@ func Main() *cli.Command {
 			gs := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()))
 			defer gs.Stop()
 
-			plogotlp.RegisterGRPCServer(gs, &Logs{})
 			ms := newMetrics(mdb)
 			go ms.Start(ctx)
+
+			ls := newLogs(ldb)
+			go ls.Start(ctx)
+
+			ts := newTrace(tdb)
+			go ts.Start(ctx)
+
+			plogotlp.RegisterGRPCServer(gs, ls)
 			pmetricotlp.RegisterGRPCServer(gs, ms)
-			ptraceotlp.RegisterGRPCServer(gs, &Trace{})
+			ptraceotlp.RegisterGRPCServer(gs, ts)
 
 			go func() {
 				defer cancel()

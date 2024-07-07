@@ -7,23 +7,10 @@ import (
 
 	v1 "github.com/gernest/frieren/gen/go/fri/v1"
 	"github.com/gernest/frieren/internal/px"
-	"github.com/gernest/frieren/internal/store"
 	"github.com/prometheus/prometheus/storage/remote/otlptranslator/prometheus"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
 )
-
-type Stream struct {
-	ID      uint64
-	Labels  []uint64
-	Entries []*Entry
-}
-
-type Entry struct {
-	Timestamp uint64
-	Line      uint64
-	Metadata  []uint64
-}
 
 var resourceAttrAsIndex = map[string]struct{}{
 	"service.name":            {},
@@ -49,7 +36,7 @@ const (
 	attrServiceName = "service.name"
 )
 
-func FromLogs(ld plog.Logs, tr *store.View) []*v1.Entry {
+func FromLogs(ld plog.Logs) []*v1.Entry {
 	if ld.LogRecordCount() == 0 {
 		return nil
 	}
