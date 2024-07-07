@@ -59,7 +59,7 @@ func (qr *Querier) Label(ctx context.Context, req *logproto.LabelRequest) (*logp
 }
 
 func (Querier) SelectSamples(_ context.Context, req logql.SelectSampleParams) (iter.SampleIterator, error) {
-	return iter.NoopIterator, nil
+	return iter.NoopSampleIterator, nil
 }
 
 var sep = []byte("=")
@@ -71,7 +71,7 @@ func (qr *Querier) SelectLogs(ctx context.Context, req logql.SelectLogParams) (r
 	}
 	matchers := expr.Matchers()
 	if len(matchers) == 0 {
-		return iter.NoopIterator, nil
+		return iter.NoopEntryIterator, nil
 	}
 	plain := predicate.MatchersPlain(constants.LogsLabels, matchers...)
 	plain = append(plain, &predicate.Between{

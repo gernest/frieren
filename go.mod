@@ -8,13 +8,13 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/dgraph-io/badger/v4 v4.2.0
 	github.com/dgraph-io/ristretto v0.1.1
-	github.com/gernest/rbf v0.22.8
+	github.com/gernest/rbf v0.22.9
 	github.com/gernest/roaring v0.22.3
 	github.com/gernest/rows v1.22.9
 	github.com/go-kit/log v0.2.1
 	github.com/gogo/protobuf v1.3.2
 	github.com/grafana/loki/pkg/push v0.0.0-20231124142027-e52380921608
-	github.com/grafana/loki/v3 v3.1.0
+	github.com/grafana/loki/v3 v3.0.0-20240706153756-183406570411
 	github.com/grafana/regexp v0.0.0-20240518133315-a468a5bfb3bc
 	github.com/grafana/tempo v1.5.1-0.20240615003438-e706a6a468a8
 	github.com/json-iterator/go v1.1.12
@@ -50,8 +50,8 @@ require (
 	cloud.google.com/go/storage v1.40.0 // indirect
 	github.com/Azure/azure-pipeline-go v0.2.3 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.11.1 // indirect
-	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.5.2 // indirect
-	github.com/Azure/azure-sdk-for-go/sdk/internal v1.6.0 // indirect
+	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.6.0 // indirect
+	github.com/Azure/azure-sdk-for-go/sdk/internal v1.8.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.2.0 // indirect
 	github.com/Azure/azure-storage-blob-go v0.15.0 // indirect
 	github.com/Azure/go-autorest v14.2.0+incompatible // indirect
@@ -160,7 +160,7 @@ require (
 	github.com/gorilla/handlers v1.5.1 // indirect
 	github.com/gorilla/mux v1.8.1 // indirect
 	github.com/gorilla/websocket v1.5.0 // indirect
-	github.com/grafana/dskit v0.0.0-20240528015923-27d7d41066d3 // indirect
+	github.com/grafana/dskit v0.0.0-20240626184720-35810fdf1c6d // indirect
 	github.com/grafana/gomemcache v0.0.0-20240229205252-cd6a66d6fb56 // indirect
 	github.com/grafana/jsonparser v0.0.0-20240209175146-098958973a2d // indirect
 	github.com/grafana/pyroscope-go/godeltaprof v0.1.6 // indirect

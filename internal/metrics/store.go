@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"os"
 	"path/filepath"
 
 	v1 "github.com/gernest/frieren/gen/go/fri/v1"
@@ -16,6 +17,7 @@ type Store struct {
 
 func New(path string) (*Store, error) {
 	dbPath := filepath.Join(path, "metrics")
+	os.MkdirAll(dbPath, 0755)
 	db, err := dsl.New[*v1.Sample](dbPath)
 	if err != nil {
 		return nil, err
