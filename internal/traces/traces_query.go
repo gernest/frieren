@@ -3,15 +3,13 @@ package traces
 import (
 	"context"
 	"encoding/hex"
-	"fmt"
-	"slices"
 	"time"
 
-	"github.com/gernest/frieren/internal/constants"
-	"github.com/gernest/frieren/internal/fields"
-	"github.com/gernest/frieren/internal/predicate"
-	"github.com/gernest/frieren/internal/query"
-	"github.com/gernest/frieren/internal/store"
+	"github.com/gernest/rbf"
+	"github.com/gernest/rbf/dsl/bsi"
+	"github.com/gernest/rbf/dsl/mutex"
+	rq "github.com/gernest/rbf/dsl/query"
+	"github.com/gernest/rbf/dsl/tx"
 	"github.com/grafana/tempo/pkg/tempopb"
 	commonv1 "github.com/grafana/tempo/pkg/tempopb/common/v1"
 	resourcev1 "github.com/grafana/tempo/pkg/tempopb/resource/v1"
@@ -20,104 +18,107 @@ import (
 	"github.com/grafana/tempo/pkg/traceql"
 )
 
-type Query struct {
-	db *store.Store
-}
-
-func (q *Query) FindTraceByID(ctx context.Context, req *tempopb.TraceByIDRequest, timeStart int64, timeEnd int64) (*tempopb.TraceByIDResponse, error) {
-
-	pre := []predicate.Predicate{
-		predicate.NewString(constants.TracesLabels, traceql.OpEqual, "trace:id", hex.EncodeToString(req.TraceID)),
-		predicate.NewInt(
-			constants.TracesStart, traceql.OpGreaterEqual, uint64(timeStart),
-		),
-		predicate.NewInt(
-			constants.TracesEnd, traceql.OpLessEqual, uint64(timeEnd),
-		),
+func (db *Store) FindTraceByID(ctx context.Context, req *tempopb.TraceByIDRequest, timeStart int64, timeEnd int64) (*tempopb.TraceByIDResponse, error) {
+	r, err := db.Reader()
+	if err != nil {
+		return nil, err
 	}
-	pre = predicate.Optimize(pre, true)
-	all := predicate.And(pre)
+	defer r.Release()
+
+	base := mutex.MatchString{
+		Field: "trace_id",
+		Op:    mutex.EQ,
+		Value: hex.EncodeToString(req.TraceID),
+	}
+	filter := rq.And{
+		bsi.Filter("trace_start_nano", bsi.GE, timeStart, 0),
+		bsi.Filter("trace_end_nano", bsi.LE, timeEnd, 0),
+	}
 
 	m := make(map[uint64]map[uint64][]*tempov1.Span)
 	scope := map[uint64]*commonv1.InstrumentationScope{}
 	resource := map[uint64]*resourcev1.Resource{}
-	resources := make([]uint64, 0, 64)
-	scopes := make([]uint64, 0, 64)
-	err := query.Query(q.db, constants.TRACES, time.Unix(0, timeStart), time.Unix(0, timeEnd), func(view *store.View) error {
-		ctx := view
-		r, err := all.Apply(ctx)
-		if err != nil {
-			return err
-		}
-		if r.IsEmpty() {
-			return nil
-		}
-		count := r.Count()
-		columns := r.Columns()
-		mapping := make(map[uint64]int, count)
-		var pos int
-		r.RangeColumns(func(u uint64) error {
-			mapping[u] = pos
-			pos++
-			return nil
-		})
-		for i := range columns {
-			mapping[columns[i]] = i
-		}
-		// read contest
-		resourceField := fields.From(ctx, constants.TracesResource)
-		scopesField := fields.From(ctx, constants.TracesScope)
-		spansField := fields.From(ctx, constants.TracesSpan)
 
-		resources = slices.Grow(resources[:0], int(count))[:count]
-		err = resourceField.ExtractBSI(ctx.Index(), r, mapping, func(i int, v uint64) error {
-			resources[i] = v
-			_, ok := m[v]
-			if !ok {
-				m[v] = make(map[uint64][]*tempov1.Span)
-				var x resourcev1.Resource
-				err := x.Unmarshal(ctx.Tr(constants.TracesResource, v))
-				if err != nil {
-					return fmt.Errorf("decoding tempo resource %w", err)
-				}
-				resource[v] = &x
-			}
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-		scopes = slices.Grow(scopes[:0], int(count))[:count]
-		err = scopesField.ExtractBSI(ctx.Index(), r, mapping, func(i int, v uint64) error {
-			scopes[i] = v
-			if len(m[resources[i]][v]) == 0 {
-				var x commonv1.InstrumentationScope
-				err := x.Unmarshal(ctx.Tr(constants.TracesScope, v))
-				if err != nil {
-					return fmt.Errorf("decoding tempo scope %w", err)
-				}
-				scope[v] = &x
-			}
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-		return spansField.ExtractBSI(ctx.Index(), r, mapping, func(i int, v uint64) error {
-			var x tempov1.Span
-			err := x.Unmarshal(ctx.Tr(constants.TracesSpan, v))
+	shards := r.Range(time.Unix(0, timeStart), time.Unix(0, timeEnd))
+	for i := range shards {
+		r.View(shards[i], func(txn *tx.Tx) error {
+			r, err := base.Apply(txn, nil)
 			if err != nil {
-				return fmt.Errorf("decoding tempo span %w", err)
+				return err
 			}
-			m[resources[i]][scopes[i]] = append(m[resources[i]][scopes[i]], &x)
-			return nil
+			if r.IsEmpty() {
+				return nil
+			}
+			f, err := filter.Apply(txn, r)
+			if err != nil {
+				return err
+			}
+			if f.IsEmpty() {
+				return nil
+			}
+
+			// read resource
+			resourceMapping := map[uint64]uint64{}
+			err = txn.Cursor("resource", func(c *rbf.Cursor, tx *tx.Tx) error {
+				return mutex.Extract(c, tx.Shard, f, func(column, value uint64) error {
+					if _, seen := resource[value]; seen {
+						return nil
+					}
+					resourceMapping[column] = value
+					o := resourcev1.Resource{}
+					err := o.Unmarshal(tx.Tr.Blob("resource", value))
+					if err != nil {
+						return err
+					}
+					resource[value] = &o
+					return nil
+				})
+			})
+			if err != nil {
+				return err
+			}
+
+			// read scope
+			scopeMapping := map[uint64]uint64{}
+			err = txn.Cursor("scope", func(c *rbf.Cursor, tx *tx.Tx) error {
+				return mutex.Extract(c, tx.Shard, f, func(column, value uint64) error {
+					scopeMapping[column] = value
+					if _, seen := scope[value]; seen {
+						return nil
+					}
+					o := commonv1.InstrumentationScope{}
+					err := o.Unmarshal(tx.Tr.Blob("scope", value))
+					if err != nil {
+						return err
+					}
+					scope[value] = &o
+					return nil
+				})
+			})
+			if err != nil {
+				return err
+			}
+			// read span
+			return txn.Cursor("span", func(c *rbf.Cursor, tx *tx.Tx) error {
+				return mutex.Extract(c, tx.Shard, f, func(column, value uint64) error {
+					rs, ok := m[resourceMapping[column]]
+					if !ok {
+						rs = make(map[uint64][]*tempov1.Span)
+						m[resourceMapping[column]] = rs
+					}
+					sid := scopeMapping[column]
+					o := tempov1.Span{}
+					err := o.Unmarshal(tx.Tr.Blob("scope", value))
+					if err != nil {
+						return err
+					}
+					rs[sid] = append(rs[sid], &o)
+					return nil
+				})
+			})
 		})
-
-	})
-
-	if err != nil {
-		return nil, err
 	}
+
 	// Assemble result
 	result := &tempopb.TraceByIDResponse{
 		Trace: &tempopb.Trace{
@@ -141,18 +142,8 @@ func (q *Query) FindTraceByID(ctx context.Context, req *tempopb.TraceByIDRequest
 	return result, nil
 }
 
-var _ traceql.SpansetFetcher = (*Query)(nil)
+var _ traceql.SpansetFetcher = (*Store)(nil)
 
-func (q *Query) Fetch(ctx context.Context, req traceql.FetchSpansRequest) (traceql.FetchSpansResponse, error) {
+func (s *Store) Fetch(ctx context.Context, req traceql.FetchSpansRequest) (traceql.FetchSpansResponse, error) {
 	return traceql.FetchSpansResponse{}, nil
-}
-
-type QueryValues struct {
-	db *store.Store
-}
-
-var _ traceql.TagValuesFetcher = (*QueryValues)(nil)
-
-func (q *QueryValues) Fetch(ctx context.Context, req traceql.FetchTagValuesRequest, cb traceql.FetchTagValuesCallback) error {
-	return nil
 }
