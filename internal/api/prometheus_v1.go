@@ -206,6 +206,7 @@ func (api *prometheusAPI) Register(r *route.Router) {
 	r.Get("/api/v1/label/:name/values", wrap(api.labelValues))
 	r.Get("/api/v1/series", wrap(api.series))
 	r.Post("/api/v1/series", wrap(api.series))
+	r.Get("/api/v1/status/buildinfo", wrap(api.buildInfo))
 
 	r.Get("/api/v1/metadata", wrap(api.metricMetadata))
 }
@@ -387,12 +388,10 @@ func (api *prometheusAPI) queryExemplars(r *http.Request) apiFuncResult {
 }
 
 func (api *prometheusAPI) metricMetadata(r *http.Request) apiFuncResult {
-
-	// metric := r.FormValue("metric")
-
-	// Put the elements from the pseudo-set into a slice for marshaling.
-	res := map[string][]metadata.Metadata{}
-	return apiFuncResult{res, nil, nil, nil}
+	return apiFuncResult{data: map[string]any{
+		"status": "success",
+		"data":   map[string]any{},
+	}}
 }
 
 func protoToMeta(m *prompb.MetricMetadata) metadata.Metadata {
@@ -691,6 +690,15 @@ func (api *prometheusAPI) series(r *http.Request) (result apiFuncResult) {
 	}
 
 	return apiFuncResult{metrics, nil, warnings, closer}
+}
+
+func (api *prometheusAPI) buildInfo(_ *http.Request) apiFuncResult {
+	return apiFuncResult{data: map[string]any{
+		"status": "success",
+		"data": map[string]any{
+			"version": "2.24.0",
+		},
+	}}
 }
 
 func extractQueryOpts(r *http.Request) (promql.QueryOpts, error) {
