@@ -7,7 +7,7 @@ toolchain go1.22.5
 require (
 	github.com/RoaringBitmap/roaring v1.9.4
 	github.com/blevesearch/vellum v1.0.10
-	github.com/gernest/rbf v0.22.10
+	github.com/gernest/rbf v0.22.11
 	github.com/gernest/roaring v0.22.3
 	github.com/go-kit/log v0.2.1
 	github.com/gogo/protobuf v1.3.2
