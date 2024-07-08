@@ -144,13 +144,13 @@ func Main() *cli.Command {
 			&cli.StringFlag{
 				Name:    "otlp",
 				Value:   ":4317",
-				Usage:   "host:port for otlp http",
+				Usage:   "host:port for otlp grpc",
 				Sources: cli.EnvVars("FRI_OTLP"),
 			},
 			&cli.StringFlag{
 				Name:    "otlphttp",
 				Value:   ":4318",
-				Usage:   "host:port for otlp grpc",
+				Usage:   "host:port for otlp http",
 				Sources: cli.EnvVars("FRI_OTLP_HTTP"),
 			},
 			&cli.StringFlag{
