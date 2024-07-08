@@ -10,6 +10,7 @@ import (
 	"os/signal"
 
 	"github.com/gernest/frieren/internal/api"
+	otlphttp "github.com/gernest/frieren/internal/http"
 	"github.com/gernest/frieren/internal/logs"
 	"github.com/gernest/frieren/internal/metrics"
 	"github.com/gernest/frieren/internal/self"
@@ -143,8 +144,14 @@ func Main() *cli.Command {
 			&cli.StringFlag{
 				Name:    "otlp",
 				Value:   ":4317",
-				Usage:   "host:port address to listen to otlp collector grpc service",
+				Usage:   "host:port for otlp http",
 				Sources: cli.EnvVars("FRI_OTLP"),
+			},
+			&cli.StringFlag{
+				Name:    "otlphttp",
+				Value:   ":4318",
+				Usage:   "host:port for otlp grpc",
+				Sources: cli.EnvVars("FRI_OTLP_HTTP"),
 			},
 			&cli.StringFlag{
 				Name:    "api",
@@ -158,13 +165,21 @@ func Main() *cli.Command {
 			defer cancel()
 			data := c.String("data")
 			otlp := c.String("otlp")
+			otlpHTTP := c.String("otlphttp")
 			httpAPI := c.String("api")
-			slog.Info("Initializing server", "data", data, "otlp", otlp, "api", httpAPI)
+			slog.Info("Initializing server", "data", data, "otlp", otlp, "otlphttp", otlpHTTP, "api", httpAPI)
+
 			otlpListen, err := net.Listen("tcp", otlp)
 			if err != nil {
 				return err
 			}
 			defer otlpListen.Close()
+
+			otlpHTTPListen, err := net.Listen("tcp", otlpHTTP)
+			if err != nil {
+				return err
+			}
+			defer otlpHTTPListen.Close()
 
 			httpListen, err := net.Listen("tcp", httpAPI)
 			if err != nil {
@@ -215,24 +230,41 @@ func Main() *cli.Command {
 
 			go func() {
 				defer cancel()
-				slog.Info("starting gRPC otel collector server", "address", otlp)
+				slog.Info("starting otlp grpc", "address", otlp)
 				err := gs.Serve(otlpListen)
 				if err != nil {
-					slog.Error("exited grpc service", "err", err)
+					slog.Error("exited otlp grpc service", "err", err)
 				}
 			}()
-
-			oh := otelhttp.NewHandler(mux, "fri_API")
+			svc := &otlphttp.Server{
+				Trace:   ts.Export,
+				Metrics: ms.Export,
+				Logs:    ls.Export,
+			}
 			go func() {
+				oh := otelhttp.NewHandler(svc, "fri_otlp_http")
 				defer cancel()
-				slog.Info("starting http api server", "address", otlp)
+				slog.Info("starting otlp http api server", "address", otlpHTTP)
+				svr := &http.Server{
+					Handler:     oh,
+					BaseContext: func(l net.Listener) context.Context { return ctx },
+				}
+				err := svr.Serve(otlpHTTPListen)
+				if err != nil {
+					slog.Error("exited otlp http  service", "err", err)
+				}
+			}()
+			go func() {
+				oh := otelhttp.NewHandler(mux, "fri_http_api")
+				defer cancel()
+				slog.Info("starting http api server", "address", httpAPI)
 				svr := &http.Server{
 					Handler:     oh,
 					BaseContext: func(l net.Listener) context.Context { return ctx },
 				}
 				err := svr.Serve(httpListen)
 				if err != nil {
-					slog.Error("exited grpc service", "err", err)
+					slog.Error("exited http api service", "err", err)
 				}
 			}()
 			<-ctx.Done()
