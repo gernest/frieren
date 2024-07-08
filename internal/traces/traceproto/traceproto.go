@@ -29,6 +29,7 @@ func From(td ptrace.Traces) (result []*v1.Span) {
 	defer clear(durations)
 
 	update := func(e *v1.Span, id string) {
+		e.SpanDuration = e.SpanEndNano - e.SpanStartNano
 		x, ok := durations[id]
 		if !ok {
 			e.TraceStartNano = e.SpanStartNano
@@ -39,6 +40,10 @@ func From(td ptrace.Traces) (result []*v1.Span) {
 		e.TraceStartNano = min(e.SpanStartNano, x.TraceStartNano)
 		e.TraceEndNano = max(e.SpanEndNano, x.TraceEndNano)
 		e.TraceDuration = e.TraceEndNano - e.TraceStartNano
+
+		x.TraceDuration = e.TraceDuration
+		x.TraceStartNano = e.TraceStartNano
+		x.TraceEndNano = e.TraceEndNano
 	}
 	for i := 0; i < rls.Len(); i++ {
 		sls := rls.At(i).ScopeSpans()

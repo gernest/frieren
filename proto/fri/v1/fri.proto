@@ -85,4 +85,5 @@ message Span {
   int64 trace_start_nano = 26;
   int64 trace_end_nano = 27;
   int64 trace_duration = 28;
+  int64 span_duration = 29;
 }
