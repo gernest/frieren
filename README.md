@@ -10,9 +10,11 @@ to production.
 
 # Features
 
-- Single binary,zero dependency: One `frieren` binary to rule them all.
-- Supports `PromQL` , `LogQL` and `TraceQL`
-- Painless: Just point your otel collector, or send the data directly via otlp.
+- **Native grafana compatibility**: works with native prometheus. loki and tempo data sources.
+- **Single binary,zero dependency**: One `frieren` binary to rule them all.
+- **Supports `PromQL` , `LogQL` and `TraceQL`**
+- **Standard Ingestion**: Support `otlp` and `otlphttp`. Send data via `gRPC`, `http/json` `http/protobuf`
+- **Painless**: Just point your otel collector, or send the data directly via otlp.
 
 ```yaml
 exporters:
@@ -30,11 +32,11 @@ service:
       exporters: [otlp]
 ```
 
-- Familiar API: query metrics with prometheus api, logs with loki api and traces with tempo api
-- Crazy fast: We use compressed roaring bitmaps for extremely fast queries.
-- Realtime:  If the sample is accepted it is ready to be queried right away.
-- Unlimited cardinality.
-- Efficient: numeric data is stored in 2d compressed roaring bitmaps. Blobs are stored
+- **Familiar API**: query metrics with prometheus api, logs with loki api and traces with tempo api
+- **Crazy fast**: We use compressed roaring bitmaps for extremely fast queries.
+- **Realtime**:  If the sample is accepted it is ready to be queried right away.
+- **Unlimited cardinality**: We index attributes efficiently
+- **Efficient**: numeric data is stored in 2d compressed roaring bitmaps. Blobs are stored
  in content addressable store.
 
 # Prometheus
