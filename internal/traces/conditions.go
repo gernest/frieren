@@ -2,10 +2,11 @@ package traces
 
 import (
 	"fmt"
-	"math"
+	"strings"
 
-	"github.com/gernest/frieren/internal/constants"
-	"github.com/gernest/frieren/internal/predicate"
+	"github.com/gernest/rbf/dsl/bsi"
+	"github.com/gernest/rbf/dsl/mutex"
+	"github.com/gernest/rbf/dsl/query"
 	"github.com/grafana/tempo/pkg/traceql"
 )
 
@@ -45,7 +46,7 @@ var intrinsicColumnLookups = map[traceql.Intrinsic]struct {
 	traceql.IntrinsicServiceStats: {intrinsicScopeTrace, traceql.TypeNil},
 }
 
-func CompileConditions(conds []traceql.Condition, start, end uint64, allConditions bool) (predicate.Predicate, error) {
+func CompileConditions(conds []traceql.Condition, start, end int64, allConditions bool) (query.Filter, error) {
 	// Categorize conditions into span-level or resource-level
 	var (
 		mingledConditions  bool
@@ -113,199 +114,302 @@ func CompileConditions(conds []traceql.Condition, start, end uint64, allConditio
 	all = append(all, ev...)
 	all = append(all, ls...)
 	if allConditions {
-		return predicate.And(all), nil
+		return query.And(all), nil
 	}
-	return predicate.Or(all), nil
+	return query.Or(all), nil
 }
 
-func createEventIterator(conditions []traceql.Condition) (preds []predicate.Predicate, err error) {
+func createEventIterator(conditions []traceql.Condition) (preds []query.Filter, err error) {
 	if len(conditions) == 0 {
 		return nil, nil
 	}
-	preds = make([]predicate.Predicate, 0, len(conditions))
+	preds = make([]query.Filter, 0, len(conditions))
 
 	for _, cond := range conditions {
 		switch cond.Attribute.Intrinsic {
 		case traceql.IntrinsicEventName:
-			if !predicate.ValidForStrings(cond.Op) {
+			op, ok := validForBytes(cond.Op)
+			if !ok {
 				return nil, fmt.Errorf("%v not valid for event:name", cond.Op)
 			}
-			preds = append(preds, createString(
-				cond.Op, "event:name", cond.Operands[0].S,
-			))
+			preds = append(preds, &mutex.Blob{
+				Field: "link_trace_id",
+				Op:    op,
+				Value: []byte(cond.Operands[0].S),
+			})
+
 		default:
-			preds = append(preds, createString(
-				cond.Op, "event."+cond.Attribute.Name, cond.Operands[0].S,
-			))
+			op, ok := validForString(cond.Op)
+			if !ok {
+				return nil, fmt.Errorf("%v not valid for event:name", cond.Op)
+			}
+			preds = append(preds, &mutex.MatchString{
+				Field: "event_attributes",
+				Op:    op,
+				Value: formatAttribute(op, cond.Attribute.Name, cond.Operands[0].EncodeToString(false)),
+			})
 		}
 	}
 	return
 }
 
-func createLinkIterator(conditions []traceql.Condition) (preds []predicate.Predicate, err error) {
+func createLinkIterator(conditions []traceql.Condition) (preds []query.Filter, err error) {
 	if len(conditions) == 0 {
 		return nil, nil
 	}
-	preds = make([]predicate.Predicate, 0, len(conditions))
+	preds = make([]query.Filter, 0, len(conditions))
 
 	for _, cond := range conditions {
 		switch cond.Attribute.Intrinsic {
 		case traceql.IntrinsicLinkTraceID:
-			if !validForBytes(cond.Op) {
+			op, ok := validForBytes(cond.Op)
+			if !ok {
 				return nil, fmt.Errorf("%v not valid for link:traceID", cond.Op)
 			}
-			preds = append(preds, createString(
-				cond.Op, "link:traceID", cond.Operands[0].S,
-			))
+			preds = append(preds, &mutex.Blob{
+				Field: "link_trace_id",
+				Op:    op,
+				Value: []byte(cond.Operands[0].S),
+			})
 		case traceql.IntrinsicLinkSpanID:
-			if !validForBytes(cond.Op) {
+			op, ok := validForBytes(cond.Op)
+			if !ok {
 				return nil, fmt.Errorf("%v not valid for link:spanID", cond.Op)
 			}
-			preds = append(preds, createString(
-				cond.Op, "link:spanID", cond.Operands[0].S,
-			))
+			preds = append(preds, &mutex.Blob{
+				Field: "link_trace_id",
+				Op:    op,
+				Value: []byte(cond.Operands[0].S),
+			})
 		}
 	}
 	return
 }
 
-func createSpanPredicates(conds []traceql.Condition) (preds []predicate.Predicate, err error) {
-	preds = make([]predicate.Predicate, 0, len(conds))
+func createSpanPredicates(conds []traceql.Condition) (preds []query.Filter, err error) {
+	preds = make([]query.Filter, 0, len(conds))
 	for _, cond := range conds {
 		// Intrinsic
 		switch cond.Attribute.Intrinsic {
 		case traceql.IntrinsicSpanID:
-			if !validForBytes(cond.Op) {
+			op, ok := validForBytes(cond.Op)
+			if !ok {
 				return nil, fmt.Errorf("%v not valid for span:id", cond.Op)
 			}
-			preds = append(preds, createString(
-				cond.Op, "span:id", cond.Operands[0].S,
-			))
+			preds = append(preds, &mutex.Blob{
+				Field: "span_id",
+				Op:    op,
+				Value: []byte(cond.Operands[0].S),
+			})
 
 		case traceql.IntrinsicSpanStartTime:
-			if !predicate.ValidForInts(cond.Op) {
+			op, ok := validForInt(cond.Op)
+			if !ok {
 				return nil, fmt.Errorf("%v not valid for span:start", cond.Op)
 			}
-			preds = append(preds, predicate.NewInt(
-				constants.TracesSpanStart, cond.Op, uint64(cond.Operands[0].N),
+			preds = append(preds, bsi.Filter(
+				"span_start_nano", op, int64(cond.Operands[0].N), 0,
 			))
 		case traceql.IntrinsicName:
-			if !predicate.ValidForStrings(cond.Op) {
+			op, ok := validForString(cond.Op)
+			if !ok {
 				return nil, fmt.Errorf("%v not valid for span:name", cond.Op)
 			}
-			preds = append(preds, createString(
-				cond.Op, "span:name", cond.Operands[0].S,
-			))
+			preds = append(preds, &mutex.MatchString{
+				Field: "span_name",
+				Op:    op,
+				Value: cond.Operands[0].S,
+			})
 
 		case traceql.IntrinsicKind:
-			if !predicate.ValidForStrings(cond.Op) {
+			op, ok := validForString(cond.Op)
+			if !ok {
 				return nil, fmt.Errorf("%v not valid for span:name", cond.Op)
 			}
-			preds = append(preds, createString(
-				cond.Op, "span:kind", cond.Operands[0].S,
-			))
+			preds = append(preds, &mutex.MatchString{
+				Field: "span_kind",
+				Op:    op,
+				Value: cond.Operands[0].S,
+			})
 		case traceql.IntrinsicDuration:
-			if !predicate.ValidForInts(cond.Op) {
+			op, ok := validForInt(cond.Op)
+			if !ok {
 				return nil, fmt.Errorf("%v not valid for span:start", cond.Op)
 			}
-			preds = append(preds, predicate.NewInt(
-				constants.TracesSpanDuration, cond.Op, uint64(cond.Operands[0].D.Nanoseconds()),
+			preds = append(preds, bsi.Filter(
+				"span_duration",
+				op, cond.Operands[0].D.Nanoseconds(), 0,
 			))
 		case traceql.IntrinsicStatus:
-			if !predicate.ValidForStrings(cond.Op) {
+			op, ok := validForString(cond.Op)
+			if !ok {
 				return nil, fmt.Errorf("%v not valid for span:name", cond.Op)
 			}
-			preds = append(preds, createString(
-				cond.Op, "span:status", cond.Operands[0].S,
-			))
+			preds = append(preds, &mutex.MatchString{
+				Field: "span_status",
+				Op:    op,
+				Value: cond.Operands[0].S,
+			})
 		case traceql.IntrinsicStatusMessage:
-			if !predicate.ValidForStrings(cond.Op) {
+			op, ok := validForString(cond.Op)
+			if !ok {
 				return nil, fmt.Errorf("%v not valid for span:name", cond.Op)
 			}
-			preds = append(preds, createString(
-				cond.Op, "span:statusMessage", cond.Operands[0].S,
-			))
-
+			preds = append(preds, &mutex.MatchString{
+				Field: "span_status_message",
+				Op:    op,
+				Value: cond.Operands[0].S,
+			})
 		case traceql.IntrinsicStructuralDescendant:
 		case traceql.IntrinsicStructuralChild:
 		case traceql.IntrinsicStructuralSibling:
 		default:
-			if !predicate.ValidForStrings(cond.Op) {
+			op, ok := validForString(cond.Op)
+			if !ok {
 				return nil, fmt.Errorf("%v not valid for span.*", cond.Op)
 			}
-			preds = append(preds, createString(
-				cond.Op, "span."+cond.Attribute.Name, cond.Operands[0].EncodeToString(false),
-			))
+			preds = append(preds, &mutex.MatchString{
+				Field: "resource_attributes",
+				Op:    op,
+				Value: formatAttribute(op, cond.Attribute.Name, cond.Operands[0].EncodeToString(false)),
+			})
 		}
 	}
 	return
 }
 
-func createString(op traceql.Operator, key, value string) predicate.Predicate {
-	return predicate.NewString(constants.TracesLabels, op, key, value)
-}
-
-func createResourcePredicates(conds []traceql.Condition) (preds []predicate.Predicate, err error) {
-	preds = make([]predicate.Predicate, 0, len(conds))
+func createResourcePredicates(conds []traceql.Condition) (preds []query.Filter, err error) {
+	preds = make([]query.Filter, 0, len(conds))
 	for _, cond := range conds {
-		if !predicate.ValidForStrings(cond.Op) {
+		op, ok := validForString(cond.Op)
+		if !ok {
 			return nil, fmt.Errorf("%v not valid for resource.*", cond.Op)
 		}
-		preds = append(preds, createString(
-			cond.Op, "resource."+cond.Attribute.Name, cond.Operands[0].EncodeToString(false),
-		))
+		preds = append(preds, &mutex.MatchString{
+			Field: "resource_attributes",
+			Op:    op,
+			Value: formatAttribute(op, cond.Attribute.Name, cond.Operands[0].EncodeToString(false)),
+		})
 	}
 	return
 }
 
-func createTracePredicates(conds []traceql.Condition, start, end uint64) (preds []predicate.Predicate, err error) {
+func formatAttribute(o mutex.OP, key, value string) string {
+	switch o {
+	case mutex.EQ, mutex.NEQ:
+		return key + "=" + value
+	case mutex.RE, mutex.NRE:
+		return key + "=" + clean(value)
+	default:
+		return ""
+	}
+}
+
+func clean(s string) string {
+	s = strings.TrimPrefix(s, "$")
+	s = strings.TrimSuffix(s, "^")
+	return s
+}
+
+func createTracePredicates(conds []traceql.Condition, start, end int64) (preds []query.Filter, err error) {
 	// add conditional iterators first. this way if someone searches for { traceDuration > 1s && span.foo = "bar"} the query will
 	// be sped up by searching for traceDuration first. note that we can only set the predicates if all conditions is true.
 	// otherwise we just pass the info up to the engine to make a choice
-	preds = make([]predicate.Predicate, 0, len(conds))
+	preds = make([]query.Filter, 0, len(conds))
 	for _, cond := range conds {
 		switch cond.Attribute.Intrinsic {
 		case traceql.IntrinsicTraceID:
-			if !validForBytes(cond.Op) {
+			op, ok := validForBytes(cond.Op)
+			if !ok {
 				return nil, fmt.Errorf("%v not valid for trace:id", cond.Op)
 			}
-			preds = append(preds, createString(
-				cond.Op, "trace:id", cond.Operands[0].S,
-			))
+			preds = append(preds, &mutex.Blob{
+				Field: "trace_id",
+				Op:    op,
+				Value: []byte(cond.Operands[0].S),
+			})
 		case traceql.IntrinsicTraceDuration:
-			if !predicate.ValidForInts(cond.Op) {
+			op, ok := validForInt(cond.Op)
+			if !ok {
 				return nil, fmt.Errorf("%v not valid for trace:duration", cond.Op)
 			}
-			preds = append(preds, predicate.NewInt(
-				constants.TracesDuration, cond.Op,
-				uint64(cond.Operands[0].D.Nanoseconds()),
+			preds = append(preds, bsi.Filter(
+				"trace_duration",
+				op,
+				cond.Operands[0].D.Nanoseconds(),
+				0,
 			))
 		case traceql.IntrinsicTraceStartTime:
+			op, ok := validForInt(cond.Op)
+			if !ok {
+				return nil, fmt.Errorf("%v not valid for trace:duration", cond.Op)
+			}
+			preds = append(preds, bsi.Filter(
+				"trace_start_nano",
+				op,
+				cond.Operands[0].D.Nanoseconds(),
+				0,
+			))
 		case traceql.IntrinsicTraceRootSpan:
-			if !predicate.ValidForStrings(cond.Op) {
+			op, ok := validForString(cond.Op)
+			if !ok {
 				return nil, fmt.Errorf("%v not valid for trace:rootSpan", cond.Op)
 			}
-			preds = append(preds, createString(
-				cond.Op, "trace:rootSpan", cond.Operands[0].S,
-			))
+			preds = append(preds, &mutex.MatchString{
+				Field: "trace_root_span",
+				Op:    op,
+				Value: cond.Operands[0].S,
+			})
 
 		case traceql.IntrinsicTraceRootService:
-			if !predicate.ValidForStrings(cond.Op) {
+			op, ok := validForString(cond.Op)
+			if !ok {
 				return nil, fmt.Errorf("%v not valid for trace:rootService", cond.Op)
 			}
-			preds = append(preds, createString(
-				cond.Op, "trace:rootService", cond.Operands[0].S,
-			))
+			preds = append(preds, &mutex.MatchString{
+				Field: "trace_root_service",
+				Op:    op,
+				Value: cond.Operands[0].S,
+			})
 		}
 	}
-	if end == 0 {
-		end = math.MaxUint64
-	}
-	preds = append(preds, predicate.NewInt(constants.TracesStart, traceql.OpGreaterEqual, start))
-	preds = append(preds, predicate.NewInt(constants.TracesEnd, traceql.OpLess, start))
+	preds = append(preds, bsi.Filter("trace_start_nano", bsi.GE, start, 0))
+	preds = append(preds, bsi.Filter("trace_end_nano", bsi.GE, end, 0))
 	return
 }
 
-func validForBytes(op traceql.Operator) bool {
-	return op == traceql.OpEqual || op == traceql.OpNotEqual
+var stringOp = map[traceql.Operator]mutex.OP{
+	traceql.OpEqual:    mutex.EQ,
+	traceql.OpNotEqual: mutex.NEQ,
+	traceql.OpRegex:    mutex.RE,
+	traceql.OpNotRegex: mutex.NRE,
+}
+
+var bytesOp = map[traceql.Operator]mutex.OP{
+	traceql.OpEqual:    mutex.EQ,
+	traceql.OpNotEqual: mutex.NEQ,
+}
+
+func validForBytes(op traceql.Operator) (o mutex.OP, ok bool) {
+	o, ok = bytesOp[op]
+	return
+}
+
+func validForString(op traceql.Operator) (o mutex.OP, ok bool) {
+	o, ok = stringOp[op]
+	return
+}
+
+var intOp = map[traceql.Operator]bsi.Operation{
+	traceql.OpEqual:        bsi.EQ,
+	traceql.OpNotEqual:     bsi.NEQ,
+	traceql.OpGreater:      bsi.GT,
+	traceql.OpGreaterEqual: bsi.GE,
+	traceql.OpLess:         bsi.LT,
+	traceql.OpLessEqual:    bsi.LE,
+}
+
+func validForInt(op traceql.Operator) (o bsi.Operation, ok bool) {
+	o, ok = intOp[op]
+	return
 }

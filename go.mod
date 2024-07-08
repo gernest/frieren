@@ -10,7 +10,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/dgraph-io/badger/v4 v4.2.0
 	github.com/dgraph-io/ristretto v0.1.1
-	github.com/gernest/rbf v0.22.9
+	github.com/gernest/rbf v0.22.10
 	github.com/gernest/roaring v0.22.3
 	github.com/gernest/rows v1.22.9
 	github.com/go-kit/log v0.2.1
