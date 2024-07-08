@@ -13,7 +13,6 @@ import (
 	"github.com/gernest/frieren/internal/logs"
 	"github.com/gernest/frieren/internal/metrics"
 	"github.com/gernest/frieren/internal/self"
-	"github.com/gernest/frieren/internal/store"
 	"github.com/gernest/frieren/internal/traces"
 	"github.com/urfave/cli/v3"
 	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
@@ -172,12 +171,6 @@ func Main() *cli.Command {
 				return err
 			}
 			defer httpListen.Close()
-
-			db, err := store.New(data)
-			if err != nil {
-				return err
-			}
-			defer db.Close()
 
 			mdb, err := metrics.New(data)
 			if err != nil {
