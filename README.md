@@ -74,3 +74,27 @@ service:
 - `GET /api/search`
 - `GET /api/search/tags`
 - `GET /api/search/tag/:name/values`
+
+## Installation
+
+### Installation script
+
+```
+curl -fsSL https://github.com/gernest/frieren/releases/latest/download/install.sh | bash
+```
+
+### Container image
+
+```
+docker pull ghcr.io/gernest/frieren:latest
+```
+
+### Prebult binaries
+
+[See latest release page](https://github.com/gernest/frieren/releases/latest)
+
+## Start server
+
+```
+frieren
+```
