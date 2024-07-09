@@ -113,23 +113,11 @@ func entry(x *px.Ctx, log plog.LogRecord, stream []byte, labels []string) *v1.En
 		return true
 	})
 
-	// if log.Timestamp() is 0, we would have already stored log.ObservedTimestamp as log timestamp so no need to store again in structured metadata
-	if log.Timestamp() != 0 && log.ObservedTimestamp() != 0 {
-		x.Set("observed_timestamp", fmt.Sprintf("%d", log.ObservedTimestamp().AsTime().UnixNano()))
-	}
-
 	if severityNum := log.SeverityNumber(); severityNum != plog.SeverityNumberUnspecified {
 		x.Set("severity_number", fmt.Sprintf("%d", severityNum))
 	}
 	if severityText := log.SeverityText(); severityText != "" {
 		x.Set("severity_text", severityText)
-	}
-
-	if droppedAttributesCount := log.DroppedAttributesCount(); droppedAttributesCount != 0 {
-		x.Set("dropped_attributes_count", fmt.Sprintf("%d", droppedAttributesCount))
-	}
-	if logRecordFlags := log.Flags(); logRecordFlags != 0 {
-		x.Set("flags", fmt.Sprintf("%d", logRecordFlags))
 	}
 
 	if traceID := log.TraceID(); !traceID.IsEmpty() {

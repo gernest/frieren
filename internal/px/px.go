@@ -5,7 +5,9 @@ import (
 	"crypto/sha512"
 	"slices"
 
+	v1 "github.com/gernest/frieren/gen/go/fri/v1"
 	"go.opentelemetry.io/collector/pdata/pcommon"
+	"google.golang.org/protobuf/proto"
 )
 
 type Ctx struct {
@@ -34,13 +36,16 @@ func (x *Ctx) Sum() ([]byte, []string) {
 	return h.Sum(nil), o
 }
 
-func (x *Ctx) Metadata() [][]byte {
-	o := make([][]byte, 0, len(x.labels))
+func (x *Ctx) Metadata() []byte {
+	o := make([]string, 0, len(x.labels))
 	for k := range x.labels {
-		o = append(o, []byte(k))
+		o = append(o, k)
 	}
-	slices.SortFunc(o, bytes.Compare)
-	return o
+	slices.Sort(o)
+	data, _ := proto.Marshal(&v1.Entry_StructureMetadata{
+		Labels: o,
+	})
+	return data
 }
 func (x *Ctx) Labels() []string {
 	o := make([]string, 0, len(x.labels))

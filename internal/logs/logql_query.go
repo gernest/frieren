@@ -3,17 +3,24 @@ package logs
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"slices"
 	"strings"
+	"time"
 
-	"github.com/RoaringBitmap/roaring/roaring64"
+	v1 "github.com/gernest/frieren/gen/go/fri/v1"
+	"github.com/gernest/frieren/internal/lbx"
 	"github.com/gernest/rbf/dsl/bsi"
 	"github.com/gernest/rbf/dsl/mutex"
 	"github.com/gernest/rbf/dsl/query"
 	"github.com/gernest/rbf/dsl/tx"
+	"github.com/gernest/rows"
+	"github.com/grafana/loki/pkg/push"
 	"github.com/grafana/loki/v3/pkg/iter"
 	"github.com/grafana/loki/v3/pkg/logproto"
 	"github.com/grafana/loki/v3/pkg/logql"
 	"github.com/prometheus/prometheus/model/labels"
+	"google.golang.org/protobuf/proto"
 )
 
 func (s *Store) Label(ctx context.Context, req *logproto.LabelRequest) (*logproto.LabelResponse, error) {
@@ -70,11 +77,10 @@ func (s *Store) SelectLogs(ctx context.Context, req logql.SelectLogParams) (resu
 		return nil, err
 	}
 	defer r.Release()
-	// streamSet := map[uint64]*logproto.Stream{}
-	bitmap := roaring64.New()
+	streamSet := map[uint64]*logproto.Stream{}
 
 	for _, shard := range r.Range(req.Start, req.End) {
-		r.View(shard, func(txn *tx.Tx) error {
+		err = r.View(shard, func(txn *tx.Tx) error {
 			r, err := base.Apply(txn, nil)
 			if err != nil {
 				return err
@@ -89,18 +95,7 @@ func (s *Store) SelectLogs(ctx context.Context, req logql.SelectLogParams) (resu
 			if f.IsEmpty() {
 				return nil
 			}
-			bitmap.Clear()
-			err = mutex.Distinct(txn, "stream", bitmap, f)
-			if err != nil {
-				return err
-			}
-			if bitmap.IsEmpty() {
-				return nil
-			}
-			it := bitmap.Iterator()
-			for it.HasNext() {
-			}
-			stream, err := txn.Tx.Cursor(txn.Key("series"))
+			stream, err := txn.Tx.Cursor(txn.Key("stream"))
 			if err != nil {
 				return err
 			}
@@ -110,11 +105,91 @@ func (s *Store) SelectLogs(ctx context.Context, req logql.SelectLogParams) (resu
 				return err
 			}
 			defer labels.Close()
+			ts, err := txn.Tx.Cursor(txn.Key("timestamp"))
+			if err != nil {
+				return err
+			}
+			defer ts.Close()
 
-			return nil
+			line, err := txn.Tx.Cursor(txn.Key("line"))
+			if err != nil {
+				return err
+			}
+			defer line.Close()
+
+			meta, err := txn.Tx.Cursor(txn.Key("metadata"))
+			if err != nil {
+				return err
+			}
+			defer meta.Close()
+
+			return lbx.Extract(stream, txn.Shard, f, func(rowID uint64, columns *rows.Row) error {
+				cols := r.Columns()
+				st, ok := streamSet[rowID]
+				if !ok {
+					st = &logproto.Stream{}
+					lbl, err := lbx.Labels(labels, "labels", txn, cols[0])
+					if err != nil {
+						return fmt.Errorf("reading labels %w", err)
+					}
+					st.Labels = lbl.String()
+					st.Hash = rowID
+				}
+
+				// Prepare entries
+				size := len(st.Entries)
+				count := len(cols)
+				st.Entries = slices.Grow(st.Entries, int(count))[:size+int(count)]
+				mapping := map[uint64]int{}
+				for i := range cols {
+					mapping[cols[i]] = size + i
+				}
+				data := lbx.NewData(cols)
+
+				// read timestamp
+				err = lbx.BSI(data, ts, columns, txn.Shard, func(column uint64, value int64) {
+					st.Entries[mapping[column]].Timestamp = time.Unix(0, value)
+				})
+				if err != nil {
+					return fmt.Errorf("reading timestamp %w", err)
+				}
+				// read line
+				err = lbx.BSI(data, ts, columns, txn.Shard, func(column uint64, value int64) {
+					st.Entries[mapping[column]].Line = string(txn.Tr.Blob("line", uint64(value)))
+				})
+				if err != nil {
+					return fmt.Errorf("reading timestamp %w", err)
+				}
+
+				// read metadata
+				sm := &v1.Entry_StructureMetadata{}
+				err = lbx.BSI(data, meta, columns, txn.Shard, func(column uint64, value int64) {
+					proto.Unmarshal(txn.Tr.Blob("metadata", uint64(value)), sm)
+					o := &st.Entries[mapping[column]]
+					o.StructuredMetadata = make(push.LabelsAdapter, 0, len(sm.Labels))
+					for _, l := range sm.Labels {
+						name, value, _ := strings.Cut(l, "=")
+						o.StructuredMetadata = append(o.StructuredMetadata, push.LabelAdapter{
+							Name: name, Value: value,
+						})
+					}
+				})
+				if err != nil {
+					return fmt.Errorf("reading metadata %w", err)
+				}
+				return nil
+			})
+
 		})
+		if err != nil {
+			return nil, err
+		}
 	}
-	return iter.NoopEntryIterator, nil
+	o := make([]push.Stream, 0, len(streamSet))
+	for _, v := range streamSet {
+		o = append(o, *v)
+	}
+	return iter.NewStreamsIterator(o, req.Direction), nil
 }
 
 func clean(s string) string {
