@@ -67,7 +67,7 @@ func (m *Metrics) Start(ctx context.Context) {
 
 func (m *Metrics) Export(ctx context.Context, req pmetricotlp.ExportRequest) (pmetricotlp.ExportResponse, error) {
 	m.buffer <- &req
-	return pmetricotlp.ExportResponse{}, nil
+	return pmetricotlp.NewExportResponse(), nil
 }
 
 type Trace struct {
@@ -99,7 +99,7 @@ func (tr *Trace) Start(ctx context.Context) {
 
 func (tr *Trace) Export(ctx context.Context, req ptraceotlp.ExportRequest) (ptraceotlp.ExportResponse, error) {
 	tr.buffer <- &req
-	return ptraceotlp.ExportResponse{}, nil
+	return ptraceotlp.NewExportResponse(), nil
 }
 
 type Logs struct {
@@ -131,7 +131,7 @@ func (l *Logs) Start(ctx context.Context) {
 
 func (l *Logs) Export(ctx context.Context, req plogotlp.ExportRequest) (plogotlp.ExportResponse, error) {
 	l.buffer <- &req
-	return plogotlp.ExportResponse{}, nil
+	return plogotlp.NewExportResponse(), nil
 }
 
 func Main() *cli.Command {
