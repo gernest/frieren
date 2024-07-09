@@ -4,17 +4,17 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"time"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
-	"github.com/gernest/rbf"
+	"github.com/gernest/frieren/internal/lbx"
 	"github.com/gernest/rbf/dsl/bsi"
-	"github.com/gernest/rbf/dsl/cursor"
 	"github.com/gernest/rbf/dsl/mutex"
 	rq "github.com/gernest/rbf/dsl/query"
 	"github.com/gernest/rbf/dsl/tx"
-	"github.com/gernest/roaring"
+	"github.com/gernest/rows"
 	"github.com/prometheus/prometheus/model/exemplar"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/prompb"
@@ -71,9 +71,14 @@ func (s *Store) Select(start, end int64, matchers ...[]*labels.Matcher) ([]exemp
 	if err != nil {
 		return nil, err
 	}
-	bitmap := roaring64.New()
+
+	// we only read a series once across all shards.
 	discard := roaring64.New()
+
 	result := make([]exemplar.QueryResult, 0, 1<<10)
+	read := make([]labels.Labels, 0, 8)
+	readRows := make([]uint64, 0, 8)
+
 	for _, shard := range r.Range(time.UnixMilli(start), time.UnixMilli(end)) {
 		err = r.View(shard, func(txn *tx.Tx) error {
 			r, err := base.Apply(txn, nil)
@@ -91,19 +96,11 @@ func (s *Store) Select(start, end int64, matchers ...[]*labels.Matcher) ([]exemp
 				return nil
 			}
 
-			// Get all series
-			bitmap.Clear()
-			err = mutex.Distinct(txn, "series", bitmap, f)
+			series, err := txn.Tx.Cursor(txn.Key("series"))
 			if err != nil {
 				return err
 			}
-			it := bitmap.Iterator()
-			// a single cursor for series so we can reuse it for all ops on this shard.
-			seriesCursor, err := txn.Tx.Cursor(txn.Key("series"))
-			if err != nil {
-				return err
-			}
-			defer seriesCursor.Close()
+			defer series.Close()
 			labels, err := txn.Tx.Cursor(txn.Key("labels"))
 			if err != nil {
 				return err
@@ -115,48 +112,56 @@ func (s *Store) Select(start, end int64, matchers ...[]*labels.Matcher) ([]exemp
 				return err
 			}
 			defer ex.Close()
-
-			for it.HasNext() {
-				series := it.Next()
-				if discard.Contains(series) {
-					continue
+			read = read[:0]
+			readRows = readRows[:0]
+			err = lbx.Distinct(series, f, txn.Shard, func(value uint64, columns *rows.Row) error {
+				if discard.Contains(value) {
+					return nil
 				}
-
-				// Find all rows for this series + filter
-				row, err := cursor.Row(seriesCursor, txn.Shard, series)
-				if err != nil {
-					return err
-				}
-				row = row.Intersect(f)
-				err = row.RangeColumns(func(u uint64) error {
-					defer discard.Add(series)
-
-					e, err := readExemplars(ex, txn, u)
+				return columns.RangeColumns(func(u uint64) error {
+					defer discard.Add(value)
+					lbl, err := lbx.Labels(labels, "labels", txn, columns.Columns()[0])
 					if err != nil {
 						return err
 					}
-					if len(e) == 0 {
-						return nil
-					}
-					lbl, err := readLabels(labels, txn, u)
-					if err != nil {
-						return err
-					}
-					result = append(result, exemplar.QueryResult{
-						SeriesLabels: lbl,
-						Exemplars:    e,
-					})
-					// We are only reading a single column
+					read = append(read, lbl)
+					readRows = append(readRows, u)
 					return io.EOF
 				})
-				if err != nil {
-					if !errors.Is(err, io.EOF) {
-						return err
+			})
+			if err != nil {
+				if !errors.Is(err, io.EOF) {
+					return err
+				}
+			}
+			if len(read) > 0 {
+				data := lbx.NewData(readRows)
+				sm := &prompb.TimeSeries{}
+				mapping := map[uint64]int{}
+				for i := range readRows {
+					mapping[readRows[i]] = i
+				}
+				err = lbx.BSI(data, ex, rows.NewRow(readRows...), txn.Shard, func(column uint64, value int64) {
+					data := txn.Tr.Blob("exemplar", uint64(value))
+					if len(data) == 0 {
+						return
 					}
+					sm.Reset()
+					sm.Unmarshal(data)
+					o := exemplar.QueryResult{
+						SeriesLabels: read[mapping[column]].Copy(),
+						Exemplars:    make([]exemplar.Exemplar, len(sm.Exemplars)),
+					}
+					for i := range sm.Exemplars {
+						o.Exemplars[i] = decodeExemplar(&sm.Exemplars[i])
+					}
+					result = append(result, o)
+				})
+				if err != nil {
+					return fmt.Errorf("reading exemplar %w", err)
 				}
 			}
 			return nil
-
 		})
 
 		if err != nil {
@@ -164,23 +169,6 @@ func (s *Store) Select(start, end int64, matchers ...[]*labels.Matcher) ([]exemp
 		}
 	}
 	return result, nil
-}
-
-func readExemplars(c *rbf.Cursor, txn *tx.Tx, column uint64) (o []exemplar.Exemplar, err error) {
-	var e prompb.Exemplar
-	err = cursor.Rows(c, 0, func(row uint64) error {
-		b := txn.Tr.Blob("exemplar", row)
-		if len(b) > 0 {
-			e.Reset()
-			err := e.Unmarshal(b)
-			if err != nil {
-				return err
-			}
-			o = append(o, decodeExemplar(&e))
-		}
-		return nil
-	}, roaring.NewBitmapColumnFilter(column))
-	return
 }
 
 func decodeExemplar(ex *prompb.Exemplar) exemplar.Exemplar {

@@ -40,10 +40,9 @@ func fromTS(ts *prompb.TimeSeries, o []*v1.Sample) []*v1.Sample {
 		series.Write(b.Bytes())
 	}
 	id := series.Sum(nil)
-	exemplars := make([][]byte, len(ts.Exemplars))
-	for i := range ts.Exemplars {
-		data, _ := ts.Exemplars[i].Marshal()
-		exemplars[i] = data
+	var exemplars []byte
+	if len(ts.Exemplars) > 0 {
+		exemplars, _ = (&prompb.TimeSeries{Exemplars: ts.Exemplars}).Marshal()
 	}
 	if len(ts.Samples) > 0 {
 		for i := range ts.Samples {

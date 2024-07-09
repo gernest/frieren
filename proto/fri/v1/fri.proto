@@ -32,7 +32,7 @@ message Entry {
 message Sample {
   bytes series = 1;
   repeated string labels = 2;
-  repeated bytes exemplars = 3;
+  bytes exemplars = 3;
   bool kind = 4;
   double value = 5;
   bytes histogram = 6;
