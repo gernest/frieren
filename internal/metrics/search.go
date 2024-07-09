@@ -4,15 +4,15 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/blevesearch/vellum"
-	v1 "github.com/gernest/frieren/gen/go/fri/v1"
+	"github.com/gernest/frieren/internal/lbx"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/dsl"
 	"github.com/gernest/rbf/dsl/bsi"
@@ -21,6 +21,7 @@ import (
 	rq "github.com/gernest/rbf/dsl/query"
 	"github.com/gernest/rbf/dsl/tx"
 	"github.com/gernest/roaring"
+	"github.com/gernest/rows"
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/prompb"
@@ -161,7 +162,6 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 		return storage.ErrSeriesSet(err)
 	}
 	defer r.Release()
-	bitmap := roaring64.New()
 	isSeriesQuery := hints.Func == "series"
 	for i := range s.shards {
 		r.View(s.shards[i], func(txn *tx.Tx) error {
@@ -180,154 +180,99 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 				return nil
 			}
 
-			// Get all series
-			bitmap.Clear()
-			err = mutex.Distinct(txn, "series", bitmap, f)
+			series, err := txn.Tx.Cursor(txn.Key("series"))
 			if err != nil {
 				return err
 			}
-			it := bitmap.Iterator()
-
-			// a single cursor for series so we can reuse it for all ops on this shard.
-			seriesCursor, err := txn.Tx.Cursor(txn.Key("series"))
-			if err != nil {
-				return err
-			}
-			defer seriesCursor.Close()
+			defer series.Close()
 			labels, err := txn.Tx.Cursor(txn.Key("labels"))
 			if err != nil {
 				return err
 			}
 			defer labels.Close()
 
-			if isSeriesQuery {
-				// Fast path for series queries. We only need to read series labels no need
-				// to process samples.
-				for it.HasNext() {
-					series := it.Next()
-					if _, exists := m[series]; exists {
-						continue
-					}
+			kind, err := txn.Tx.Cursor(txn.Key("kind"))
+			if err != nil {
+				return err
+			}
+			defer kind.Close()
 
-					// Find all rows for this series + filter
-					row, err := cursor.Row(seriesCursor, txn.Shard, series)
+			ts, err := txn.Tx.Cursor(txn.Key("timestamp"))
+			if err != nil {
+				return err
+			}
+			defer ts.Close()
+
+			vc, err := txn.Tx.Cursor(txn.Key("value"))
+			if err != nil {
+				return err
+			}
+			defer vc.Close()
+
+			hc, err := txn.Tx.Cursor(txn.Key("histogram"))
+			if err != nil {
+				return err
+			}
+			defer hc.Close()
+
+			isHistogram, err := lbx.Histograms(kind, txn)
+			if err != nil {
+				return err
+			}
+			return lbx.Distinct(series, f, txn.Shard, func(value uint64, columns *rows.Row) error {
+				cols := columns.Columns()
+				sx, ok := m[value]
+				if !ok {
+					lbl, err := lbx.Labels(labels, "labels", txn, cols[0])
 					if err != nil {
 						return err
 					}
-					row = row.Intersect(f)
-					err = row.RangeColumns(func(u uint64) error {
-						lbl, err := readLabels(labels, txn, u)
-						if err != nil {
-							return err
-						}
-						m[series] = &S{Labels: lbl}
-						// We are only reading a single column
-						return io.EOF
-					})
-					if err != nil {
-						if !errors.Is(err, io.EOF) {
-							return err
-						}
+					sx = &S{
+						Labels: lbl,
 					}
+					m[value] = sx
 				}
-				return nil
-			}
-
-			// maps  column to sample
-			kind := map[uint64]v1.Sample_Kind{}
-			err = txn.Cursor("kind", func(c *rbf.Cursor, tx *tx.Tx) error {
-				return mutex.Extract(c, tx.Shard, f, func(column, value uint64) error {
-					kind[column] = v1.Sample_Kind(value)
+				if isSeriesQuery {
 					return nil
-				})
-			})
-			if err != nil {
-				return err
-			}
-			ts := map[uint64]int64{}
-			err = txn.Cursor("timestamp", func(c *rbf.Cursor, tx *tx.Tx) error {
-				return bsi.Extract(c, tx.Shard, f, func(column uint64, value int64) error {
-					ts[column] = value
-					return nil
-				})
-			})
-			if err != nil {
-				return err
-			}
-			value, err := txn.Tx.Cursor(txn.Key("value"))
-			if err != nil {
-				return err
-			}
-			defer value.Close()
-
-			hist, err := txn.Tx.Cursor(txn.Key("histogram"))
-			if err != nil {
-				return err
-			}
-			defer hist.Close()
-
-			for it.HasNext() {
-				series := it.Next()
-
-				// Find all rows for this series + filter
-				row, err := cursor.Row(seriesCursor, txn.Shard, series)
-				if err != nil {
-					return err
 				}
-				row = row.Intersect(f)
-
-				columns := row.Columns()
-				mapping := make(map[uint64]int, len(columns))
-				for i := range columns {
-					mapping[columns[i]] = i
+				chunks := make([]chunks.Sample, len(cols))
+				mapping := map[uint64]int{}
+				for i := range cols {
+					mapping[cols[i]] = i
 				}
-				chunks := make([]chunks.Sample, len(columns))
-
-				switch kind[columns[0]] {
-				case v1.Sample_Float:
-					bsi.Extract(value, txn.Shard, row, func(column uint64, value int64) error {
-						chunks[mapping[column]] = &V{
-							f:  math.Float64frombits(uint64(value)),
-							ts: ts[column],
-						}
-						return nil
-					})
-				case v1.Sample_Histogram:
+				data := lbx.NewData(cols)
+				if isHistogram.Includes(cols[0]) {
+					// Histogram series
 					hs := &prompb.Histogram{}
-					err = mutex.Extract(hist, txn.Shard, row, func(column, value uint64) error {
+					err = lbx.BSI(data, ts, columns, txn.Shard, func(column uint64, value int64) {
 						hs.Reset()
-						err := hs.Unmarshal(txn.Tr.Blob("histogram", value))
-						if err != nil {
-							return err
-						}
+						hs.Unmarshal(txn.Tr.Blob("histogram", uint64(value)))
 						if _, isFloat := hs.Count.(*prompb.Histogram_CountFloat); isFloat {
-							chunks[i] = NewFH(hs)
+							chunks[mapping[column]] = NewFH(hs)
 						} else {
-							chunks[i] = NewH(hs)
+							chunks[mapping[column]] = NewH(hs)
 						}
-						return nil
 					})
 					if err != nil {
-						return err
+						return fmt.Errorf("reading histogram %w", err)
 					}
-				}
-
-				sx, seen := m[series]
-				if !seen {
-					// read labels
-					lbl, err := readLabels(labels, txn, columns[0])
+				} else {
+					err = lbx.BSI(data, ts, columns, txn.Shard, func(column uint64, value int64) {
+						chunks[mapping[column]] = &V{ts: value}
+					})
 					if err != nil {
-						return err
+						return fmt.Errorf("reading timestamp %w", err)
 					}
-					m[series] = &S{
-						Labels:  lbl,
-						Samples: chunks,
+					err = lbx.BSI(data, vc, columns, txn.Shard, func(column uint64, value int64) {
+						chunks[mapping[column]].(*V).f = math.Float64frombits(uint64(value))
+					})
+					if err != nil {
+						return fmt.Errorf("reading values %w", err)
 					}
-					continue
 				}
 				sx.Samples = append(sx.Samples, chunks...)
-			}
-			return nil
+				return nil
+			})
 		})
 	}
 

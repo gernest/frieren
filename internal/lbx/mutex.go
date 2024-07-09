@@ -6,7 +6,6 @@ import (
 	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/dsl/cursor"
 	"github.com/gernest/rbf/dsl/tx"
-	"github.com/gernest/rows"
 	"github.com/prometheus/prometheus/model/labels"
 )
 
@@ -44,18 +43,4 @@ func Blobs(c *rbf.Cursor, field string, tx *tx.Tx, rowID uint64) (labels.Labels,
 		return nil
 	})
 	return b.Labels(), nil
-}
-
-func Extract(c *rbf.Cursor, shard uint64, columns *rows.Row, f func(row uint64, columns *rows.Row) error) error {
-	return cursor.Rows(c, 0, func(rowID uint64) error {
-		row, err := cursor.Row(c, shard, rowID)
-		if err != nil {
-			return err
-		}
-		row = row.Intersect(columns)
-		if row.IsEmpty() {
-			return nil
-		}
-		return f(rowID, row)
-	})
 }

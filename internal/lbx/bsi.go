@@ -54,6 +54,39 @@ func BSI(base Data, c *rbf.Cursor, exists *rows.Row, shard uint64, f func(column
 	return nil
 }
 
+func Distinct(c *rbf.Cursor, exists *rows.Row, shard uint64, f func(value uint64, columns *rows.Row) error) error {
+	data := NewData(exists.Columns())
+	bitDepth, err := depth(c)
+	if err != nil {
+		return err
+	}
+
+	for i := uint64(0); i < bitDepth; i++ {
+		bits, err := cursor.Row(c, shard, 2+uint64(i))
+		if err != nil {
+			return err
+		}
+		bits = bits.Intersect(exists)
+		if bits.IsEmpty() {
+			continue
+		}
+		data.mergeBits(bits.Columns(), 1<<i)
+	}
+	idx := make(map[uint64][]uint64, len(data))
+	for columnID, val := range data {
+		// Convert to two's complement and add base back to value.
+		val = uint64((2*(int64(val)>>63) + 1) * int64(val&^(1<<63)))
+		idx[val] = append(idx[val], columnID)
+	}
+	for row, cols := range idx {
+		err := f(row, rows.NewRow(cols...))
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func depth(c *rbf.Cursor) (uint64, error) {
 	m, err := c.Max()
 	return m / rbf.ShardWidth, err

@@ -51,7 +51,7 @@ func fromTS(ts *prompb.TimeSeries, o []*v1.Sample) []*v1.Sample {
 				Series:    id,
 				Labels:    labels,
 				Exemplars: exemplars,
-				Kind:      v1.Sample_Float,
+				Kind:      true,
 				Value:     ts.Samples[i].Value,
 				Timestamp: ts.Samples[i].Timestamp,
 			})
@@ -64,7 +64,6 @@ func fromTS(ts *prompb.TimeSeries, o []*v1.Sample) []*v1.Sample {
 				Series:    id,
 				Labels:    labels,
 				Exemplars: exemplars,
-				Kind:      v1.Sample_Histogram,
 				Histogram: data,
 				Timestamp: ts.Histograms[i].Timestamp,
 			})
