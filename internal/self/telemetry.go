@@ -4,8 +4,10 @@ import (
 	"context"
 
 	"github.com/gernest/frieren/internal/util"
+	prometheusbridge "go.opentelemetry.io/contrib/bridges/prometheus"
 	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -94,8 +96,17 @@ func Setup() {
 
 func newMetricReader() (sdkmetric.Reader, error) {
 	return autoexport.NewMetricReader(context.Background(),
-		autoexport.WithFallbackMetricReader(func(_ context.Context) (sdkmetric.Reader, error) {
-			return sdkmetric.NewManualReader(), nil
+		autoexport.WithFallbackMetricReader(func(ctx context.Context) (sdkmetric.Reader, error) {
+			// By default we send to the local gRPC endpoint. We rely on grafana packages
+			// which rely on prometheus, so we create producers for both prometheus and
+			// otlp and mesh them togather.
+			r, err := otlpmetricgrpc.New(ctx, otlpmetricgrpc.WithInsecure())
+			if err != nil {
+				return nil, err
+			}
+			return sdkmetric.NewPeriodicReader(r, sdkmetric.WithProducer(
+				prometheusbridge.NewMetricProducer(),
+			)), nil
 		}),
 	)
 }
