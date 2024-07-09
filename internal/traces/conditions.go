@@ -132,10 +132,10 @@ func createEventIterator(conditions []traceql.Condition) (preds []query.Filter, 
 			if !ok {
 				return nil, fmt.Errorf("%v not valid for event:name", cond.Op)
 			}
-			preds = append(preds, &mutex.Blob{
-				Field: "link_trace_id",
+			preds = append(preds, &mutex.MatchString{
+				Field: "event_name",
 				Op:    op,
-				Value: []byte(cond.Operands[0].S),
+				Value: cond.Operands[0].S,
 			})
 
 		default:
@@ -177,7 +177,7 @@ func createLinkIterator(conditions []traceql.Condition) (preds []query.Filter, e
 				return nil, fmt.Errorf("%v not valid for link:spanID", cond.Op)
 			}
 			preds = append(preds, &mutex.Blob{
-				Field: "link_trace_id",
+				Field: "link_span_id",
 				Op:    op,
 				Value: []byte(cond.Operands[0].S),
 			})
