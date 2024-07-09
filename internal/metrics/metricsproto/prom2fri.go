@@ -2,8 +2,8 @@ package metricsproto
 
 import (
 	"bytes"
-	"crypto/sha512"
 
+	"github.com/cespare/xxhash/v2"
 	v1 "github.com/gernest/frieren/gen/go/fri/v1"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/storage/remote/otlptranslator/prometheusremotewrite"
@@ -28,7 +28,7 @@ func From2(md pmetric.Metrics) ([]*v1.Sample, error) {
 }
 
 func fromTS(ts *prompb.TimeSeries, o []*v1.Sample) []*v1.Sample {
-	series := sha512.New512_224()
+	series := xxhash.New()
 	var b bytes.Buffer
 	labels := make([]string, len(ts.Labels))
 	for i := range ts.Labels {
