@@ -208,7 +208,7 @@ func Main() *cli.Command {
 			}
 			defer tdb.Close()
 
-			self.Setup()
+			self.Setup(ctx)
 
 			mux := http.NewServeMux()
 

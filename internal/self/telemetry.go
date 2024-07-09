@@ -65,8 +65,8 @@ func Start(ctx context.Context, name string) (context.Context, trace.Span) {
 	return Tracer().Start(ctx, name)
 }
 
-func Setup() {
-	spanExporter, err := newSpanExporter()
+func Setup(ctx context.Context) {
+	spanExporter, err := newSpanExporter(ctx)
 	if err != nil {
 		util.Exit("creating span exporter", "err", err)
 	}
@@ -80,7 +80,7 @@ func Setup() {
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{}, propagation.Baggage{},
 	))
-	metricsReader, err := newMetricReader()
+	metricsReader, err := newMetricReader(ctx)
 	if err != nil {
 		util.Exit("creating metrics exporter", "err", err)
 	}
@@ -91,12 +91,12 @@ func Setup() {
 		),
 		sdkmetric.WithResource(resource.Environment()),
 	)
-
 	otel.SetMeterProvider(provider)
+
 }
 
-func newMetricReader() (sdkmetric.Reader, error) {
-	return autoexport.NewMetricReader(context.Background(),
+func newMetricReader(ctx context.Context) (sdkmetric.Reader, error) {
+	return autoexport.NewMetricReader(ctx,
 		autoexport.WithFallbackMetricReader(func(ctx context.Context) (sdkmetric.Reader, error) {
 			// By default we send to the local gRPC endpoint. We rely on grafana packages
 			// which rely on prometheus, so we create producers for both prometheus and
@@ -112,8 +112,8 @@ func newMetricReader() (sdkmetric.Reader, error) {
 	)
 }
 
-func newSpanExporter() (sdktrace.SpanExporter, error) {
-	return autoexport.NewSpanExporter(context.Background(), autoexport.WithFallbackSpanExporter(
+func newSpanExporter(ctx context.Context) (sdktrace.SpanExporter, error) {
+	return autoexport.NewSpanExporter(ctx, autoexport.WithFallbackSpanExporter(
 		func(ctx context.Context) (sdktrace.SpanExporter, error) {
 			return otlptracegrpc.New(ctx, otlptracegrpc.WithInsecure())
 		},
