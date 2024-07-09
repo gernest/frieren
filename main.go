@@ -15,13 +15,16 @@ import (
 	"github.com/gernest/frieren/internal/metrics"
 	"github.com/gernest/frieren/internal/self"
 	"github.com/gernest/frieren/internal/traces"
+	"github.com/gernest/frieren/internal/util"
 	"github.com/urfave/cli/v3"
 	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
 	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
 	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"google.golang.org/grpc"
+
 	_ "google.golang.org/grpc/encoding/gzip"
 )
 
@@ -267,6 +270,11 @@ func Main() *cli.Command {
 					slog.Error("exited http api service", "err", err)
 				}
 			}()
+
+			err = runtime.Start()
+			if err != nil {
+				util.Exit("starring runtime metrics", "err", err)
+			}
 			<-ctx.Done()
 			slog.Info("exiting server")
 			return ctx.Err()
