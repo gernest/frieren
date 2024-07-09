@@ -109,36 +109,26 @@ func From(td ptrace.Traces) (result []*v1.Span) {
 
 				lk := span.Links()
 				if lk.Len() > 0 {
-					sid := map[string]struct{}{}
-					tid := map[string]struct{}{}
 
 					attrCtx.Reset()
 
 					for idx := 0; idx < lk.Len(); idx++ {
 						e := lk.At(idx)
-						sid[e.SpanID().String()] = struct{}{}
-						tid[e.TraceID().String()] = struct{}{}
+						o.LinkSpanId = append(o.LinkSpanId, e.SpanID().String())
+						o.LinkTraceId = append(o.LinkTraceId, e.TraceID().String())
 						e.Attributes().Range(attrCtx.SetAttribute)
 					}
 
-					o.LinkSpanId = make([][]byte, 0, len(sid))
-					for k := range sid {
-						o.LinkSpanId = append(o.LinkSpanId, []byte(k))
-					}
-					o.LinkTraceId = make([][]byte, 0, len(sid))
-					for k := range tid {
-						o.LinkTraceId = append(o.LinkTraceId, []byte(k))
-					}
 				}
 				traceId := span.TraceID().String()
-				o.TraceId = []byte(traceId)
-				o.SpanId = []byte(span.SpanID().String())
+				o.TraceId = traceId
+				o.SpanId = span.SpanID().String()
 				parent := span.ParentSpanID()
 				if parent.IsEmpty() {
 					o.TraceRootName = span.Name()
 					o.TraceRootService = serviceName
 				} else {
-					o.ParentId = []byte(parent.String())
+					o.ParentId = parent.String()
 				}
 
 				o.SpanStartNano = int64(span.StartTimestamp())
