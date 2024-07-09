@@ -129,7 +129,6 @@ func Add(mux *http.ServeMux, mdb *metrics.Store, tdb *traces.Store, ldb *logs.St
 	newLokiAPI(ldb).Register(api)
 	newTempoAPI(tdb).Register(api)
 	cors, _ := compileCORSRegexString(".*")
-
 	mux.Handle("/api/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		httputil.SetCORS(w, cors, r)
 		api.ServeHTTP(w, r)
@@ -146,6 +145,7 @@ func newPrometheusAPI(db *metrics.Store) *prometheusAPI {
 
 	eo := promql.EngineOpts{
 		Logger:                   log.With(logger, "component", "query engine"),
+		MaxSamples:               50000000,
 		Reg:                      prometheus.DefaultRegisterer,
 		Timeout:                  2 * time.Minute,
 		ActiveQueryTracker:       promql.NewActiveQueryTracker(trackPath, 20, log.With(logger, "component", "activeQueryTracker")),
