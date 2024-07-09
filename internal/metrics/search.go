@@ -347,6 +347,7 @@ func readLabels(c *rbf.Cursor, txn *tx.Tx, column uint64) (o labels.Labels, err 
 	}, roaring.NewBitmapColumnFilter(column))
 	return
 }
+
 func clean(s string) string {
 	s = strings.TrimPrefix(s, "^")
 	s = strings.TrimSuffix(s, "$")

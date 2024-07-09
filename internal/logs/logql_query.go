@@ -1,11 +1,19 @@
 package logs
 
 import (
+	"bytes"
 	"context"
+	"strings"
 
+	"github.com/RoaringBitmap/roaring/roaring64"
+	"github.com/gernest/rbf/dsl/bsi"
+	"github.com/gernest/rbf/dsl/mutex"
+	"github.com/gernest/rbf/dsl/query"
+	"github.com/gernest/rbf/dsl/tx"
 	"github.com/grafana/loki/v3/pkg/iter"
 	"github.com/grafana/loki/v3/pkg/logproto"
 	"github.com/grafana/loki/v3/pkg/logql"
+	"github.com/prometheus/prometheus/model/labels"
 )
 
 func (s *Store) Label(ctx context.Context, req *logproto.LabelRequest) (*logproto.LabelResponse, error) {
@@ -15,8 +23,104 @@ func (s *Store) Label(ctx context.Context, req *logproto.LabelRequest) (*logprot
 func (*Store) SelectSamples(_ context.Context, req logql.SelectSampleParams) (iter.SampleIterator, error) {
 	return iter.NoopSampleIterator, nil
 }
-func (*Store) SelectLogs(ctx context.Context, req logql.SelectLogParams) (result iter.EntryIterator, err error) {
+
+func (s *Store) SelectLogs(ctx context.Context, req logql.SelectLogParams) (result iter.EntryIterator, err error) {
+	expr, err := req.LogSelector()
+	if err != nil {
+		return nil, err
+	}
+	matchers := expr.Matchers()
+	if len(matchers) == 0 {
+		return iter.NoopEntryIterator, nil
+	}
+
+	// We use timestamp filter as the base filter
+	base := bsi.Filter("timestamp", bsi.RANGE, req.Start.UnixNano(), req.End.UnixNano())
+
+	// all matchers use AND
+	filter := make(query.And, 0, len(matchers))
+	var b bytes.Buffer
+	for _, m := range matchers {
+		var op mutex.OP
+		b.Reset()
+		b.WriteString(m.Name)
+		b.WriteByte('=')
+		switch m.Type {
+		case labels.MatchEqual:
+			op = mutex.EQ
+			b.WriteString(m.Value)
+		case labels.MatchNotEqual:
+			op = mutex.NEQ
+			b.WriteString(m.Value)
+		case labels.MatchRegexp:
+			op = mutex.RE
+			b.WriteString(clean(m.Value))
+		case labels.MatchNotRegexp:
+			op = mutex.NRE
+			b.WriteString(clean(m.Value))
+		}
+		filter = append(filter, &mutex.MatchString{
+			Field: "labels",
+			Op:    op,
+			Value: b.String(),
+		})
+	}
+	r, err := s.Reader()
+	if err != nil {
+		return nil, err
+	}
+	defer r.Release()
+	// streamSet := map[uint64]*logproto.Stream{}
+	bitmap := roaring64.New()
+
+	for _, shard := range r.Range(req.Start, req.End) {
+		r.View(shard, func(txn *tx.Tx) error {
+			r, err := base.Apply(txn, nil)
+			if err != nil {
+				return err
+			}
+			if r.IsEmpty() {
+				return nil
+			}
+			f, err := filter.Apply(txn, r)
+			if err != nil {
+				return err
+			}
+			if f.IsEmpty() {
+				return nil
+			}
+			bitmap.Clear()
+			err = mutex.Distinct(txn, "stream", bitmap, f)
+			if err != nil {
+				return err
+			}
+			if bitmap.IsEmpty() {
+				return nil
+			}
+			it := bitmap.Iterator()
+			for it.HasNext() {
+			}
+			stream, err := txn.Tx.Cursor(txn.Key("series"))
+			if err != nil {
+				return err
+			}
+			defer stream.Close()
+			labels, err := txn.Tx.Cursor(txn.Key("labels"))
+			if err != nil {
+				return err
+			}
+			defer labels.Close()
+
+			return nil
+		})
+	}
 	return iter.NoopEntryIterator, nil
+}
+
+func clean(s string) string {
+	s = strings.TrimPrefix(s, "^")
+	s = strings.TrimSuffix(s, "$")
+	return s
 }
 
 // var sep = []byte("=")
