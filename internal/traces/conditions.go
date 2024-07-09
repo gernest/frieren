@@ -166,20 +166,20 @@ func createLinkIterator(conditions []traceql.Condition) (preds []query.Filter, e
 			if !ok {
 				return nil, fmt.Errorf("%v not valid for link:traceID", cond.Op)
 			}
-			preds = append(preds, &mutex.Blob{
+			preds = append(preds, &mutex.MatchString{
 				Field: "link_trace_id",
 				Op:    op,
-				Value: []byte(cond.Operands[0].S),
+				Value: cond.Operands[0].S,
 			})
 		case traceql.IntrinsicLinkSpanID:
 			op, ok := validForBytes(cond.Op)
 			if !ok {
 				return nil, fmt.Errorf("%v not valid for link:spanID", cond.Op)
 			}
-			preds = append(preds, &mutex.Blob{
+			preds = append(preds, &mutex.MatchString{
 				Field: "link_span_id",
 				Op:    op,
-				Value: []byte(cond.Operands[0].S),
+				Value: cond.Operands[0].S,
 			})
 		}
 	}
@@ -196,10 +196,10 @@ func createSpanPredicates(conds []traceql.Condition) (preds []query.Filter, err 
 			if !ok {
 				return nil, fmt.Errorf("%v not valid for span:id", cond.Op)
 			}
-			preds = append(preds, &mutex.Blob{
+			preds = append(preds, &mutex.MatchString{
 				Field: "span_id",
 				Op:    op,
-				Value: []byte(cond.Operands[0].S),
+				Value: cond.Operands[0].S,
 			})
 
 		case traceql.IntrinsicSpanStartTime:
@@ -323,10 +323,10 @@ func createTracePredicates(conds []traceql.Condition, start, end int64) (preds [
 			if !ok {
 				return nil, fmt.Errorf("%v not valid for trace:id", cond.Op)
 			}
-			preds = append(preds, &mutex.Blob{
+			preds = append(preds, &mutex.MatchString{
 				Field: "trace_id",
 				Op:    op,
-				Value: []byte(cond.Operands[0].S),
+				Value: cond.Operands[0].S,
 			})
 		case traceql.IntrinsicTraceDuration:
 			op, ok := validForInt(cond.Op)
