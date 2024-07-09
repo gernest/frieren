@@ -19,12 +19,7 @@ func From2(md pmetric.Metrics) ([]*v1.Sample, error) {
 	if err != nil {
 		return nil, err
 	}
-	// pre allocate the output slice
-	var size int
-	for _, t := range s {
-		size += len(t.Samples)
-		size += len(t.Histograms)
-	}
+	size := md.DataPointCount()
 	o := make([]*v1.Sample, 0, size)
 	for _, t := range s {
 		o = fromTS(t, o)
