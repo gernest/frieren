@@ -34,7 +34,7 @@ func (s *Store) Queryable() *Queryable {
 }
 
 func (s *Store) Save(pm pmetric.Metrics) error {
-	samples, err := metricsproto.From2(pm)
+	samples, err := metricsproto.From(pm)
 	if err != nil {
 		return err
 	}

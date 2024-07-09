@@ -12,7 +12,7 @@ import (
 
 var eq = []byte("=")
 
-func From2(md pmetric.Metrics) ([]*v1.Sample, error) {
+func From(md pmetric.Metrics) ([]*v1.Sample, error) {
 	s, err := prometheusremotewrite.FromMetrics(md, prometheusremotewrite.Settings{
 		AddMetricSuffixes: true,
 	})
