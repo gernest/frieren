@@ -136,7 +136,9 @@ func (l *Logs) Export(ctx context.Context, req plogotlp.ExportRequest) (plogotlp
 
 func Main() *cli.Command {
 	return &cli.Command{
-		Name: "vectr",
+		Name:        "frieren",
+		Usage:       "Open Telemetry Storage based on Compressed Roaring Bitmaps",
+		Description: "Fast and efficient Open Telemetry storage and query api for (development | testing | staging) environments ",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    "data",

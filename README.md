@@ -98,3 +98,27 @@ docker pull ghcr.io/gernest/frieren:latest
 ```
 frieren
 ```
+
+
+**Usage**
+```
+NAME:
+   frieren - Open Telemetry Storage based on Compressed Roaring Bitmaps
+
+USAGE:
+   frieren [global options] [command [command options]] [arguments...]
+
+DESCRIPTION:
+   Fast and efficient Open Telemetry storage and query api for (development | testing | staging) environments 
+
+COMMANDS:
+   help, h  Shows a list of commands or help for one command
+
+GLOBAL OPTIONS:
+   --data value      Path to data directory (default: ".fri-data") [$FRI_DATA]
+   --otlp value      host:port for otlp grpc (default: ":4317") [$FRI_OTLP]
+   --otlphttp value  host:port for otlp http (default: ":4318") [$FRI_OTLP_HTTP]
+   --api value       api exposing prometheus, loki and tempo endpoints (default: ":9000") [$FRI_API]
+   --help, -h        show help (default: false)
+
+```
