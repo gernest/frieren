@@ -38,15 +38,5 @@ func (s *Store) Save(pm pmetric.Metrics) error {
 	if err != nil {
 		return err
 	}
-	schema, err := s.Schema()
-	if err != nil {
-		return err
-	}
-	for i := range samples {
-		err = schema.Write(samples[i])
-		if err != nil {
-			return err
-		}
-	}
-	return schema.Save()
+	return s.Append(samples)
 }
