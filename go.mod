@@ -8,7 +8,7 @@ require (
 	github.com/RoaringBitmap/roaring v1.9.4
 	github.com/blevesearch/vellum v1.0.10
 	github.com/cespare/xxhash/v2 v2.3.0
-	github.com/gernest/rbf v0.22.14
+	github.com/gernest/rbf v0.22.15
 	github.com/gernest/roaring v0.22.3
 	github.com/gernest/rows v1.22.9
 	github.com/go-kit/log v0.2.1
@@ -327,3 +327,5 @@ require (
 replace github.com/gocql/gocql => github.com/grafana/gocql v0.0.0-20200605141915-ba5dc39ece85
 
 exclude k8s.io/client-go v8.0.0+incompatible
+
+replace github.com/gernest/rbf => ../fusion/rbf

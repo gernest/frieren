@@ -55,7 +55,8 @@ func BSI(base Data, c *rbf.Cursor, exists *rows.Row, shard uint64, f func(column
 }
 
 func Distinct(c *rbf.Cursor, exists *rows.Row, shard uint64, f func(value uint64, columns *rows.Row) error) error {
-	data := NewData(exists.Columns())
+	cols := exists.Columns()
+	data := NewData(cols)
 	bitDepth, err := depth(c)
 	if err != nil {
 		return err
@@ -78,8 +79,8 @@ func Distinct(c *rbf.Cursor, exists *rows.Row, shard uint64, f func(value uint64
 		val = uint64((2*(int64(val)>>63) + 1) * int64(val&^(1<<63)))
 		idx[val] = append(idx[val], columnID)
 	}
-	for row, cols := range idx {
-		err := f(row, rows.NewRow(cols...))
+	for i := range cols {
+		err := f(cols[i], rows.NewRow(idx[cols[i]]...))
 		if err != nil {
 			return err
 		}

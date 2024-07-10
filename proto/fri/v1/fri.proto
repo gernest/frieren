@@ -33,10 +33,16 @@ message Sample {
   bytes series = 1;
   repeated string labels = 2;
   bytes exemplars = 3;
-  bool kind = 4;
+  Kind kind = 4;
   double value = 5;
   bytes histogram = 6;
   int64 timestamp = 7;
+
+  enum Kind {
+    NONE = 0;
+    FLOAT = 1;
+    HISTOGRAM = 2;
+  }
 }
 
 // Span models tempo spans. When retrieving trace by ID we recostruct the

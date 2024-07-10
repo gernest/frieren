@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/blevesearch/vellum"
+	v1 "github.com/gernest/frieren/gen/go/fri/v1"
 	"github.com/gernest/frieren/internal/lbx"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/dsl"
@@ -164,7 +165,8 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 	defer r.Release()
 	isSeriesQuery := hints.Func == "series"
 	for i := range s.shards {
-		r.View(s.shards[i], func(txn *tx.Tx) error {
+
+		err := r.View(s.shards[i], func(txn *tx.Tx) error {
 			r, err := base.Apply(txn, nil)
 			if err != nil {
 				return err
@@ -172,6 +174,7 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 			if r.IsEmpty() {
 				return nil
 			}
+
 			f, err := filter.Apply(txn, r)
 			if err != nil {
 				return err
@@ -215,10 +218,17 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 			}
 			defer hc.Close()
 
-			isHistogram, err := lbx.Histograms(kind, txn)
+			floats, err := cursor.Row(kind, txn.Shard, uint64(v1.Sample_FLOAT))
 			if err != nil {
 				return err
 			}
+
+			histograms, err := cursor.Row(kind, txn.Shard, uint64(v1.Sample_HISTOGRAM))
+			if err != nil {
+				return err
+			}
+			histograms = histograms.Intersect(f)
+
 			return lbx.Distinct(series, f, txn.Shard, func(value uint64, columns *rows.Row) error {
 				cols := columns.Columns()
 				sx, ok := m[value]
@@ -241,8 +251,8 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 					mapping[cols[i]] = i
 				}
 				data := lbx.NewData(cols)
-				if isHistogram.Includes(cols[0]) {
-					// Histogram series
+
+				if histograms.Includes(cols[0]) {
 					hs := &prompb.Histogram{}
 					err = lbx.BSI(data, ts, columns, txn.Shard, func(column uint64, value int64) {
 						hs.Reset()
@@ -256,7 +266,8 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 					if err != nil {
 						return fmt.Errorf("reading histogram %w", err)
 					}
-				} else {
+				}
+				if floats.Includes(cols[0]) {
 					err = lbx.BSI(data, ts, columns, txn.Shard, func(column uint64, value int64) {
 						chunks[mapping[column]] = &V{ts: value}
 					})
@@ -274,6 +285,9 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 				return nil
 			})
 		})
+		if err != nil {
+			return storage.ErrSeriesSet(err)
+		}
 	}
 
 	return NewSeriesSet(m)

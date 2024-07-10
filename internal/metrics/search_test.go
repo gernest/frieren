@@ -32,7 +32,7 @@ func TestSelect(t *testing.T) {
 		require.NoError(t, err)
 		set := qry.Select(context.TODO(), false, &storage.SelectHints{
 			Start: ms, End: ms,
-		}, labels.MustNewMatcher(labels.MatchEqual, "service_name", "test-service"))
+		}, labels.MustNewMatcher(labels.MatchEqual, "job", "test-service"))
 		require.NoError(t, set.Err())
 
 		data, err := json.MarshalIndent(matrix(set), "", "  ")
