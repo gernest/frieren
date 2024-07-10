@@ -141,21 +141,25 @@ func (s *Store) Select(start, end int64, matchers ...[]*labels.Matcher) ([]exemp
 				for i := range readRows {
 					mapping[readRows[i]] = i
 				}
-				err = lbx.BSI(data, ex, rows.NewRow(readRows...), txn.Shard, func(column uint64, value int64) {
+				err = lbx.BSI(data, readRows, ex, rows.NewRow(readRows...), txn.Shard, func(position int, value int64) error {
 					data := txn.Tr.Blob("exemplar", uint64(value))
 					if len(data) == 0 {
-						return
+						return nil
 					}
 					sm.Reset()
-					sm.Unmarshal(data)
+					err := sm.Unmarshal(data)
+					if err != nil {
+						return fmt.Errorf("decoding exemplar %w", err)
+					}
 					o := exemplar.QueryResult{
-						SeriesLabels: read[mapping[column]].Copy(),
+						SeriesLabels: read[position].Copy(),
 						Exemplars:    make([]exemplar.Exemplar, len(sm.Exemplars)),
 					}
 					for i := range sm.Exemplars {
 						o.Exemplars[i] = decodeExemplar(&sm.Exemplars[i])
 					}
 					result = append(result, o)
+					return nil
 				})
 				if err != nil {
 					return fmt.Errorf("reading exemplar %w", err)

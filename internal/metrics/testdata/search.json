@@ -1,16 +1,15 @@
 [
   {
     "metric": {
-      "__name__": "test_histogram_bucket",
+      "__name__": "test_histogram_sum",
       "foo_bar": "baz",
       "instance": "test-instance",
-      "job": "test-service",
-      "le": "0"
+      "job": "test-service"
     },
     "values": [
       [
         1136214240,
-        "2"
+        "30"
       ]
     ]
   },
@@ -35,12 +34,12 @@
       "foo_bar": "baz",
       "instance": "test-instance",
       "job": "test-service",
-      "le": "3"
+      "le": "2"
     },
     "values": [
       [
         1136214240,
-        "8"
+        "6"
       ]
     ]
   },
@@ -50,12 +49,26 @@
       "foo_bar": "baz",
       "instance": "test-instance",
       "job": "test-service",
-      "le": "5"
+      "le": "4"
     },
     "values": [
       [
         1136214240,
-        "12"
+        "10"
+      ]
+    ]
+  },
+  {
+    "metric": {
+      "__name__": "target_info",
+      "host_name": "test-host",
+      "instance": "test-instance",
+      "job": "test-service"
+    },
+    "values": [
+      [
+        1136214240,
+        "1"
       ]
     ]
   },
@@ -93,20 +106,6 @@
   },
   {
     "metric": {
-      "__name__": "target_info",
-      "host_name": "test-host",
-      "instance": "test-instance",
-      "job": "test-service"
-    },
-    "values": [
-      [
-        1136214240,
-        "1"
-      ]
-    ]
-  },
-  {
-    "metric": {
       "__name__": "test_counter_total",
       "foo_bar": "baz",
       "instance": "test-instance",
@@ -135,20 +134,6 @@
   },
   {
     "metric": {
-      "__name__": "test_histogram_sum",
-      "foo_bar": "baz",
-      "instance": "test-instance",
-      "job": "test-service"
-    },
-    "values": [
-      [
-        1136214240,
-        "30"
-      ]
-    ]
-  },
-  {
-    "metric": {
       "__name__": "test_histogram_count",
       "foo_bar": "baz",
       "instance": "test-instance",
@@ -167,12 +152,12 @@
       "foo_bar": "baz",
       "instance": "test-instance",
       "job": "test-service",
-      "le": "2"
+      "le": "0"
     },
     "values": [
       [
         1136214240,
-        "6"
+        "2"
       ]
     ]
   },
@@ -182,12 +167,27 @@
       "foo_bar": "baz",
       "instance": "test-instance",
       "job": "test-service",
-      "le": "4"
+      "le": "3"
     },
     "values": [
       [
         1136214240,
-        "10"
+        "8"
+      ]
+    ]
+  },
+  {
+    "metric": {
+      "__name__": "test_histogram_bucket",
+      "foo_bar": "baz",
+      "instance": "test-instance",
+      "job": "test-service",
+      "le": "5"
+    },
+    "values": [
+      [
+        1136214240,
+        "12"
       ]
     ]
   }

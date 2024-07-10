@@ -140,32 +140,34 @@ func (s *Store) SelectLogs(ctx context.Context, req logql.SelectLogParams) (resu
 				size := len(st.Entries)
 				count := len(cols)
 				st.Entries = slices.Grow(st.Entries, int(count))[:size+int(count)]
-				mapping := map[uint64]int{}
-				for i := range cols {
-					mapping[cols[i]] = size + i
-				}
+
 				data := lbx.NewData(cols)
 
 				// read timestamp
-				err = lbx.BSI(data, ts, columns, txn.Shard, func(column uint64, value int64) {
-					st.Entries[mapping[column]].Timestamp = time.Unix(0, value)
+				err = lbx.BSI(data, cols, ts, columns, txn.Shard, func(position int, value int64) error {
+					st.Entries[size+position].Timestamp = time.Unix(0, value)
+					return nil
 				})
 				if err != nil {
 					return fmt.Errorf("reading timestamp %w", err)
 				}
 				// read line
-				err = lbx.BSI(data, ts, columns, txn.Shard, func(column uint64, value int64) {
-					st.Entries[mapping[column]].Line = string(txn.Tr.Blob("line", uint64(value)))
+				err = lbx.BSI(data, cols, ts, columns, txn.Shard, func(position int, value int64) error {
+					st.Entries[size+position].Line = string(txn.Tr.Blob("line", uint64(value)))
+					return nil
 				})
 				if err != nil {
-					return fmt.Errorf("reading timestamp %w", err)
+					return fmt.Errorf("reading line %w", err)
 				}
 
 				// read metadata
 				sm := &v1.Entry_StructureMetadata{}
-				err = lbx.BSI(data, meta, columns, txn.Shard, func(column uint64, value int64) {
-					proto.Unmarshal(txn.Tr.Blob("metadata", uint64(value)), sm)
-					o := &st.Entries[mapping[column]]
+				err = lbx.BSI(data, cols, meta, columns, txn.Shard, func(position int, value int64) error {
+					err := proto.Unmarshal(txn.Tr.Blob("metadata", uint64(value)), sm)
+					if err != nil {
+						return fmt.Errorf("decoding metadata %w", err)
+					}
+					o := &st.Entries[size+position]
 					o.StructuredMetadata = make(push.LabelsAdapter, 0, len(sm.Labels))
 					for _, l := range sm.Labels {
 						name, value, _ := strings.Cut(l, "=")
@@ -173,6 +175,7 @@ func (s *Store) SelectLogs(ctx context.Context, req logql.SelectLogParams) (resu
 							Name: name, Value: value,
 						})
 					}
+					return nil
 				})
 				if err != nil {
 					return fmt.Errorf("reading metadata %w", err)

@@ -28,8 +28,9 @@ func (d Data) mergeBits(bits []uint64, mask uint64) {
 	}
 }
 
-func BSI(base Data, c *rbf.Cursor, exists *rows.Row, shard uint64, f func(column uint64, value int64)) error {
+func BSI(base Data, columns []uint64, c *rbf.Cursor, exists *rows.Row, shard uint64, f func(position int, value int64) error) error {
 	data := base.Clone()
+
 	bitDepth, err := depth(c)
 	if err != nil {
 		return err
@@ -46,10 +47,13 @@ func BSI(base Data, c *rbf.Cursor, exists *rows.Row, shard uint64, f func(column
 		}
 		data.mergeBits(bits.Columns(), 1<<i)
 	}
-	for columnID, val := range data {
-		// Convert to two's complement and add base back to value.
+	for position, columnID := range columns {
+		val := data[columnID]
 		val = uint64((2*(int64(val)>>63) + 1) * int64(val&^(1<<63)))
-		f(columnID, int64(val))
+		err := f(position, int64(val))
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

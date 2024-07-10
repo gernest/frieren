@@ -14,14 +14,12 @@ import (
 	"github.com/blevesearch/vellum"
 	v1 "github.com/gernest/frieren/gen/go/fri/v1"
 	"github.com/gernest/frieren/internal/lbx"
-	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/dsl"
 	"github.com/gernest/rbf/dsl/bsi"
 	"github.com/gernest/rbf/dsl/cursor"
 	"github.com/gernest/rbf/dsl/mutex"
 	rq "github.com/gernest/rbf/dsl/query"
 	"github.com/gernest/rbf/dsl/tx"
-	"github.com/gernest/roaring"
 	"github.com/gernest/rows"
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
@@ -254,28 +252,31 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 
 				if histograms.Includes(cols[0]) {
 					hs := &prompb.Histogram{}
-					err = lbx.BSI(data, ts, columns, txn.Shard, func(column uint64, value int64) {
+					err = lbx.BSI(data, cols, ts, columns, txn.Shard, func(position int, value int64) error {
 						hs.Reset()
 						hs.Unmarshal(txn.Tr.Blob("histogram", uint64(value)))
 						if _, isFloat := hs.Count.(*prompb.Histogram_CountFloat); isFloat {
-							chunks[mapping[column]] = NewFH(hs)
+							chunks[position] = NewFH(hs)
 						} else {
-							chunks[mapping[column]] = NewH(hs)
+							chunks[position] = NewH(hs)
 						}
+						return nil
 					})
 					if err != nil {
 						return fmt.Errorf("reading histogram %w", err)
 					}
 				}
 				if floats.Includes(cols[0]) {
-					err = lbx.BSI(data, ts, columns, txn.Shard, func(column uint64, value int64) {
-						chunks[mapping[column]] = &V{ts: value}
+					err = lbx.BSI(data, cols, ts, columns, txn.Shard, func(position int, value int64) error {
+						chunks[position] = &V{ts: value}
+						return nil
 					})
 					if err != nil {
 						return fmt.Errorf("reading timestamp %w", err)
 					}
-					err = lbx.BSI(data, vc, columns, txn.Shard, func(column uint64, value int64) {
-						chunks[mapping[column]].(*V).f = math.Float64frombits(uint64(value))
+					err = lbx.BSI(data, cols, vc, columns, txn.Shard, func(position int, value int64) error {
+						chunks[position].(*V).f = math.Float64frombits(uint64(value))
+						return nil
 					})
 					if err != nil {
 						return fmt.Errorf("reading values %w", err)
@@ -291,20 +292,6 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 	}
 
 	return NewSeriesSet(m)
-}
-
-var eq = []byte("=")
-
-func readLabels(c *rbf.Cursor, txn *tx.Tx, column uint64) (o labels.Labels, err error) {
-	err = cursor.Rows(c, 0, func(row uint64) error {
-		name, value, _ := bytes.Cut(txn.Tr.Key("labels", row), eq)
-		o = append(o, labels.Label{
-			Name:  string(name),
-			Value: string(value),
-		})
-		return nil
-	}, roaring.NewBitmapColumnFilter(column))
-	return
 }
 
 func clean(s string) string {
