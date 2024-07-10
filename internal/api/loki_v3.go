@@ -32,7 +32,7 @@ type QueryResponse struct {
 }
 
 type lokiAPI struct {
-	querier logql.Querier
+	querier Querier
 	engine  *logql.Engine
 }
 
@@ -105,7 +105,7 @@ func (q *lokiAPI) InstantQueryHandler(ctx context.Context, req *queryrange.LokiI
 }
 
 func (q *lokiAPI) LabelHandler(ctx context.Context, req *logproto.LabelRequest) (*logproto.LabelResponse, error) {
-	return nil, nil
+	return q.querier.Label(ctx, req)
 }
 
 func (q *lokiAPI) Do(ctx context.Context, req queryrangebase.Request) (queryrangebase.Response, error) {
