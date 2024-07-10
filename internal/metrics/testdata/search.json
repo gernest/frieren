@@ -1,9 +1,25 @@
 [
   {
     "metric": {
-      "__name__": "test_histogram_count",
+      "__name__": "test_counter_total",
+      "foo_bar": "baz",
       "host_name": "test-host",
-      "le": "5"
+      "le": "1"
+    },
+    "values": [
+      [
+        1136214240,
+        "12"
+      ]
+    ]
+  },
+  {
+    "metric": {
+      "__name__": "test_gauge",
+      "foo_bar": "baz",
+      "host_name": "test-host",
+      "instance": "test-instance",
+      "le": "1"
     },
     "values": [
       [
@@ -14,9 +30,10 @@
   },
   {
     "metric": {
-      "__name__": "test_histogram_count",
+      "__name__": "test_gauge",
       "foo_bar": "baz",
       "host_name": "test-host",
+      "instance": "test-instance",
       "job": "test-service",
       "le": "1"
     },
@@ -32,7 +49,7 @@
   },
   {
     "metric": {
-      "__name__": "test_histogram_count",
+      "__name__": "test_gauge",
       "foo_bar": "baz",
       "host_name": "test-host",
       "instance": "test-instance",
@@ -48,28 +65,12 @@
   },
   {
     "metric": {
-      "__name__": "test_histogram_count",
-      "foo_bar": "baz",
-      "host_name": "test-host",
-      "instance": "test-instance",
-      "job": "test-service",
-      "le": "1"
-    },
-    "values": [
-      [
-        1136214240,
-        "10"
-      ]
-    ]
-  },
-  {
-    "metric": {
       "__name__": "test_histogram_bucket"
     },
     "values": [
       [
         1136214240,
-        "12"
+        "10"
       ]
     ]
   },
@@ -91,13 +92,13 @@
     "values": [
       [
         1136214240,
-        "2"
+        "6"
       ]
     ]
   },
   {
     "metric": {
-      "instance": "test-instance"
+      "job": "test-service"
     },
     "values": [
       [
@@ -113,7 +114,18 @@
     "values": [
       [
         1136214240,
-        "6"
+        "8"
+      ]
+    ]
+  },
+  {
+    "metric": {
+      "le": "5"
+    },
+    "values": [
+      [
+        1136214240,
+        "10"
       ]
     ]
   },
@@ -124,7 +136,7 @@
     "values": [
       [
         1136214240,
-        "8"
+        "30"
       ]
     ]
   },
@@ -146,18 +158,7 @@
     "values": [
       [
         1136214240,
-        "10"
-      ]
-    ]
-  },
-  {
-    "metric": {
-      "host_name": "test-host"
-    },
-    "values": [
-      [
-        1136214240,
-        "30"
+        "2"
       ]
     ]
   }
