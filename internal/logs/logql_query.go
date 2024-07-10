@@ -3,11 +3,14 @@ package logs
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/blevesearch/vellum"
 	"github.com/gernest/frieren/internal/lbx"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/dsl/bsi"
@@ -25,7 +28,43 @@ import (
 )
 
 func (s *Store) Label(ctx context.Context, req *logproto.LabelRequest) (*logproto.LabelResponse, error) {
-	return &logproto.LabelResponse{}, nil
+	r, err := s.Reader()
+	if err != nil {
+		return nil, err
+	}
+	m := map[string]struct{}{}
+	if req.Values {
+		prefix := []byte(req.Name + "=")
+		err = r.Tr().Search("labels", &vellum.AlwaysMatch{}, prefix, nil, func(key []byte, value uint64) error {
+			if !bytes.HasPrefix(key, prefix) {
+				return io.EOF
+			}
+			_, v, _ := bytes.Cut(key, sep)
+			m[string(v)] = struct{}{}
+			return nil
+		})
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return &logproto.LabelResponse{}, nil
+			}
+			return nil, err
+		}
+	} else {
+		err = r.Tr().Search("labels", &vellum.AlwaysMatch{}, nil, nil, func(key []byte, value uint64) error {
+			name, _, _ := bytes.Cut(key, sep)
+			m[string(name)] = struct{}{}
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	o := &logproto.LabelResponse{Values: make([]string, len(m))}
+	for k := range m {
+		o.Values = append(o.Values, k)
+	}
+	slices.Sort(o.Values)
+	return o, nil
 }
 
 func (*Store) SelectSamples(_ context.Context, req logql.SelectSampleParams) (iter.SampleIterator, error) {
