@@ -5,23 +5,25 @@ import (
 
 	"github.com/cespare/xxhash/v2"
 	v1 "github.com/gernest/frieren/gen/go/fri/v1"
-	"github.com/gernest/frieren/internal/metrics/metricsproto/otlptranslator/prometheusremotewrite"
 	"github.com/prometheus/prometheus/prompb"
+	"github.com/prometheus/prometheus/storage/remote/otlptranslator/prometheusremotewrite"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 )
 
 var eq = []byte("=")
 
 func From(md pmetric.Metrics) ([]*v1.Sample, error) {
-	conv := prometheusremotewrite.NewPrometheusConverter()
-	conv.FromMetrics(md, prometheusremotewrite.Settings{
+	s, err := prometheusremotewrite.FromMetrics(md, prometheusremotewrite.Settings{
 		AddMetricSuffixes: true,
 	})
+	if err != nil {
+		return nil, err
+	}
+
 	size := md.DataPointCount()
 	o := make([]*v1.Sample, 0, size)
-	s := conv.TimeSeries()
 	for i := range s {
-		o = fromTS(&s[i], o)
+		o = fromTS(s[i], o)
 	}
 	return o, nil
 }
