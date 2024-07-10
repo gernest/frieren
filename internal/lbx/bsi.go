@@ -36,6 +36,9 @@ func BSI(base Data, columns []uint64, c *rbf.Cursor, exists *rows.Row, shard uin
 		if err != nil {
 			return err
 		}
+		if bits.IsEmpty() {
+			continue
+		}
 		bits = bits.Intersect(exists)
 		if bits.IsEmpty() {
 			continue
@@ -61,6 +64,9 @@ func Distinct(c *rbf.Cursor, exists *rows.Row, shard uint64, f func(value uint64
 		bits, err := cursor.Row(c, shard, 2+uint64(i))
 		if err != nil {
 			return err
+		}
+		if bits.IsEmpty() {
+			continue
 		}
 		bits = bits.Intersect(exists)
 		if bits.IsEmpty() {
