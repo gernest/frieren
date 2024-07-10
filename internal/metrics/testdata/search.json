@@ -1,38 +1,25 @@
 [
   {
     "metric": {
-      "__name__": "test_histogram_count"
-    },
-    "values": [
-      [
-        1136214240,
-        "10"
-      ]
-    ]
-  },
-  {
-    "metric": {
-      "__name__": "test_histogram_sum",
+      "__name__": "test_histogram_bucket",
       "foo_bar": "baz",
-      "host_name": "test-host",
-      "instance": "test-instance",
-      "le": "0"
-    },
-    "values": [
-      [
-        1136214240,
-        "8"
-      ]
-    ]
-  },
-  {
-    "metric": {
-      "__name__": "test_histogram_sum",
-      "foo_bar": "baz",
-      "host_name": "test-host",
       "instance": "test-instance",
       "job": "test-service",
-      "le": "0"
+      "le": "5"
+    },
+    "values": [
+      [
+        1136214240,
+        "12"
+      ]
+    ]
+  },
+  {
+    "metric": {
+      "__name__": "test_exponential_histogram",
+      "foo_bar": "baz",
+      "instance": "test-instance",
+      "job": "test-service"
     },
     "histograms": [
       [
@@ -46,17 +33,15 @@
   },
   {
     "metric": {
-      "__name__": "test_histogram_sum",
+      "__name__": "test_gauge",
       "foo_bar": "baz",
-      "host_name": "test-host",
       "instance": "test-instance",
-      "job": "test-service",
-      "le": "0"
+      "job": "test-service"
     },
     "values": [
       [
         1136214240,
-        "1"
+        "10"
       ]
     ]
   },
@@ -64,30 +49,8 @@
     "metric": {
       "__name__": "test_histogram_sum",
       "foo_bar": "baz",
-      "host_name": "test-host",
-      "le": "0"
-    },
-    "values": [
-      [
-        1136214240,
-        "10"
-      ]
-    ]
-  },
-  {
-    "metric": {
-      "foo_bar": "baz"
-    },
-    "values": [
-      [
-        1136214240,
-        "10"
-      ]
-    ]
-  },
-  {
-    "metric": {
-      "instance": "test-instance"
+      "instance": "test-instance",
+      "job": "test-service"
     },
     "values": [
       [
@@ -98,40 +61,10 @@
   },
   {
     "metric": {
+      "__name__": "test_histogram_count",
+      "foo_bar": "baz",
+      "instance": "test-instance",
       "job": "test-service"
-    },
-    "values": [
-      [
-        1136214240,
-        "2"
-      ]
-    ]
-  },
-  {
-    "metric": {
-      "job": "test-service"
-    },
-    "values": [
-      [
-        1136214240,
-        "4"
-      ]
-    ]
-  },
-  {
-    "metric": {
-      "__name__": "test_histogram_bucket"
-    },
-    "values": [
-      [
-        1136214240,
-        "6"
-      ]
-    ]
-  },
-  {
-    "metric": {
-      "le": "3"
     },
     "values": [
       [
@@ -142,18 +75,114 @@
   },
   {
     "metric": {
-      "__name__": "test_exponential_histogram"
+      "__name__": "test_histogram_bucket",
+      "foo_bar": "baz",
+      "instance": "test-instance",
+      "job": "test-service",
+      "le": "2"
     },
     "values": [
       [
         1136214240,
-        "12"
+        "6"
       ]
     ]
   },
   {
     "metric": {
-      "__name__": "target_info"
+      "__name__": "test_histogram_bucket",
+      "foo_bar": "baz",
+      "instance": "test-instance",
+      "job": "test-service",
+      "le": "4"
+    },
+    "values": [
+      [
+        1136214240,
+        "10"
+      ]
+    ]
+  },
+  {
+    "metric": {
+      "__name__": "target_info",
+      "host_name": "test-host",
+      "instance": "test-instance",
+      "job": "test-service"
+    },
+    "values": [
+      [
+        1136214240,
+        "1"
+      ]
+    ]
+  },
+  {
+    "metric": {
+      "__name__": "test_counter_total",
+      "foo_bar": "baz",
+      "instance": "test-instance",
+      "job": "test-service"
+    },
+    "values": [
+      [
+        1136214240,
+        "10"
+      ]
+    ]
+  },
+  {
+    "metric": {
+      "__name__": "test_histogram_bucket",
+      "foo_bar": "baz",
+      "instance": "test-instance",
+      "job": "test-service",
+      "le": "0"
+    },
+    "values": [
+      [
+        1136214240,
+        "2"
+      ]
+    ]
+  },
+  {
+    "metric": {
+      "__name__": "test_histogram_bucket",
+      "foo_bar": "baz",
+      "instance": "test-instance",
+      "job": "test-service",
+      "le": "1"
+    },
+    "values": [
+      [
+        1136214240,
+        "4"
+      ]
+    ]
+  },
+  {
+    "metric": {
+      "__name__": "test_histogram_bucket",
+      "foo_bar": "baz",
+      "instance": "test-instance",
+      "job": "test-service",
+      "le": "3"
+    },
+    "values": [
+      [
+        1136214240,
+        "8"
+      ]
+    ]
+  },
+  {
+    "metric": {
+      "__name__": "test_histogram_bucket",
+      "foo_bar": "baz",
+      "instance": "test-instance",
+      "job": "test-service",
+      "le": "+Inf"
     },
     "values": [
       [
