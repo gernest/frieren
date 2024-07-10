@@ -1,25 +1,7 @@
 [
   {
     "metric": {
-      "__name__": "test_counter_total",
-      "foo_bar": "baz",
-      "host_name": "test-host",
-      "le": "1"
-    },
-    "values": [
-      [
-        1136214240,
-        "12"
-      ]
-    ]
-  },
-  {
-    "metric": {
-      "__name__": "test_gauge",
-      "foo_bar": "baz",
-      "host_name": "test-host",
-      "instance": "test-instance",
-      "le": "1"
+      "__name__": "test_histogram_count"
     },
     "values": [
       [
@@ -30,12 +12,27 @@
   },
   {
     "metric": {
-      "__name__": "test_gauge",
+      "__name__": "test_histogram_sum",
+      "foo_bar": "baz",
+      "host_name": "test-host",
+      "instance": "test-instance",
+      "le": "0"
+    },
+    "values": [
+      [
+        1136214240,
+        "8"
+      ]
+    ]
+  },
+  {
+    "metric": {
+      "__name__": "test_histogram_sum",
       "foo_bar": "baz",
       "host_name": "test-host",
       "instance": "test-instance",
       "job": "test-service",
-      "le": "1"
+      "le": "0"
     },
     "histograms": [
       [
@@ -49,12 +46,12 @@
   },
   {
     "metric": {
-      "__name__": "test_gauge",
+      "__name__": "test_histogram_sum",
       "foo_bar": "baz",
       "host_name": "test-host",
       "instance": "test-instance",
       "job": "test-service",
-      "le": "1"
+      "le": "0"
     },
     "values": [
       [
@@ -65,7 +62,10 @@
   },
   {
     "metric": {
-      "__name__": "test_histogram_bucket"
+      "__name__": "test_histogram_sum",
+      "foo_bar": "baz",
+      "host_name": "test-host",
+      "le": "0"
     },
     "values": [
       [
@@ -92,7 +92,18 @@
     "values": [
       [
         1136214240,
-        "6"
+        "30"
+      ]
+    ]
+  },
+  {
+    "metric": {
+      "job": "test-service"
+    },
+    "values": [
+      [
+        1136214240,
+        "2"
       ]
     ]
   },
@@ -109,34 +120,23 @@
   },
   {
     "metric": {
-      "job": "test-service"
+      "__name__": "test_histogram_bucket"
     },
     "values": [
       [
         1136214240,
-        "8"
+        "6"
       ]
     ]
   },
   {
     "metric": {
-      "le": "5"
+      "le": "3"
     },
     "values": [
       [
         1136214240,
         "10"
-      ]
-    ]
-  },
-  {
-    "metric": {
-      "le": "+Inf"
-    },
-    "values": [
-      [
-        1136214240,
-        "30"
       ]
     ]
   },
@@ -147,7 +147,7 @@
     "values": [
       [
         1136214240,
-        "10"
+        "12"
       ]
     ]
   },
@@ -158,7 +158,7 @@
     "values": [
       [
         1136214240,
-        "2"
+        "10"
       ]
     ]
   }
