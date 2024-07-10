@@ -252,9 +252,13 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 
 				if histograms.Includes(cols[0]) {
 					hs := &prompb.Histogram{}
-					err = lbx.BSI(data, cols, ts, columns, txn.Shard, func(position int, value int64) error {
+					err = lbx.BSI(data, cols, hc, columns, txn.Shard, func(position int, value int64) error {
 						hs.Reset()
-						hs.Unmarshal(txn.Tr.Blob("histogram", uint64(value)))
+						data := txn.Tr.Blob("histogram", uint64(value))
+						err = hs.Unmarshal(data)
+						if err != nil {
+							return err
+						}
 						if _, isFloat := hs.Count.(*prompb.Histogram_CountFloat); isFloat {
 							chunks[position] = NewFH(hs)
 						} else {
