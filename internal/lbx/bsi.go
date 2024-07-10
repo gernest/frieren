@@ -31,12 +31,7 @@ func (d Data) mergeBits(bits []uint64, mask uint64) {
 func BSI(base Data, columns []uint64, c *rbf.Cursor, exists *rows.Row, shard uint64, f func(position int, value int64) error) error {
 	data := base.Clone()
 
-	bitDepth, err := depth(c)
-	if err != nil {
-		return err
-	}
-
-	for i := uint64(0); i < bitDepth; i++ {
+	for i := uint64(0); i < 64; i++ {
 		bits, err := cursor.Row(c, shard, 2+uint64(i))
 		if err != nil {
 			return err
@@ -61,12 +56,8 @@ func BSI(base Data, columns []uint64, c *rbf.Cursor, exists *rows.Row, shard uin
 func Distinct(c *rbf.Cursor, exists *rows.Row, shard uint64, f func(value uint64, columns *rows.Row) error) error {
 	cols := exists.Columns()
 	data := NewData(cols)
-	bitDepth, err := depth(c)
-	if err != nil {
-		return err
-	}
 
-	for i := uint64(0); i < bitDepth; i++ {
+	for i := uint64(0); i < 64; i++ {
 		bits, err := cursor.Row(c, shard, 2+uint64(i))
 		if err != nil {
 			return err
@@ -90,9 +81,4 @@ func Distinct(c *rbf.Cursor, exists *rows.Row, shard uint64, f func(value uint64
 		}
 	}
 	return nil
-}
-
-func depth(c *rbf.Cursor) (uint64, error) {
-	m, err := c.Max()
-	return m / rbf.ShardWidth, err
 }
