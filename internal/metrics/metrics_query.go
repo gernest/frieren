@@ -169,6 +169,7 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 			if err != nil {
 				return err
 			}
+
 			if r.IsEmpty() {
 				return nil
 			}
@@ -177,6 +178,7 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 			if err != nil {
 				return err
 			}
+
 			if f.IsEmpty() {
 				return nil
 			}
@@ -186,6 +188,7 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 				return err
 			}
 			defer series.Close()
+
 			labels, err := txn.Tx.Cursor(txn.Key("labels"))
 			if err != nil {
 				return err
@@ -225,7 +228,6 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 			if err != nil {
 				return err
 			}
-			histograms = histograms.Intersect(f)
 
 			return lbx.Distinct(series, f, txn.Shard, func(value uint64, columns *rows.Row) error {
 				cols := columns.Columns()
@@ -240,14 +242,12 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 					}
 					m[value] = sx
 				}
+
 				if isSeriesQuery {
 					return nil
 				}
+
 				chunks := make([]chunks.Sample, len(cols))
-				mapping := map[uint64]int{}
-				for i := range cols {
-					mapping[cols[i]] = i
-				}
 				data := lbx.NewData(cols)
 
 				if histograms.Includes(cols[0]) {
@@ -259,6 +259,7 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 						if err != nil {
 							return err
 						}
+
 						if _, isFloat := hs.Count.(*prompb.Histogram_CountFloat); isFloat {
 							chunks[position] = NewFH(hs)
 						} else {
@@ -278,6 +279,7 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 					if err != nil {
 						return fmt.Errorf("reading timestamp %w", err)
 					}
+
 					err = lbx.BSI(data, cols, vc, columns, txn.Shard, func(position int, value int64) error {
 						chunks[position].(*V).f = math.Float64frombits(uint64(value))
 						return nil
