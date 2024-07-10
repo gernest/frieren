@@ -8,19 +8,20 @@ import (
 	"strings"
 	"time"
 
-	v1 "github.com/gernest/frieren/gen/go/fri/v1"
 	"github.com/gernest/frieren/internal/lbx"
+	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/dsl/bsi"
+	"github.com/gernest/rbf/dsl/cursor"
 	"github.com/gernest/rbf/dsl/mutex"
 	"github.com/gernest/rbf/dsl/query"
 	"github.com/gernest/rbf/dsl/tx"
+	"github.com/gernest/roaring"
 	"github.com/gernest/rows"
 	"github.com/grafana/loki/pkg/push"
 	"github.com/grafana/loki/v3/pkg/iter"
 	"github.com/grafana/loki/v3/pkg/logproto"
 	"github.com/grafana/loki/v3/pkg/logql"
 	"github.com/prometheus/prometheus/model/labels"
-	"google.golang.org/protobuf/proto"
 )
 
 func (s *Store) Label(ctx context.Context, req *logproto.LabelRequest) (*logproto.LabelResponse, error) {
@@ -161,22 +162,15 @@ func (s *Store) SelectLogs(ctx context.Context, req logql.SelectLogParams) (resu
 				}
 
 				// read metadata
-				sm := &v1.Entry_StructureMetadata{}
-				err = lbx.BSI(data, cols, meta, columns, txn.Shard, func(position int, value int64) error {
-					err := proto.Unmarshal(txn.Tr.Blob("metadata", uint64(value)), sm)
+				for i := range cols {
+					md, err := metadata(meta, "metadata", txn, cols[i])
 					if err != nil {
-						return fmt.Errorf("decoding metadata %w", err)
+						return fmt.Errorf("reading metadata%w", err)
 					}
-					o := &st.Entries[size+position]
-					o.StructuredMetadata = make(push.LabelsAdapter, 0, len(sm.Labels))
-					for _, l := range sm.Labels {
-						name, value, _ := strings.Cut(l, "=")
-						o.StructuredMetadata = append(o.StructuredMetadata, push.LabelAdapter{
-							Name: name, Value: value,
-						})
+					if len(md) > 0 {
+						st.Entries[size+i].StructuredMetadata = md
 					}
-					return nil
-				})
+				}
 				if err != nil {
 					return fmt.Errorf("reading metadata %w", err)
 				}
@@ -199,4 +193,25 @@ func clean(s string) string {
 	s = strings.TrimPrefix(s, "^")
 	s = strings.TrimSuffix(s, "$")
 	return s
+}
+
+var sep = []byte("=")
+
+func metadata(c *rbf.Cursor, field string, tx *tx.Tx, rowID uint64) (o push.LabelsAdapter, err error) {
+	err = cursor.Rows(c, 0, func(row uint64) error {
+		data := tx.Tr.Key(field, row)
+		if len(data) == 0 {
+			return nil
+		}
+		name, value, _ := bytes.Cut(data, sep)
+		o = append(o, push.LabelAdapter{
+			Name:  string(name),
+			Value: string(value),
+		})
+		return nil
+	}, roaring.NewBitmapColumnFilter(rowID))
+	if err != nil {
+		return nil, err
+	}
+	return
 }

@@ -22,9 +22,7 @@ message Entry {
   repeated string labels = 2;
   uint64 timestamp = 3;
   bytes line = 4;
-  bytes metadata = 5;
-
-  message StructureMetadata { repeated string labels = 1; }
+  repeated string metadata = 5;
 }
 
 // Sample models metrics sample similar to prometheus. Histogram is an integer
