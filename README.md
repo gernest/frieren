@@ -11,7 +11,7 @@ to production.
 # Features
 
 - **Native grafana compatibility**: works with native prometheus. loki and tempo data sources.
-- **Single binary,zero dependency**: One `frieren` binary to rule them all.
+- **Single binary,zero dependency**
 - **Supports `PromQL` , `LogQL` and `TraceQL`**
 - **Standard Ingestion**: Support `otlp` and `otlphttp`. Send data via `gRPC`, `http/json` `http/protobuf`
 - **Painless**: Just point your otel collector, or send the data directly via otlp.
