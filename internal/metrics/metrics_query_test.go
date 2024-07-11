@@ -40,7 +40,7 @@ func TestSelect(t *testing.T) {
 		err = os.WriteFile("testdata/search.json", data, 0600)
 		require.NoError(t, err)
 	})
-
+	t.Error()
 }
 
 func matrix(ss storage.SeriesSet) (o promql.Matrix) {

@@ -26,7 +26,7 @@ type Store struct {
 func New(path string) (*Store, error) {
 	dbPath := filepath.Join(path, "metrics")
 	os.MkdirAll(dbPath, 0755)
-	db, err := dsl.New[*v1.Sample](dbPath)
+	db, err := dsl.New[*v1.Sample](dbPath, "histogram")
 	if err != nil {
 		return nil, err
 	}

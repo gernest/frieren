@@ -186,7 +186,6 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 		if err != nil {
 			return err
 		}
-
 		if r.IsEmpty() {
 			return nil
 		}
@@ -245,8 +244,7 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 		if err != nil {
 			return err
 		}
-
-		return lbx.Distinct(series, f, txn.Shard, func(value uint64, columns *rows.Row) error {
+		return lbx.Unique(series, f, txn.Shard, func(value uint64, columns *rows.Row) error {
 			cols := columns.Columns()
 			sx, ok := m[value]
 			if !ok {
@@ -268,6 +266,7 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 			data := lbx.NewData(cols)
 
 			if histograms.Includes(cols[0]) {
+
 				hs := &prompb.Histogram{}
 				err = lbx.BSI(data, cols, hc, columns, txn.Shard, func(position int, value int64) error {
 					hs.Reset()
