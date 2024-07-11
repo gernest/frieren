@@ -10,6 +10,7 @@ import (
 	"os/signal"
 
 	"github.com/gernest/frieren/internal/api"
+	"github.com/gernest/frieren/internal/audit"
 	otlphttp "github.com/gernest/frieren/internal/http"
 	"github.com/gernest/frieren/internal/logs"
 	"github.com/gernest/frieren/internal/metrics"
@@ -264,7 +265,7 @@ func Main() *cli.Command {
 				defer cancel()
 				slog.Info("starting http api server", "address", httpAPI)
 				svr := &http.Server{
-					Handler:     oh,
+					Handler:     audit.Audit(oh),
 					BaseContext: func(l net.Listener) context.Context { return ctx },
 				}
 				err := svr.Serve(httpListen)
