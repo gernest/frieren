@@ -52,6 +52,8 @@ func (q *Querier) Close() error {
 	return nil
 }
 
+const ignoreUsage = "__ignore_usage__"
+
 func (s *Querier) LabelValues(ctx context.Context, name string, matchers ...*labels.Matcher) ([]string, annotations.Annotations, error) {
 	r, err := s.store.Reader()
 	if err != nil {
@@ -151,6 +153,9 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 	filter := make(rq.And, 0, len(matchers))
 	var b bytes.Buffer
 	for _, m := range matchers {
+		if m.Name == ignoreUsage {
+			continue
+		}
 		var op mutex.OP
 		b.Reset()
 		b.WriteString(m.Name)
