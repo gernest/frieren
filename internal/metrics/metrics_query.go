@@ -68,14 +68,28 @@ func (s *Querier) LabelValues(ctx context.Context, name string, matchers ...*lab
 		return nil, nil, err
 	}
 	defer r.Release()
-
+	match := func(v []byte) bool {
+		if len(matchers) == 0 {
+			return true
+		}
+		s := string(v)
+		for _, m := range matchers {
+			if !m.Matches(s) {
+				return false
+			}
+		}
+		return true
+	}
 	m := map[string]struct{}{}
 	prefix := []byte(name + "=")
 	err = r.Tr().Search("labels", &vellum.AlwaysMatch{}, prefix, nil, func(key []byte, value uint64) error {
 		if !bytes.HasPrefix(key, prefix) {
 			return io.EOF
 		}
-		m[string(bytes.TrimPrefix(key, prefix))] = struct{}{}
+		v := bytes.TrimPrefix(key, prefix)
+		if match(v) {
+			m[string(v)] = struct{}{}
+		}
 		return nil
 	})
 	if err != nil {
@@ -100,9 +114,24 @@ func (s *Querier) LabelNames(ctx context.Context, matchers ...*labels.Matcher) (
 
 	m := map[string]struct{}{}
 	split := []byte("=")
+	match := func(v []byte) bool {
+		if len(matchers) == 0 {
+			return true
+		}
+		s := string(v)
+		for _, m := range matchers {
+			if !m.Matches(s) {
+				return false
+			}
+		}
+		return true
+	}
+
 	err = r.Tr().Search("labels", &vellum.AlwaysMatch{}, nil, nil, func(key []byte, value uint64) error {
-		name, _, _ := bytes.Cut(key, split)
-		m[string(name)] = struct{}{}
+		name, v, _ := bytes.Cut(key, split)
+		if match(v) {
+			m[string(name)] = struct{}{}
+		}
 		return nil
 	})
 	if err != nil {
