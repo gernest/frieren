@@ -38,10 +38,8 @@ import (
 	"github.com/prometheus/common/promlog"
 	"github.com/prometheus/common/route"
 	"github.com/prometheus/prometheus/model/labels"
-	"github.com/prometheus/prometheus/model/metadata"
 	"github.com/prometheus/prometheus/model/relabel"
 	"github.com/prometheus/prometheus/model/timestamp"
-	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/promql"
 	"github.com/prometheus/prometheus/promql/parser"
 	ps "github.com/prometheus/prometheus/storage"
@@ -388,18 +386,12 @@ func (api *prometheusAPI) queryExemplars(r *http.Request) apiFuncResult {
 }
 
 func (api *prometheusAPI) metricMetadata(r *http.Request) apiFuncResult {
-	return apiFuncResult{data: map[string]any{
-		"status": "success",
-		"data":   map[string]any{},
-	}}
-}
-
-func protoToMeta(m *prompb.MetricMetadata) metadata.Metadata {
-	return metadata.Metadata{
-		Type: model.MetricType(m.Type),
-		Unit: m.Unit,
-		Help: m.Help,
+	metric := r.FormValue("metric")
+	meta, err := api.db.Metadata(metric)
+	if err != nil {
+		return apiFuncResult{nil, returnAPIError(err), nil, nil}
 	}
+	return apiFuncResult{meta, nil, nil, nil}
 }
 
 func defaultStatsRenderer(s *stats.Statistics, param string) stats.QueryStats {

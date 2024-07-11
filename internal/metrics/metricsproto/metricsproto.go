@@ -12,20 +12,20 @@ import (
 
 var eq = []byte("=")
 
-func From(md pmetric.Metrics) ([]*v1.Sample, error) {
+func From(md pmetric.Metrics) ([]*v1.Sample, []*prompb.MetricMetadata, error) {
 	s, err := prometheusremotewrite.FromMetrics(md, prometheusremotewrite.Settings{
 		AddMetricSuffixes: true,
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-
 	size := md.DataPointCount()
 	o := make([]*v1.Sample, 0, size)
 	for i := range s {
 		o = fromTS(s[i], o)
 	}
-	return o, nil
+	meta := prometheusremotewrite.OtelMetricsToMetadata(md, true)
+	return o, meta, nil
 }
 
 func fromTS(ts *prompb.TimeSeries, o []*v1.Sample) []*v1.Sample {
