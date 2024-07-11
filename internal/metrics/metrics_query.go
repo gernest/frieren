@@ -9,12 +9,10 @@ import (
 	"math"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/blevesearch/vellum"
 	v1 "github.com/gernest/frieren/gen/go/fri/v1"
 	"github.com/gernest/frieren/internal/lbx"
-	"github.com/gernest/rbf/dsl"
 	"github.com/gernest/rbf/dsl/bsi"
 	"github.com/gernest/rbf/dsl/cursor"
 	"github.com/gernest/rbf/dsl/mutex"
@@ -38,22 +36,14 @@ type Queryable struct {
 var _ storage.Queryable = (*Queryable)(nil)
 
 func (q *Queryable) Querier(mints, maxts int64) (storage.Querier, error) {
-	r, err := q.store.Reader()
-	if err != nil {
-		return nil, err
-	}
-	defer r.Release()
-
 	return &Querier{
-		store:  q.store,
-		shards: r.Range(time.UnixMilli(mints).UTC(), time.UnixMilli(maxts).UTC()),
+		store: q.store,
 	}, nil
 
 }
 
 type Querier struct {
-	store  *Store
-	shards []dsl.Shard
+	store *Store
 }
 
 var _ storage.Querier = (*Querier)(nil)
@@ -148,7 +138,7 @@ func (s *Querier) LabelNames(ctx context.Context, matchers ...*labels.Matcher) (
 }
 
 func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.SelectHints, matchers ...*labels.Matcher) storage.SeriesSet {
-	if len(matchers) == 0 || len(s.shards) == 0 {
+	if len(matchers) == 0 {
 		return storage.EmptySeriesSet()
 	}
 
@@ -191,139 +181,136 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 	}
 	defer r.Release()
 	isSeriesQuery := hints.Func == "series"
-	for i := range s.shards {
+	err = r.View(func(txn *tx.Tx) error {
+		r, err := base.Apply(txn, nil)
+		if err != nil {
+			return err
+		}
 
-		err := r.View(s.shards[i], func(txn *tx.Tx) error {
-			r, err := base.Apply(txn, nil)
-			if err != nil {
-				return err
+		if r.IsEmpty() {
+			return nil
+		}
+
+		f, err := filter.Apply(txn, r)
+		if err != nil {
+			return err
+		}
+
+		if f.IsEmpty() {
+			return nil
+		}
+
+		series, err := txn.Tx.Cursor(txn.Key("series"))
+		if err != nil {
+			return err
+		}
+		defer series.Close()
+
+		labels, err := txn.Tx.Cursor(txn.Key("labels"))
+		if err != nil {
+			return err
+		}
+		defer labels.Close()
+
+		kind, err := txn.Tx.Cursor(txn.Key("kind"))
+		if err != nil {
+			return err
+		}
+		defer kind.Close()
+
+		ts, err := txn.Tx.Cursor(txn.Key("timestamp"))
+		if err != nil {
+			return err
+		}
+		defer ts.Close()
+
+		vc, err := txn.Tx.Cursor(txn.Key("value"))
+		if err != nil {
+			return err
+		}
+		defer vc.Close()
+
+		hc, err := txn.Tx.Cursor(txn.Key("histogram"))
+		if err != nil {
+			return err
+		}
+		defer hc.Close()
+
+		floats, err := cursor.Row(kind, txn.Shard, uint64(v1.Sample_FLOAT))
+		if err != nil {
+			return err
+		}
+
+		histograms, err := cursor.Row(kind, txn.Shard, uint64(v1.Sample_HISTOGRAM))
+		if err != nil {
+			return err
+		}
+
+		return lbx.Distinct(series, f, txn.Shard, func(value uint64, columns *rows.Row) error {
+			cols := columns.Columns()
+			sx, ok := m[value]
+			if !ok {
+				lbl, err := lbx.Labels(labels, "labels", txn, cols[0])
+				if err != nil {
+					return err
+				}
+				sx = &S{
+					Labels: lbl,
+				}
+				m[value] = sx
 			}
 
-			if r.IsEmpty() {
+			if isSeriesQuery {
 				return nil
 			}
 
-			f, err := filter.Apply(txn, r)
-			if err != nil {
-				return err
-			}
+			chunks := make([]chunks.Sample, len(cols))
+			data := lbx.NewData(cols)
 
-			if f.IsEmpty() {
-				return nil
-			}
-
-			series, err := txn.Tx.Cursor(txn.Key("series"))
-			if err != nil {
-				return err
-			}
-			defer series.Close()
-
-			labels, err := txn.Tx.Cursor(txn.Key("labels"))
-			if err != nil {
-				return err
-			}
-			defer labels.Close()
-
-			kind, err := txn.Tx.Cursor(txn.Key("kind"))
-			if err != nil {
-				return err
-			}
-			defer kind.Close()
-
-			ts, err := txn.Tx.Cursor(txn.Key("timestamp"))
-			if err != nil {
-				return err
-			}
-			defer ts.Close()
-
-			vc, err := txn.Tx.Cursor(txn.Key("value"))
-			if err != nil {
-				return err
-			}
-			defer vc.Close()
-
-			hc, err := txn.Tx.Cursor(txn.Key("histogram"))
-			if err != nil {
-				return err
-			}
-			defer hc.Close()
-
-			floats, err := cursor.Row(kind, txn.Shard, uint64(v1.Sample_FLOAT))
-			if err != nil {
-				return err
-			}
-
-			histograms, err := cursor.Row(kind, txn.Shard, uint64(v1.Sample_HISTOGRAM))
-			if err != nil {
-				return err
-			}
-
-			return lbx.Distinct(series, f, txn.Shard, func(value uint64, columns *rows.Row) error {
-				cols := columns.Columns()
-				sx, ok := m[value]
-				if !ok {
-					lbl, err := lbx.Labels(labels, "labels", txn, cols[0])
+			if histograms.Includes(cols[0]) {
+				hs := &prompb.Histogram{}
+				err = lbx.BSI(data, cols, hc, columns, txn.Shard, func(position int, value int64) error {
+					hs.Reset()
+					data := txn.Tr.Blob("histogram", uint64(value))
+					err = hs.Unmarshal(data)
 					if err != nil {
 						return err
 					}
-					sx = &S{
-						Labels: lbl,
-					}
-					m[value] = sx
-				}
 
-				if isSeriesQuery {
+					if _, isFloat := hs.Count.(*prompb.Histogram_CountFloat); isFloat {
+						chunks[position] = NewFH(hs)
+					} else {
+						chunks[position] = NewH(hs)
+					}
 					return nil
+				})
+				if err != nil {
+					return fmt.Errorf("reading histogram %w", err)
+				}
+			}
+			if floats.Includes(cols[0]) {
+				err = lbx.BSI(data, cols, ts, columns, txn.Shard, func(position int, value int64) error {
+					chunks[position] = &V{ts: value}
+					return nil
+				})
+				if err != nil {
+					return fmt.Errorf("reading timestamp %w", err)
 				}
 
-				chunks := make([]chunks.Sample, len(cols))
-				data := lbx.NewData(cols)
-
-				if histograms.Includes(cols[0]) {
-					hs := &prompb.Histogram{}
-					err = lbx.BSI(data, cols, hc, columns, txn.Shard, func(position int, value int64) error {
-						hs.Reset()
-						data := txn.Tr.Blob("histogram", uint64(value))
-						err = hs.Unmarshal(data)
-						if err != nil {
-							return err
-						}
-
-						if _, isFloat := hs.Count.(*prompb.Histogram_CountFloat); isFloat {
-							chunks[position] = NewFH(hs)
-						} else {
-							chunks[position] = NewH(hs)
-						}
-						return nil
-					})
-					if err != nil {
-						return fmt.Errorf("reading histogram %w", err)
-					}
+				err = lbx.BSI(data, cols, vc, columns, txn.Shard, func(position int, value int64) error {
+					chunks[position].(*V).f = math.Float64frombits(uint64(value))
+					return nil
+				})
+				if err != nil {
+					return fmt.Errorf("reading values %w", err)
 				}
-				if floats.Includes(cols[0]) {
-					err = lbx.BSI(data, cols, ts, columns, txn.Shard, func(position int, value int64) error {
-						chunks[position] = &V{ts: value}
-						return nil
-					})
-					if err != nil {
-						return fmt.Errorf("reading timestamp %w", err)
-					}
-
-					err = lbx.BSI(data, cols, vc, columns, txn.Shard, func(position int, value int64) error {
-						chunks[position].(*V).f = math.Float64frombits(uint64(value))
-						return nil
-					})
-					if err != nil {
-						return fmt.Errorf("reading values %w", err)
-					}
-				}
-				sx.Samples = append(sx.Samples, chunks...)
-				return nil
-			})
+			}
+			sx.Samples = append(sx.Samples, chunks...)
+			return nil
 		})
-		if err != nil {
-			return storage.ErrSeriesSet(err)
-		}
+	})
+	if err != nil {
+		return storage.ErrSeriesSet(err)
 	}
 
 	return NewSeriesSet(m)

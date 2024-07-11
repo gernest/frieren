@@ -59,11 +59,8 @@ func (s *Store) Save(pm pmetric.Metrics) error {
 	if err != nil {
 		return err
 	}
-	err = s.Append(samples)
-	if err != nil {
-		return err
-	}
-	return s.saveMeta(meta)
+	s.Append(samples)
+	return errors.Join(s.Flush(), s.saveMeta(meta))
 }
 
 func (s *Store) saveMeta(meta []*prompb.MetricMetadata) error {

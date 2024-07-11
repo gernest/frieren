@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"time"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/gernest/frieren/internal/lbx"
@@ -79,99 +78,98 @@ func (s *Store) Select(start, end int64, matchers ...[]*labels.Matcher) ([]exemp
 	read := make([]labels.Labels, 0, 8)
 	readRows := make([]uint64, 0, 8)
 
-	for _, shard := range r.Range(time.UnixMilli(start), time.UnixMilli(end)) {
-		err = r.View(shard, func(txn *tx.Tx) error {
-			r, err := base.Apply(txn, nil)
-			if err != nil {
-				return err
-			}
-			if r.IsEmpty() {
+	err = r.View(func(txn *tx.Tx) error {
+		r, err := base.Apply(txn, nil)
+		if err != nil {
+			return err
+		}
+		if r.IsEmpty() {
+			return nil
+		}
+		f, err := filter.Apply(txn, r)
+		if err != nil {
+			return err
+		}
+		if f.IsEmpty() {
+			return nil
+		}
+
+		series, err := txn.Tx.Cursor(txn.Key("series"))
+		if err != nil {
+			return err
+		}
+		defer series.Close()
+		labels, err := txn.Tx.Cursor(txn.Key("labels"))
+		if err != nil {
+			return err
+		}
+		defer labels.Close()
+
+		ex, err := txn.Tx.Cursor(txn.Key("exemplar"))
+		if err != nil {
+			return err
+		}
+		defer ex.Close()
+		read = read[:0]
+		readRows = readRows[:0]
+		err = lbx.Distinct(series, f, txn.Shard, func(value uint64, columns *rows.Row) error {
+			if discard.Contains(value) {
 				return nil
 			}
-			f, err := filter.Apply(txn, r)
-			if err != nil {
-				return err
-			}
-			if f.IsEmpty() {
-				return nil
-			}
-
-			series, err := txn.Tx.Cursor(txn.Key("series"))
-			if err != nil {
-				return err
-			}
-			defer series.Close()
-			labels, err := txn.Tx.Cursor(txn.Key("labels"))
-			if err != nil {
-				return err
-			}
-			defer labels.Close()
-
-			ex, err := txn.Tx.Cursor(txn.Key("exemplar"))
-			if err != nil {
-				return err
-			}
-			defer ex.Close()
-			read = read[:0]
-			readRows = readRows[:0]
-			err = lbx.Distinct(series, f, txn.Shard, func(value uint64, columns *rows.Row) error {
-				if discard.Contains(value) {
-					return nil
-				}
-				return columns.RangeColumns(func(u uint64) error {
-					defer discard.Add(value)
-					lbl, err := lbx.Labels(labels, "labels", txn, columns.Columns()[0])
-					if err != nil {
-						return err
-					}
-					read = append(read, lbl)
-					readRows = append(readRows, u)
-					return io.EOF
-				})
-			})
-			if err != nil {
-				if !errors.Is(err, io.EOF) {
+			return columns.RangeColumns(func(u uint64) error {
+				defer discard.Add(value)
+				lbl, err := lbx.Labels(labels, "labels", txn, columns.Columns()[0])
+				if err != nil {
 					return err
 				}
-			}
-			if len(read) > 0 {
-				data := lbx.NewData(readRows)
-				sm := &prompb.TimeSeries{}
-				mapping := map[uint64]int{}
-				for i := range readRows {
-					mapping[readRows[i]] = i
-				}
-				err = lbx.BSI(data, readRows, ex, rows.NewRow(readRows...), txn.Shard, func(position int, value int64) error {
-					data := txn.Tr.Blob("exemplar", uint64(value))
-					if len(data) == 0 {
-						return nil
-					}
-					sm.Reset()
-					err := sm.Unmarshal(data)
-					if err != nil {
-						return fmt.Errorf("decoding exemplar %w", err)
-					}
-					o := exemplar.QueryResult{
-						SeriesLabels: read[position].Copy(),
-						Exemplars:    make([]exemplar.Exemplar, len(sm.Exemplars)),
-					}
-					for i := range sm.Exemplars {
-						o.Exemplars[i] = decodeExemplar(&sm.Exemplars[i])
-					}
-					result = append(result, o)
-					return nil
-				})
-				if err != nil {
-					return fmt.Errorf("reading exemplar %w", err)
-				}
-			}
-			return nil
+				read = append(read, lbl)
+				readRows = append(readRows, u)
+				return io.EOF
+			})
 		})
-
 		if err != nil {
-			return nil, err
+			if !errors.Is(err, io.EOF) {
+				return err
+			}
 		}
+		if len(read) > 0 {
+			data := lbx.NewData(readRows)
+			sm := &prompb.TimeSeries{}
+			mapping := map[uint64]int{}
+			for i := range readRows {
+				mapping[readRows[i]] = i
+			}
+			err = lbx.BSI(data, readRows, ex, rows.NewRow(readRows...), txn.Shard, func(position int, value int64) error {
+				data := txn.Tr.Blob("exemplar", uint64(value))
+				if len(data) == 0 {
+					return nil
+				}
+				sm.Reset()
+				err := sm.Unmarshal(data)
+				if err != nil {
+					return fmt.Errorf("decoding exemplar %w", err)
+				}
+				o := exemplar.QueryResult{
+					SeriesLabels: read[position].Copy(),
+					Exemplars:    make([]exemplar.Exemplar, len(sm.Exemplars)),
+				}
+				for i := range sm.Exemplars {
+					o.Exemplars[i] = decodeExemplar(&sm.Exemplars[i])
+				}
+				result = append(result, o)
+				return nil
+			})
+			if err != nil {
+				return fmt.Errorf("reading exemplar %w", err)
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
 	}
+
 	return result, nil
 }
 

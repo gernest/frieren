@@ -119,107 +119,105 @@ func (s *Store) SelectLogs(ctx context.Context, req logql.SelectLogParams) (resu
 	defer r.Release()
 	streamSet := map[uint64]*logproto.Stream{}
 
-	for _, shard := range r.Range(req.Start, req.End) {
-		err = r.View(shard, func(txn *tx.Tx) error {
-			r, err := base.Apply(txn, nil)
-			if err != nil {
-				return err
-			}
-			if r.IsEmpty() {
-				return nil
-			}
-			f, err := filter.Apply(txn, r)
-			if err != nil {
-				return err
-			}
-			if f.IsEmpty() {
-				return nil
-			}
-			stream, err := txn.Tx.Cursor(txn.Key("stream"))
-			if err != nil {
-				return err
-			}
-			defer stream.Close()
-			labels, err := txn.Tx.Cursor(txn.Key("labels"))
-			if err != nil {
-				return err
-			}
-			defer labels.Close()
-			ts, err := txn.Tx.Cursor(txn.Key("timestamp"))
-			if err != nil {
-				return err
-			}
-			defer ts.Close()
+	err = r.View(func(txn *tx.Tx) error {
+		r, err := base.Apply(txn, nil)
+		if err != nil {
+			return err
+		}
+		if r.IsEmpty() {
+			return nil
+		}
+		f, err := filter.Apply(txn, r)
+		if err != nil {
+			return err
+		}
+		if f.IsEmpty() {
+			return nil
+		}
+		stream, err := txn.Tx.Cursor(txn.Key("stream"))
+		if err != nil {
+			return err
+		}
+		defer stream.Close()
+		labels, err := txn.Tx.Cursor(txn.Key("labels"))
+		if err != nil {
+			return err
+		}
+		defer labels.Close()
+		ts, err := txn.Tx.Cursor(txn.Key("timestamp"))
+		if err != nil {
+			return err
+		}
+		defer ts.Close()
 
-			line, err := txn.Tx.Cursor(txn.Key("line"))
-			if err != nil {
-				return err
-			}
-			defer line.Close()
+		line, err := txn.Tx.Cursor(txn.Key("line"))
+		if err != nil {
+			return err
+		}
+		defer line.Close()
 
-			meta, err := txn.Tx.Cursor(txn.Key("metadata"))
-			if err != nil {
-				return err
-			}
-			defer meta.Close()
+		meta, err := txn.Tx.Cursor(txn.Key("metadata"))
+		if err != nil {
+			return err
+		}
+		defer meta.Close()
 
-			return lbx.Distinct(stream, f, txn.Shard, func(rowID uint64, columns *rows.Row) error {
-				cols := r.Columns()
-				st, ok := streamSet[rowID]
-				if !ok {
-					st = &logproto.Stream{}
-					lbl, err := lbx.Labels(labels, "labels", txn, cols[0])
-					if err != nil {
-						return fmt.Errorf("reading labels %w", err)
-					}
-					st.Labels = lbl.String()
-					st.Hash = rowID
-				}
-
-				// Prepare entries
-				size := len(st.Entries)
-				count := len(cols)
-				st.Entries = slices.Grow(st.Entries, int(count))[:size+int(count)]
-
-				data := lbx.NewData(cols)
-
-				// read timestamp
-				err = lbx.BSI(data, cols, ts, columns, txn.Shard, func(position int, value int64) error {
-					st.Entries[size+position].Timestamp = time.Unix(0, value)
-					return nil
-				})
+		return lbx.Distinct(stream, f, txn.Shard, func(rowID uint64, columns *rows.Row) error {
+			cols := r.Columns()
+			st, ok := streamSet[rowID]
+			if !ok {
+				st = &logproto.Stream{}
+				lbl, err := lbx.Labels(labels, "labels", txn, cols[0])
 				if err != nil {
-					return fmt.Errorf("reading timestamp %w", err)
+					return fmt.Errorf("reading labels %w", err)
 				}
-				// read line
-				err = lbx.BSI(data, cols, ts, columns, txn.Shard, func(position int, value int64) error {
-					st.Entries[size+position].Line = string(txn.Tr.Blob("line", uint64(value)))
-					return nil
-				})
-				if err != nil {
-					return fmt.Errorf("reading line %w", err)
-				}
+				st.Labels = lbl.String()
+				st.Hash = rowID
+			}
 
-				// read metadata
-				for i := range cols {
-					md, err := metadata(meta, "metadata", txn, cols[i])
-					if err != nil {
-						return fmt.Errorf("reading metadata%w", err)
-					}
-					if len(md) > 0 {
-						st.Entries[size+i].StructuredMetadata = md
-					}
-				}
-				if err != nil {
-					return fmt.Errorf("reading metadata %w", err)
-				}
+			// Prepare entries
+			size := len(st.Entries)
+			count := len(cols)
+			st.Entries = slices.Grow(st.Entries, int(count))[:size+int(count)]
+
+			data := lbx.NewData(cols)
+
+			// read timestamp
+			err = lbx.BSI(data, cols, ts, columns, txn.Shard, func(position int, value int64) error {
+				st.Entries[size+position].Timestamp = time.Unix(0, value)
 				return nil
 			})
+			if err != nil {
+				return fmt.Errorf("reading timestamp %w", err)
+			}
+			// read line
+			err = lbx.BSI(data, cols, ts, columns, txn.Shard, func(position int, value int64) error {
+				st.Entries[size+position].Line = string(txn.Tr.Blob("line", uint64(value)))
+				return nil
+			})
+			if err != nil {
+				return fmt.Errorf("reading line %w", err)
+			}
 
+			// read metadata
+			for i := range cols {
+				md, err := metadata(meta, "metadata", txn, cols[i])
+				if err != nil {
+					return fmt.Errorf("reading metadata%w", err)
+				}
+				if len(md) > 0 {
+					st.Entries[size+i].StructuredMetadata = md
+				}
+			}
+			if err != nil {
+				return fmt.Errorf("reading metadata %w", err)
+			}
+			return nil
 		})
-		if err != nil {
-			return nil, err
-		}
+
+	})
+	if err != nil {
+		return nil, err
 	}
 	o := make([]push.Stream, 0, len(streamSet))
 	for _, v := range streamSet {

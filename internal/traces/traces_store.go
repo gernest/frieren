@@ -17,13 +17,7 @@ type Store struct {
 func New(path string) (*Store, error) {
 	dbPth := filepath.Join(path, "traces")
 	os.MkdirAll(dbPth, 0755)
-	db, err := dsl.New(dbPth,
-		dsl.WithTimestampField[*v1.Span]("span_start_nano"),
-		dsl.WithSkip[*v1.Span](
-			"link_span_id", "link_trace_id",
-			"parent_id", "span_id", "trace_id",
-		),
-	)
+	db, err := dsl.New[*v1.Span](dbPth)
 	if err != nil {
 		return nil, err
 	}
@@ -31,5 +25,6 @@ func New(path string) (*Store, error) {
 }
 
 func (s *Store) Save(td ptrace.Traces) error {
-	return s.Append(traceproto.From(td))
+	s.Append(traceproto.From(td))
+	return s.Flush()
 }

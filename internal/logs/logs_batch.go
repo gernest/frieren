@@ -17,10 +17,7 @@ type Store struct {
 func New(path string) (*Store, error) {
 	dbPath := filepath.Join(path, "logs")
 	os.MkdirAll(dbPath, 0755)
-	db, err := dsl.New(
-		dbPath,
-		dsl.WithSkip[*v1.Entry]("metadata"),
-	)
+	db, err := dsl.New[*v1.Entry](dbPath)
 	if err != nil {
 		return nil, err
 	}
@@ -28,5 +25,6 @@ func New(path string) (*Store, error) {
 }
 
 func (s *Store) Save(ld plog.Logs) error {
-	return s.Append(logproto.FromLogs(ld))
+	s.Append(logproto.FromLogs(ld))
+	return s.Flush()
 }
