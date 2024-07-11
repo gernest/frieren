@@ -717,7 +717,7 @@ func (api *prometheusAPI) respond(w http.ResponseWriter, _ *http.Request, data i
 
 	b, err := JSONCodec{}.Encode(resp)
 	if err != nil {
-		slog.Error("msg", "error marshaling response", "err", err)
+		slog.Error("error marshaling response", "err", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -737,7 +737,7 @@ func (api *prometheusAPI) respondError(w http.ResponseWriter, apiErr *apiError, 
 		Data:      data,
 	})
 	if err != nil {
-		slog.Error("msg", "error marshaling json response", "err", err)
+		slog.Error("error marshaling json response", "err", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

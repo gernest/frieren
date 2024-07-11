@@ -104,7 +104,7 @@ func From(td ptrace.Traces) (result []*v1.Span) {
 					for n := range names {
 						o.EventName = append(o.EventName, n)
 					}
-					o.EventAttributes = attrCtx.Labels()
+					o.EventAttributes = attrCtx.Metadata()
 				}
 
 				lk := span.Links()
@@ -114,23 +114,23 @@ func From(td ptrace.Traces) (result []*v1.Span) {
 
 					for idx := 0; idx < lk.Len(); idx++ {
 						e := lk.At(idx)
-						o.LinkSpanId = append(o.LinkSpanId, e.SpanID().String())
-						o.LinkTraceId = append(o.LinkTraceId, e.TraceID().String())
+						o.LinkSpanId = append(o.LinkSpanId, []byte(e.SpanID().String()))
+						o.LinkTraceId = append(o.LinkTraceId, []byte(e.TraceID().String()))
 						e.Attributes().Range(attrCtx.SetAttribute)
 					}
+					o.LinkAttributes = attrCtx.Metadata()
 
 				}
 				traceId := span.TraceID().String()
-				o.TraceId = traceId
-				o.SpanId = span.SpanID().String()
+				o.TraceId = []byte(traceId)
+				o.SpanId = []byte(span.SpanID().String())
 				parent := span.ParentSpanID()
 				if parent.IsEmpty() {
 					o.TraceRootName = span.Name()
 					o.TraceRootService = serviceName
 				} else {
-					o.ParentId = parent.String()
+					o.ParentId = []byte(parent.String())
 				}
-
 				o.SpanStartNano = int64(span.StartTimestamp())
 				o.SpanEndNano = int64(span.EndTimestamp())
 				update(o, traceId)

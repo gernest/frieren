@@ -22,7 +22,7 @@ message Entry {
   repeated string labels = 2;
   uint64 timestamp = 3;
   bytes line = 4;
-  repeated string metadata = 5;
+  repeated bytes metadata = 5;
 }
 
 // Sample models metrics sample similar to prometheus. Histogram is an integer
@@ -71,16 +71,16 @@ message Span {
   string span_status_message = 11;
   string span_kind = 12;
   repeated string event_name = 13;
-  repeated string event_attributes = 14;
-  repeated string link_span_id = 15;
-  repeated string link_trace_id = 16;
-  repeated string likn_attributes = 17;
+  repeated bytes event_attributes = 14;
+  repeated bytes link_span_id = 15;
+  repeated bytes link_trace_id = 16;
+  repeated bytes link_attributes = 17;
 
-  string trace_id = 18;
-  string span_id = 19;
+  bytes trace_id = 18;
+  bytes span_id = 19;
   string trace_root_name = 20;
   string trace_root_service = 22;
-  string parent_id = 23;
+  bytes parent_id = 23;
   int64 span_start_nano = 24;
   int64 span_end_nano = 25;
   int64 trace_start_nano = 26;

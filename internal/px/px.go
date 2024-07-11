@@ -34,14 +34,15 @@ func (x *Ctx) Sum() ([]byte, []string) {
 	return h.Sum(nil), o
 }
 
-func (x *Ctx) Metadata() []string {
-	o := make([]string, 0, len(x.labels))
+func (x *Ctx) Metadata() [][]byte {
+	o := make([][]byte, 0, len(x.labels))
 	for k := range x.labels {
-		o = append(o, k)
+		o = append(o, []byte(k))
 	}
-	slices.Sort(o)
+	slices.SortFunc(o, bytes.Compare)
 	return o
 }
+
 func (x *Ctx) Labels() []string {
 	o := make([]string, 0, len(x.labels))
 	for k := range x.labels {
