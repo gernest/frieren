@@ -55,18 +55,18 @@ func (db *Store) FindTraceByID(ctx context.Context, req *tempopb.TraceByIDReques
 		if f.IsEmpty() {
 			return nil
 		}
-		resource, err := txn.Tx.Cursor(txn.Key("resource"))
+		resource, err := txn.Tx.Cursor("resource")
 		if err != nil {
 			return err
 		}
 		defer resource.Close()
-		scope, err := txn.Tx.Cursor(txn.Key("scope"))
+		scope, err := txn.Tx.Cursor("scope")
 		if err != nil {
 			return err
 		}
 		defer scope.Close()
 
-		span, err := txn.Tx.Cursor(txn.Key("span"))
+		span, err := txn.Tx.Cursor("span")
 		if err != nil {
 			return err
 		}

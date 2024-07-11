@@ -200,37 +200,37 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 			return nil
 		}
 
-		series, err := txn.Tx.Cursor(txn.Key("series"))
+		series, err := txn.Tx.Cursor("series")
 		if err != nil {
 			return err
 		}
 		defer series.Close()
 
-		labels, err := txn.Tx.Cursor(txn.Key("labels"))
+		labels, err := txn.Tx.Cursor("labels")
 		if err != nil {
 			return err
 		}
 		defer labels.Close()
 
-		kind, err := txn.Tx.Cursor(txn.Key("kind"))
+		kind, err := txn.Tx.Cursor("kind")
 		if err != nil {
 			return err
 		}
 		defer kind.Close()
 
-		ts, err := txn.Tx.Cursor(txn.Key("timestamp"))
+		ts, err := txn.Tx.Cursor("timestamp")
 		if err != nil {
 			return err
 		}
 		defer ts.Close()
 
-		vc, err := txn.Tx.Cursor(txn.Key("value"))
+		vc, err := txn.Tx.Cursor("value")
 		if err != nil {
 			return err
 		}
 		defer vc.Close()
 
-		hc, err := txn.Tx.Cursor(txn.Key("histogram"))
+		hc, err := txn.Tx.Cursor("histogram")
 		if err != nil {
 			return err
 		}

@@ -94,18 +94,18 @@ func (s *Store) Select(start, end int64, matchers ...[]*labels.Matcher) ([]exemp
 			return nil
 		}
 
-		series, err := txn.Tx.Cursor(txn.Key("series"))
+		series, err := txn.Tx.Cursor("series")
 		if err != nil {
 			return err
 		}
 		defer series.Close()
-		labels, err := txn.Tx.Cursor(txn.Key("labels"))
+		labels, err := txn.Tx.Cursor("labels")
 		if err != nil {
 			return err
 		}
 		defer labels.Close()
 
-		ex, err := txn.Tx.Cursor(txn.Key("exemplar"))
+		ex, err := txn.Tx.Cursor("exemplar")
 		if err != nil {
 			return err
 		}

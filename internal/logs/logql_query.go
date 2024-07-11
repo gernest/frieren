@@ -134,29 +134,29 @@ func (s *Store) SelectLogs(ctx context.Context, req logql.SelectLogParams) (resu
 		if f.IsEmpty() {
 			return nil
 		}
-		stream, err := txn.Tx.Cursor(txn.Key("stream"))
+		stream, err := txn.Tx.Cursor("stream")
 		if err != nil {
 			return err
 		}
 		defer stream.Close()
-		labels, err := txn.Tx.Cursor(txn.Key("labels"))
+		labels, err := txn.Tx.Cursor("labels")
 		if err != nil {
 			return err
 		}
 		defer labels.Close()
-		ts, err := txn.Tx.Cursor(txn.Key("timestamp"))
+		ts, err := txn.Tx.Cursor("timestamp")
 		if err != nil {
 			return err
 		}
 		defer ts.Close()
 
-		line, err := txn.Tx.Cursor(txn.Key("line"))
+		line, err := txn.Tx.Cursor("line")
 		if err != nil {
 			return err
 		}
 		defer line.Close()
 
-		meta, err := txn.Tx.Cursor(txn.Key("metadata"))
+		meta, err := txn.Tx.Cursor("metadata")
 		if err != nil {
 			return err
 		}
