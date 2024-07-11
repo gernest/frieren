@@ -9,7 +9,7 @@ func Audit(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c := &code{code: http.StatusOK, ResponseWriter: w}
 		h.ServeHTTP(c, r)
-		slog.Debug(r.URL.Path, slog.String("method", r.Method), slog.Int("code", c.code))
+		slog.Info(r.URL.Path, slog.String("method", r.Method), slog.Int("code", c.code))
 	})
 }
 
