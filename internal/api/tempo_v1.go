@@ -44,6 +44,12 @@ func (a *tempoAPI) Register(r *route.Router) {
 	r.Post(api.PathSearchTags, a.searchTags)
 	r.Get("/api/search/tag/:name/values", a.searchTagValues)
 	r.Post("/api/search/tag/:name/values", a.searchTagValues)
+	r.Get("/api/echo", echoHandler)
+	r.Post("/api/echo", echoHandler)
+}
+
+func echoHandler(w http.ResponseWriter, r *http.Request) {
+	http.Error(w, "echo", http.StatusOK)
 }
 
 func (a *tempoAPI) findTraceByID(w http.ResponseWriter, r *http.Request) {
