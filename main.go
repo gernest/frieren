@@ -303,9 +303,9 @@ func Main() *cli.Command {
 			<-ctx.Done()
 			slog.Info("gracefully shutting down  server")
 
-			osvr.Shutdown(context.Background())
-			svr.Shutdown(context.Background())
-			gs.GracefulStop()
+			osvr.Close()
+			svr.Close()
+			gs.Stop()
 
 			slog.Info("exiting server")
 			return ctx.Err()

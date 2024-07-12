@@ -21,8 +21,6 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
-	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"time"
@@ -136,8 +134,6 @@ func newPrometheusAPI(db *metrics.Store) *prometheusAPI {
 
 	query := db.Queryable()
 
-	trackPath := filepath.Join(db.Path(), "prometheus", "track")
-	os.MkdirAll(trackPath, 0755)
 	logger := promlog.New(&promlog.Config{})
 
 	eo := promql.EngineOpts{
@@ -145,7 +141,6 @@ func newPrometheusAPI(db *metrics.Store) *prometheusAPI {
 		MaxSamples:               50000000,
 		Reg:                      prometheus.DefaultRegisterer,
 		Timeout:                  2 * time.Minute,
-		ActiveQueryTracker:       promql.NewActiveQueryTracker(trackPath, 20, log.With(logger, "component", "activeQueryTracker")),
 		LookbackDelta:            5 * time.Minute,
 		NoStepSubqueryIntervalFn: func(rangeMillis int64) int64 { return time.Minute.Milliseconds() },
 		EnableAtModifier:         true,
