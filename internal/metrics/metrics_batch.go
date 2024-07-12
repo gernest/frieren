@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -44,6 +45,7 @@ func New(path string) (*Store, error) {
 		_, err := tx.CreateBucketIfNotExists(metadataBucket)
 		return err
 	})
+	slog.Info("metrics store ready", "shards", db.Shards().GetCardinality())
 	return &Store{Store: db, path: path, meta: meta}, nil
 }
 

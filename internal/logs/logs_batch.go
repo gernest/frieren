@@ -1,6 +1,7 @@
 package logs
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -21,6 +22,7 @@ func New(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	slog.Info("logs store ready", "shards", db.Shards().GetCardinality())
 	return &Store{Store: db}, nil
 }
 
