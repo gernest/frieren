@@ -204,52 +204,52 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 			return nil
 		}
 
-		series, err := txn.Tx.Cursor("series")
+		series, err := txn.Get("series")
 		if err != nil {
 			return err
 		}
 		defer series.Close()
 
-		labels, err := txn.Tx.Cursor("labels")
+		labels, err := txn.Get("labels")
 		if err != nil {
 			return err
 		}
 		defer labels.Close()
 
-		kind, err := txn.Tx.Cursor("kind")
+		kind, err := txn.Get("kind")
 		if err != nil {
 			return err
 		}
 		defer kind.Close()
 
-		ts, err := txn.Tx.Cursor("timestamp")
+		ts, err := txn.Get("timestamp")
 		if err != nil {
 			return err
 		}
 		defer ts.Close()
 
-		vc, err := txn.Tx.Cursor("value")
+		vc, err := txn.Get("value")
 		if err != nil {
 			return err
 		}
 		defer vc.Close()
 
-		hc, err := txn.Tx.Cursor("histogram")
+		hc, err := txn.Get("histogram")
 		if err != nil {
 			return err
 		}
 		defer hc.Close()
 
-		floats, err := cursor.Row(kind, txn.Shard, uint64(v1.Sample_FLOAT))
+		floats, err := cursor.Row(kind, txn.Shard(), uint64(v1.Sample_FLOAT))
 		if err != nil {
 			return err
 		}
 
-		histograms, err := cursor.Row(kind, txn.Shard, uint64(v1.Sample_HISTOGRAM))
+		histograms, err := cursor.Row(kind, txn.Shard(), uint64(v1.Sample_HISTOGRAM))
 		if err != nil {
 			return err
 		}
-		return lbx.Unique(series, f, txn.Shard, func(value uint64, columns *rows.Row) error {
+		return lbx.Unique(series, f, txn.Shard(), func(value uint64, columns *rows.Row) error {
 			cols := columns.Columns()
 			sx, ok := m[value]
 			if !ok {
@@ -273,9 +273,9 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 			if histograms.Includes(cols[0]) {
 
 				hs := &prompb.Histogram{}
-				err = lbx.BSI(data, cols, hc, columns, txn.Shard, func(position int, value int64) error {
+				err = lbx.BSI(data, cols, hc, columns, txn.Shard(), func(position int, value int64) error {
 					hs.Reset()
-					data := txn.Tr.Blob("histogram", uint64(value))
+					data := txn.Blob("histogram", uint64(value))
 					err = hs.Unmarshal(data)
 					if err != nil {
 						return err
@@ -293,7 +293,7 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 				}
 			}
 			if floats.Includes(cols[0]) {
-				err = lbx.BSI(data, cols, ts, columns, txn.Shard, func(position int, value int64) error {
+				err = lbx.BSI(data, cols, ts, columns, txn.Shard(), func(position int, value int64) error {
 					chunks[position] = &V{ts: value}
 					return nil
 				})
@@ -301,7 +301,7 @@ func (s *Querier) Select(ctx context.Context, sortSeries bool, hints *storage.Se
 					return fmt.Errorf("reading timestamp %w", err)
 				}
 
-				err = lbx.BSI(data, cols, vc, columns, txn.Shard, func(position int, value int64) error {
+				err = lbx.BSI(data, cols, vc, columns, txn.Shard(), func(position int, value int64) error {
 					chunks[position].(*V).f = math.Float64frombits(uint64(value))
 					return nil
 				})

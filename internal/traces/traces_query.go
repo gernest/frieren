@@ -55,18 +55,18 @@ func (db *Store) FindTraceByID(ctx context.Context, req *tempopb.TraceByIDReques
 		if f.IsEmpty() {
 			return nil
 		}
-		resource, err := txn.Tx.Cursor("resource")
+		resource, err := txn.Get("resource")
 		if err != nil {
 			return err
 		}
 		defer resource.Close()
-		scope, err := txn.Tx.Cursor("scope")
+		scope, err := txn.Get("scope")
 		if err != nil {
 			return err
 		}
 		defer scope.Close()
 
-		span, err := txn.Tx.Cursor("span")
+		span, err := txn.Get("span")
 		if err != nil {
 			return err
 		}
@@ -76,13 +76,13 @@ func (db *Store) FindTraceByID(ctx context.Context, req *tempopb.TraceByIDReques
 
 		// read resource
 		resourceMapping := map[uint64]uint64{}
-		err = lbx.BSI(data, columns, resource, f, txn.Shard, func(position int, value int64) error {
+		err = lbx.BSI(data, columns, resource, f, txn.Shard(), func(position int, value int64) error {
 			resourceMapping[columns[position]] = uint64(value)
 			if _, seen := otlpResourrce[uint64(value)]; seen {
 				return nil
 			}
 			o := resourcev1.Resource{}
-			err := o.Unmarshal(txn.Tr.Blob("resource", uint64(value)))
+			err := o.Unmarshal(txn.Blob("resource", uint64(value)))
 			if err != nil {
 				return fmt.Errorf("decoding resource %w", err)
 			}
@@ -95,13 +95,13 @@ func (db *Store) FindTraceByID(ctx context.Context, req *tempopb.TraceByIDReques
 
 		// read scope
 		scopeMapping := map[uint64]uint64{}
-		err = lbx.BSI(data, columns, scope, f, txn.Shard, func(position int, value int64) error {
+		err = lbx.BSI(data, columns, scope, f, txn.Shard(), func(position int, value int64) error {
 			scopeMapping[columns[position]] = uint64(value)
 			if _, seen := otlpScope[uint64(value)]; seen {
 				return nil
 			}
 			o := commonv1.InstrumentationScope{}
-			err := o.Unmarshal(txn.Tr.Blob("scope", uint64(value)))
+			err := o.Unmarshal(txn.Blob("scope", uint64(value)))
 			if err != nil {
 				return fmt.Errorf("decoding scope %w", err)
 			}
@@ -111,7 +111,7 @@ func (db *Store) FindTraceByID(ctx context.Context, req *tempopb.TraceByIDReques
 		if err != nil {
 			return err
 		}
-		return lbx.BSI(data, columns, span, f, txn.Shard, func(position int, value int64) error {
+		return lbx.BSI(data, columns, span, f, txn.Shard(), func(position int, value int64) error {
 			column := columns[position]
 			rs, ok := m[resourceMapping[column]]
 			if !ok {
@@ -120,7 +120,7 @@ func (db *Store) FindTraceByID(ctx context.Context, req *tempopb.TraceByIDReques
 			}
 			sid := scopeMapping[column]
 			o := tempov1.Span{}
-			err := o.Unmarshal(txn.Tr.Blob("span", uint64(value)))
+			err := o.Unmarshal(txn.Blob("span", uint64(value)))
 			if err != nil {
 				return fmt.Errorf("decoding span %w", err)
 			}

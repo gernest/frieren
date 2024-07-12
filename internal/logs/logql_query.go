@@ -134,35 +134,35 @@ func (s *Store) SelectLogs(ctx context.Context, req logql.SelectLogParams) (resu
 		if f.IsEmpty() {
 			return nil
 		}
-		stream, err := txn.Tx.Cursor("stream")
+		stream, err := txn.Get("stream")
 		if err != nil {
 			return err
 		}
 		defer stream.Close()
-		labels, err := txn.Tx.Cursor("labels")
+		labels, err := txn.Get("labels")
 		if err != nil {
 			return err
 		}
 		defer labels.Close()
-		ts, err := txn.Tx.Cursor("timestamp")
+		ts, err := txn.Get("timestamp")
 		if err != nil {
 			return err
 		}
 		defer ts.Close()
 
-		line, err := txn.Tx.Cursor("line")
+		line, err := txn.Get("line")
 		if err != nil {
 			return err
 		}
 		defer line.Close()
 
-		meta, err := txn.Tx.Cursor("metadata")
+		meta, err := txn.Get("metadata")
 		if err != nil {
 			return err
 		}
 		defer meta.Close()
 
-		return lbx.Distinct(stream, f, txn.Shard, func(rowID uint64, columns *rows.Row) error {
+		return lbx.Distinct(stream, f, txn.Shard(), func(rowID uint64, columns *rows.Row) error {
 			cols := r.Columns()
 			st, ok := streamSet[rowID]
 			if !ok {
@@ -183,7 +183,7 @@ func (s *Store) SelectLogs(ctx context.Context, req logql.SelectLogParams) (resu
 			data := lbx.NewData(cols)
 
 			// read timestamp
-			err = lbx.BSI(data, cols, ts, columns, txn.Shard, func(position int, value int64) error {
+			err = lbx.BSI(data, cols, ts, columns, txn.Shard(), func(position int, value int64) error {
 				st.Entries[size+position].Timestamp = time.Unix(0, value)
 				return nil
 			})
@@ -191,8 +191,8 @@ func (s *Store) SelectLogs(ctx context.Context, req logql.SelectLogParams) (resu
 				return fmt.Errorf("reading timestamp %w", err)
 			}
 			// read line
-			err = lbx.BSI(data, cols, ts, columns, txn.Shard, func(position int, value int64) error {
-				st.Entries[size+position].Line = string(txn.Tr.Blob("line", uint64(value)))
+			err = lbx.BSI(data, cols, ts, columns, txn.Shard(), func(position int, value int64) error {
+				st.Entries[size+position].Line = string(txn.Blob("line", uint64(value)))
 				return nil
 			})
 			if err != nil {
@@ -236,7 +236,7 @@ var sep = []byte("=")
 
 func metadata(c *rbf.Cursor, field string, tx *tx.Tx, rowID uint64) (o push.LabelsAdapter, err error) {
 	err = cursor.Rows(c, 0, func(row uint64) error {
-		data := tx.Tr.Key(field, row)
+		data := tx.Key(field, row)
 		if len(data) == 0 {
 			return nil
 		}

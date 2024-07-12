@@ -28,7 +28,7 @@ func Labels(c *rbf.Cursor, field string, tx *tx.Tx, rowID uint64) (labels.Labels
 		return labels.Labels{}, nil
 	}
 	rs := make(labels.Labels, 0, len(rows))
-	tx.Tr.Keys(field, rows, func(value []byte) {
+	tx.Keys(field, rows, func(value []byte) {
 		name, value, _ := bytes.Cut(value, sep)
 		rs = append(rs, labels.Label{
 			Name:  string(name),

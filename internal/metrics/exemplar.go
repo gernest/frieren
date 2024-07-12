@@ -94,25 +94,25 @@ func (s *Store) Select(start, end int64, matchers ...[]*labels.Matcher) ([]exemp
 			return nil
 		}
 
-		series, err := txn.Tx.Cursor("series")
+		series, err := txn.Get("series")
 		if err != nil {
 			return err
 		}
 		defer series.Close()
-		labels, err := txn.Tx.Cursor("labels")
+		labels, err := txn.Get("labels")
 		if err != nil {
 			return err
 		}
 		defer labels.Close()
 
-		ex, err := txn.Tx.Cursor("exemplar")
+		ex, err := txn.Get("exemplar")
 		if err != nil {
 			return err
 		}
 		defer ex.Close()
 		read = read[:0]
 		readRows = readRows[:0]
-		err = lbx.Distinct(series, f, txn.Shard, func(value uint64, columns *rows.Row) error {
+		err = lbx.Distinct(series, f, txn.Shard(), func(value uint64, columns *rows.Row) error {
 			if discard.Contains(value) {
 				return nil
 			}
@@ -139,8 +139,8 @@ func (s *Store) Select(start, end int64, matchers ...[]*labels.Matcher) ([]exemp
 			for i := range readRows {
 				mapping[readRows[i]] = i
 			}
-			err = lbx.BSI(data, readRows, ex, rows.NewRow(readRows...), txn.Shard, func(position int, value int64) error {
-				data := txn.Tr.Blob("exemplar", uint64(value))
+			err = lbx.BSI(data, readRows, ex, rows.NewRow(readRows...), txn.Shard(), func(position int, value int64) error {
+				data := txn.Blob("exemplar", uint64(value))
 				if len(data) == 0 {
 					return nil
 				}
