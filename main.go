@@ -257,27 +257,30 @@ func Main() *cli.Command {
 				Metrics: ms.Export,
 				Logs:    ls.Export,
 			}
+			aoh := otelhttp.NewHandler(svc, "fri_otlp_http")
+			osvr := &http.Server{
+				Handler:     aoh,
+				BaseContext: func(l net.Listener) context.Context { return ctx },
+			}
 			go func() {
-				oh := otelhttp.NewHandler(svc, "fri_otlp_http")
 				defer cancel()
 				slog.Info("starting otlp http api server", "address", otlpHTTP)
-				svr := &http.Server{
-					Handler:     oh,
-					BaseContext: func(l net.Listener) context.Context { return ctx },
-				}
-				err := svr.Serve(otlpHTTPListen)
+				err := osvr.Serve(otlpHTTPListen)
 				if err != nil {
 					slog.Error("exited otlp http  service", "err", err)
 				}
 			}()
+
+			oh := otelhttp.NewHandler(mux, "fri_http_api")
+			svr := &http.Server{
+				Handler:     audit.Audit(oh),
+				BaseContext: func(l net.Listener) context.Context { return ctx },
+			}
+
 			go func() {
-				oh := otelhttp.NewHandler(mux, "fri_http_api")
 				defer cancel()
 				slog.Info("starting http api server", "address", httpAPI)
-				svr := &http.Server{
-					Handler:     audit.Audit(oh),
-					BaseContext: func(l net.Listener) context.Context { return ctx },
-				}
+
 				err := svr.Serve(httpListen)
 				if err != nil {
 					slog.Error("exited http api service", "err", err)
@@ -289,6 +292,12 @@ func Main() *cli.Command {
 				util.Exit("starring runtime metrics", "err", err)
 			}
 			<-ctx.Done()
+			slog.Info("gracefully shutting down  server")
+
+			osvr.Shutdown(context.Background())
+			svr.Shutdown(context.Background())
+			gs.GracefulStop()
+
 			slog.Info("exiting server")
 			return ctx.Err()
 		},

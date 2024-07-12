@@ -29,7 +29,6 @@ import (
 
 	"github.com/gernest/frieren/internal/logs"
 	"github.com/gernest/frieren/internal/metrics"
-	"github.com/gernest/frieren/internal/self"
 	"github.com/gernest/frieren/internal/traces"
 	"github.com/go-kit/log"
 	"github.com/grafana/regexp"
@@ -223,8 +222,6 @@ func invalidParamError(err error, parameter string) apiFuncResult {
 
 func (api *prometheusAPI) query(r *http.Request) (result apiFuncResult) {
 	ctx := r.Context()
-	ctx, span := self.Start(ctx, "PROMETHEUS.query")
-	defer span.End()
 	ts, err := parseTimeParam(r, "time", api.now())
 	if err != nil {
 		return invalidParamError(err, "time")
@@ -274,8 +271,6 @@ func (api *prometheusAPI) query(r *http.Request) (result apiFuncResult) {
 
 func (api *prometheusAPI) queryRange(r *http.Request) (result apiFuncResult) {
 	ctx := r.Context()
-	ctx, span := self.Start(ctx, "PROMETHEUS.queryRange")
-	defer span.End()
 
 	start, err := parseTime(r.FormValue("start"))
 	if err != nil {
@@ -426,10 +421,6 @@ func returnAPIError(err error) *apiError {
 }
 
 func (api *prometheusAPI) labelNames(r *http.Request) apiFuncResult {
-	ctx := r.Context()
-	_, span := self.Start(ctx, "PROMETHEUS.labelNames")
-	defer span.End()
-
 	limit, err := parseLimitParam(r.FormValue("limit"))
 	if err != nil {
 		return invalidParamError(err, "limit")
@@ -504,8 +495,6 @@ func (api *prometheusAPI) labelNames(r *http.Request) apiFuncResult {
 
 func (api *prometheusAPI) labelValues(r *http.Request) (result apiFuncResult) {
 	ctx := r.Context()
-	ctx, span := self.Start(ctx, "PROMETHEUS.labelValues")
-	defer span.End()
 
 	name := route.Param(ctx, "name")
 
@@ -597,8 +586,6 @@ func (api *prometheusAPI) labelValues(r *http.Request) (result apiFuncResult) {
 
 func (api *prometheusAPI) series(r *http.Request) (result apiFuncResult) {
 	ctx := r.Context()
-	ctx, span := self.Start(ctx, "PROMETHEUS.series")
-	defer span.End()
 
 	if err := r.ParseForm(); err != nil {
 		return apiFuncResult{nil, &apiError{errorBadData, fmt.Errorf("error parsing form values: %w", err)}, nil, nil}

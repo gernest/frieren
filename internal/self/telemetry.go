@@ -14,7 +14,6 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -55,14 +54,6 @@ func FloatHistogram(name string, options ...metric.Float64HistogramOption) metri
 		util.Exit("creating float histogram metric", "name", name)
 	}
 	return v
-}
-
-func Tracer() trace.Tracer {
-	return otel.Tracer(service)
-}
-
-func Start(ctx context.Context, name string) (context.Context, trace.Span) {
-	return Tracer().Start(ctx, name)
 }
 
 func Setup(ctx context.Context) {
