@@ -25,6 +25,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
+	"go.opentelemetry.io/otel"
 	"google.golang.org/grpc"
 
 	_ "google.golang.org/grpc/encoding/gzip"
@@ -257,7 +258,11 @@ func Main() *cli.Command {
 				Metrics: ms.Export,
 				Logs:    ls.Export,
 			}
-			aoh := otelhttp.NewHandler(svc, "fri_otlp_http")
+			aoh := otelhttp.NewHandler(svc, "fri_otlp_http",
+				otelhttp.WithTracerProvider(
+					otel.GetTracerProvider(),
+				),
+			)
 			osvr := &http.Server{
 				Handler:     aoh,
 				BaseContext: func(l net.Listener) context.Context { return ctx },
@@ -271,7 +276,11 @@ func Main() *cli.Command {
 				}
 			}()
 
-			oh := otelhttp.NewHandler(mux, "fri_http_api")
+			oh := otelhttp.NewHandler(mux, "fri_http_api",
+				otelhttp.WithTracerProvider(
+					otel.GetTracerProvider(),
+				),
+			)
 			svr := &http.Server{
 				Handler:     audit.Audit(oh),
 				BaseContext: func(l net.Listener) context.Context { return ctx },
