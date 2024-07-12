@@ -4,7 +4,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 
+	"github.com/RoaringBitmap/roaring/roaring64"
+	"github.com/cespare/xxhash/v2"
 	v1 "github.com/gernest/frieren/gen/go/fri/v1"
 	"github.com/gernest/frieren/internal/metrics/metricsproto"
 	"github.com/gernest/rbf/dsl"
@@ -19,8 +22,10 @@ var (
 
 type Store struct {
 	*dsl.Store[*v1.Sample]
-	meta *bbolt.DB
-	path string
+	meta    *bbolt.DB
+	metaSet roaring64.Bitmap
+	mu      sync.RWMutex
+	path    string
 }
 
 func New(path string) (*Store, error) {
@@ -64,10 +69,35 @@ func (s *Store) Save(pm pmetric.Metrics) error {
 }
 
 func (s *Store) saveMeta(meta []*prompb.MetricMetadata) error {
+	s.mu.RLock()
+	set := s.metaSet.Clone()
+	s.mu.RUnlock()
+	// Avoid opening transaction if we have seen all metadata before
+	h := xxhash.New()
+	var count int
+	for i, m := range meta {
+		h.Reset()
+		h.WriteString(m.MetricFamilyName)
+		sum := h.Sum64()
+		if set.Contains(sum) {
+			meta[i] = nil
+			count++
+		} else {
+			set.Add(sum)
+		}
+	}
+	if count == len(meta) {
+		return nil
+	}
+	defer func() {
+		s.mu.Lock()
+		s.metaSet.Or(set)
+		s.mu.Unlock()
+	}()
 	return s.meta.Update(func(tx *bbolt.Tx) error {
 		m := tx.Bucket(metadataBucket)
 		for _, p := range meta {
-			if len(m.Get([]byte(p.MetricFamilyName))) == 0 {
+			if p != nil {
 				data, _ := p.Marshal()
 				err := m.Put([]byte(p.MetricFamilyName), data)
 				if err != nil {

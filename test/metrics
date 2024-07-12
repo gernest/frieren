@@ -1,3 +1,3 @@
 #!/bin/bash
 
-go test -benchmem  -count 6  -memprofile mem.out -cpuprofile profile.out -run=^$ -bench ^BenchmarkAppend$ github.com/gernest/frieren/internal/metrics >new.txt
+go test -benchmem  -count 6  -memprofile mem.out -cpuprofile cpu.out -run=^$ -bench ^BenchmarkAppend$ github.com/gernest/frieren/internal/metrics >new.txt
