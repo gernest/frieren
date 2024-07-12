@@ -26,7 +26,6 @@ func New(path string) (*Store, error) {
 	return &Store{Store: db}, nil
 }
 
-func (s *Store) Save(ld plog.Logs) error {
+func (s *Store) Buffer(ld plog.Logs) {
 	s.Append(logproto.FromLogs(ld))
-	return s.Flush()
 }

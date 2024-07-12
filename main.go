@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"time"
 
 	"github.com/gernest/frieren/internal/api"
 	"github.com/gernest/frieren/internal/audit"
@@ -84,15 +85,20 @@ func newTrace(db *traces.Store) *Trace {
 func (tr *Trace) Start(ctx context.Context) {
 	slog.Info("starting traces processing loop")
 
+	tick := time.NewTicker(time.Minute)
+	defer tick.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			slog.Info("exiting traces processing loop")
 			return
 		case req := <-tr.buffer:
-			err := tr.db.Save(req.Traces())
+			tr.db.Buffer(req.Traces())
+		case <-tick.C:
+			err := tr.db.Flush()
 			if err != nil {
-				slog.Error("failed saving traces", "err", err)
+				slog.Error("failed flushing traces", "err", err)
 			}
 		}
 	}
@@ -115,6 +121,8 @@ func newLogs(ldb *logs.Store) *Logs {
 
 func (l *Logs) Start(ctx context.Context) {
 	slog.Info("starting logs processing loop")
+	tick := time.NewTicker(time.Minute)
+	defer tick.Stop()
 
 	for {
 		select {
@@ -122,9 +130,11 @@ func (l *Logs) Start(ctx context.Context) {
 			slog.Info("exiting logs processing loop")
 			return
 		case req := <-l.buffer:
-			err := l.db.Save(req.Logs())
+			l.db.Buffer(req.Logs())
+		case <-tick.C:
+			err := l.db.Flush()
 			if err != nil {
-				slog.Error("failed saving logs", "err", err)
+				slog.Error("failed flushing logs", "err", err)
 			}
 		}
 	}

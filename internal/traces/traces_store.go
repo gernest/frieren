@@ -26,7 +26,6 @@ func New(path string) (*Store, error) {
 	return &Store{Store: db}, nil
 }
 
-func (s *Store) Save(td ptrace.Traces) error {
+func (s *Store) Buffer(td ptrace.Traces) {
 	s.Append(traceproto.From(td))
-	return s.Flush()
 }
