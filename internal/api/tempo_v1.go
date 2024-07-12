@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -44,12 +45,20 @@ func (a *tempoAPI) Register(r *route.Router) {
 	r.Post(api.PathSearchTags, a.searchTags)
 	r.Get("/api/search/tag/:name/values", a.searchTagValues)
 	r.Post("/api/search/tag/:name/values", a.searchTagValues)
-	r.Get("/api/echo", echoHandler)
-	r.Post("/api/echo", echoHandler)
+	r.Get("/api/echo", echo)
+	r.Post("/api/echo", echo)
+	r.Get("/api/status/buildinfo", build)
+	r.Post("/api/status/buildinfo", build)
 }
 
-func echoHandler(w http.ResponseWriter, r *http.Request) {
+func echo(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "echo", http.StatusOK)
+}
+
+func build(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"version": "v2.5.0"})
+
 }
 
 func (a *tempoAPI) findTraceByID(w http.ResponseWriter, r *http.Request) {
