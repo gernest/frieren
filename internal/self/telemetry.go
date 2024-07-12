@@ -56,7 +56,7 @@ func FloatHistogram(name string, options ...metric.Float64HistogramOption) metri
 	return v
 }
 
-func Setup(ctx context.Context) {
+func Setup(ctx context.Context) func() {
 	spanExporter, err := newSpanExporter(ctx)
 	if err != nil {
 		util.Exit("creating span exporter", "err", err)
@@ -84,6 +84,10 @@ func Setup(ctx context.Context) {
 	)
 	otel.SetMeterProvider(provider)
 
+	return func() {
+		spanExporter.Shutdown(ctx)
+		metricsReader.Shutdown(ctx)
+	}
 }
 
 func newMetricReader(ctx context.Context) (sdkmetric.Reader, error) {

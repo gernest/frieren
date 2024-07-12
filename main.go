@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"log/slog"
 	"net"
@@ -80,7 +81,7 @@ type Trace struct {
 }
 
 func newTrace(db *traces.Store) *Trace {
-	return &Trace{db: db, buffer: make(chan *ptraceotlp.ExportRequest, 1<<10)}
+	return &Trace{db: db, buffer: make(chan *ptraceotlp.ExportRequest, 4<<10)}
 }
 
 func (tr *Trace) Start(ctx context.Context) {
@@ -107,6 +108,7 @@ func (tr *Trace) Start(ctx context.Context) {
 
 func (tr *Trace) Export(ctx context.Context, req ptraceotlp.ExportRequest) (ptraceotlp.ExportResponse, error) {
 	tr.buffer <- &req
+	fmt.Println("=> ", req.Traces().SpanCount())
 	return ptraceotlp.NewExportResponse(), nil
 }
 
@@ -222,7 +224,7 @@ func Main() *cli.Command {
 			}
 			defer tdb.Close()
 
-			self.Setup(ctx)
+			shutdown := self.Setup(ctx)
 
 			mux := http.NewServeMux()
 
@@ -303,10 +305,10 @@ func Main() *cli.Command {
 			<-ctx.Done()
 			slog.Info("gracefully shutting down  server")
 
+			shutdown()
 			osvr.Close()
 			svr.Close()
 			gs.Stop()
-
 			slog.Info("exiting server")
 			return ctx.Err()
 		},
