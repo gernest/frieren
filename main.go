@@ -2,28 +2,22 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
-	"time"
 
 	"github.com/gernest/frieren/internal/api"
 	"github.com/gernest/frieren/internal/audit"
 	otlphttp "github.com/gernest/frieren/internal/http"
-	"github.com/gernest/frieren/internal/logs"
 	"github.com/gernest/frieren/internal/metrics"
 	"github.com/gernest/frieren/internal/self"
-	"github.com/gernest/frieren/internal/traces"
 	"github.com/gernest/frieren/internal/util"
 	"github.com/gorilla/mux"
 	"github.com/urfave/cli/v3"
-	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
 	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
-	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
@@ -68,85 +62,6 @@ func (m *Metrics) Start(ctx context.Context) {
 			}
 		}
 	}
-}
-
-func (m *Metrics) Export(ctx context.Context, req pmetricotlp.ExportRequest) (pmetricotlp.ExportResponse, error) {
-	m.buffer <- &req
-	return pmetricotlp.NewExportResponse(), nil
-}
-
-type Trace struct {
-	db *traces.Store
-	ptraceotlp.UnimplementedGRPCServer
-	buffer chan *ptraceotlp.ExportRequest
-}
-
-func newTrace(db *traces.Store) *Trace {
-	return &Trace{db: db, buffer: make(chan *ptraceotlp.ExportRequest, 4<<10)}
-}
-
-func (tr *Trace) Start(ctx context.Context) {
-	slog.Info("starting traces processing loop")
-
-	tick := time.NewTicker(time.Minute)
-	defer tick.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			slog.Info("exiting traces processing loop")
-			return
-		case req := <-tr.buffer:
-			tr.db.Buffer(req.Traces())
-		case <-tick.C:
-			err := tr.db.Flush()
-			if err != nil {
-				slog.Error("failed flushing traces", "err", err)
-			}
-		}
-	}
-}
-
-func (tr *Trace) Export(ctx context.Context, req ptraceotlp.ExportRequest) (ptraceotlp.ExportResponse, error) {
-	tr.buffer <- &req
-	fmt.Println("=> ", req.Traces().SpanCount())
-	return ptraceotlp.NewExportResponse(), nil
-}
-
-type Logs struct {
-	db *logs.Store
-	plogotlp.UnimplementedGRPCServer
-	buffer chan *plogotlp.ExportRequest
-}
-
-func newLogs(ldb *logs.Store) *Logs {
-	return &Logs{db: ldb, buffer: make(chan *plogotlp.ExportRequest, 1<<10)}
-}
-
-func (l *Logs) Start(ctx context.Context) {
-	slog.Info("starting logs processing loop")
-	tick := time.NewTicker(time.Minute)
-	defer tick.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			slog.Info("exiting logs processing loop")
-			return
-		case req := <-l.buffer:
-			l.db.Buffer(req.Logs())
-		case <-tick.C:
-			err := l.db.Flush()
-			if err != nil {
-				slog.Error("failed flushing logs", "err", err)
-			}
-		}
-	}
-}
-
-func (l *Logs) Export(ctx context.Context, req plogotlp.ExportRequest) (plogotlp.ExportResponse, error) {
-	l.buffer <- &req
-	return plogotlp.NewExportResponse(), nil
 }
 
 func Main() *cli.Command {
@@ -213,24 +128,12 @@ func Main() *cli.Command {
 			}
 			defer mdb.Close()
 
-			ldb, err := logs.New(data)
-			if err != nil {
-				return err
-			}
-			defer ldb.Close()
-
-			tdb, err := traces.New(data)
-			if err != nil {
-				return err
-			}
-			defer tdb.Close()
-
 			shutdown := self.Setup(ctx)
 
 			mux := mux.NewRouter()
 
 			// register http api
-			api.Add(mux, mdb, tdb, ldb)
+			api.Add(mux, mdb)
 
 			gs := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()))
 			defer gs.Stop()
@@ -238,15 +141,7 @@ func Main() *cli.Command {
 			ms := newMetrics(mdb)
 			go ms.Start(ctx)
 
-			ls := newLogs(ldb)
-			go ls.Start(ctx)
-
-			ts := newTrace(tdb)
-			go ts.Start(ctx)
-
-			plogotlp.RegisterGRPCServer(gs, ls)
 			pmetricotlp.RegisterGRPCServer(gs, ms)
-			ptraceotlp.RegisterGRPCServer(gs, ts)
 
 			go func() {
 				defer cancel()
@@ -257,9 +152,7 @@ func Main() *cli.Command {
 				}
 			}()
 			svc := &otlphttp.Server{
-				Trace:   ts.Export,
 				Metrics: ms.Export,
-				Logs:    ls.Export,
 			}
 			aoh := otelhttp.NewHandler(svc, "fri_otlp_http",
 				otelhttp.WithTracerProvider(

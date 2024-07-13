@@ -25,9 +25,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gernest/frieren/internal/logs"
 	"github.com/gernest/frieren/internal/metrics"
-	"github.com/gernest/frieren/internal/traces"
 	"github.com/go-kit/log"
 	"github.com/gorilla/mux"
 	"github.com/grafana/regexp"
@@ -119,10 +117,8 @@ type prometheusAPI struct {
 	now      func() time.Time
 }
 
-func Add(api *mux.Router, mdb *metrics.Store, tdb *traces.Store, ldb *logs.Store) {
+func Add(api *mux.Router, mdb *metrics.Store) {
 	newPrometheusAPI(mdb).Register(api)
-	newLokiAPI(ldb).Register(api)
-	newTempoAPI(tdb).Register(api)
 }
 
 func newPrometheusAPI(db *metrics.Store) *prometheusAPI {
