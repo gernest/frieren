@@ -1,14 +1,18 @@
 package traces
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"fmt"
+	"slices"
 
+	"github.com/blevesearch/vellum"
 	"github.com/gernest/frieren/internal/lbx"
 	"github.com/gernest/rbf/dsl/bsi"
 	"github.com/gernest/rbf/dsl/mutex"
 	rq "github.com/gernest/rbf/dsl/query"
+	"github.com/gernest/rbf/dsl/tr"
 	"github.com/gernest/rbf/dsl/tx"
 	"github.com/grafana/tempo/pkg/tempopb"
 	commonv1 "github.com/grafana/tempo/pkg/tempopb/common/v1"
@@ -160,4 +164,84 @@ var _ traceql.SpansetFetcher = (*Store)(nil)
 
 func (s *Store) Fetch(ctx context.Context, req traceql.FetchSpansRequest) (traceql.FetchSpansResponse, error) {
 	return traceql.FetchSpansResponse{}, nil
+}
+
+func (s *Store) SearchTags(ctx context.Context, req *tempopb.SearchTagsRequest) (*tempopb.SearchTagsV2Response, error) {
+	r, err := s.Reader()
+	if err != nil {
+		return nil, err
+	}
+	defer r.Release()
+	if req.Scope == "intrinsic" {
+		return &tempopb.SearchTagsV2Response{
+			Scopes: []*tempopb.SearchTagsV2Scope{
+				intrinsicScope,
+			},
+		}, nil
+	}
+	switch req.Scope {
+	case "resource":
+		tags, err := tags(r.Tr(), "resource_attributes")
+		if err != nil {
+			return nil, err
+		}
+		return &tempopb.SearchTagsV2Response{
+			Scopes: []*tempopb.SearchTagsV2Scope{
+				{Name: "resource", Tags: tags},
+			},
+		}, nil
+	case "span":
+		tags, err := tags(r.Tr(), "span_attributes")
+		if err != nil {
+			return nil, err
+		}
+		return &tempopb.SearchTagsV2Response{
+			Scopes: []*tempopb.SearchTagsV2Scope{
+				{Name: "span", Tags: tags},
+			},
+		}, nil
+	default:
+		resource, err := tags(r.Tr(), "resource_attributes")
+		if err != nil {
+			return nil, err
+		}
+		span, err := tags(r.Tr(), "span_attributes")
+		if err != nil {
+			return nil, err
+		}
+		return &tempopb.SearchTagsV2Response{
+			Scopes: []*tempopb.SearchTagsV2Scope{
+				{Name: "span", Tags: span},
+				{Name: "resource", Tags: resource},
+				intrinsicScope,
+			},
+		}, nil
+	}
+}
+
+var sep = []byte("=")
+
+func tags(r *tr.Read, field string) ([]string, error) {
+	m := map[string]struct{}{}
+	err := r.Search(field, &vellum.AlwaysMatch{}, nil, nil, func(key []byte, value uint64) error {
+		name, _, _ := bytes.Cut(key, sep)
+		m[string(name)] = struct{}{}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	o := make([]string, 0, len(m))
+	for i := range m {
+		o = append(o, i)
+	}
+	slices.Sort(o)
+	return o, nil
+}
+
+var intrinsicScope = &tempopb.SearchTagsV2Scope{
+	Name: "intrinsic",
+	Tags: []string{
+		"name", "status", "statusMessage", "kind", "event:name",
+	},
 }

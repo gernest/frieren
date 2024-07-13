@@ -25,7 +25,7 @@ import (
 type Engine interface {
 	FindTraceByID(ctx context.Context, req *tempopb.TraceByIDRequest, timeStart int64, timeEnd int64) (*tempopb.TraceByIDResponse, error)
 	SearchRecent(ctx context.Context, req *tempopb.SearchRequest) (*tempopb.SearchResponse, error)
-	SearchTags(ctx context.Context, req *tempopb.SearchTagsRequest) (*tempopb.SearchTagsResponse, error)
+	SearchTags(ctx context.Context, req *tempopb.SearchTagsRequest) (*tempopb.SearchTagsV2Response, error)
 	SearchTagValues(ctx context.Context, req *tempopb.SearchTagValuesRequest) (*tempopb.SearchTagValuesResponse, error)
 }
 
