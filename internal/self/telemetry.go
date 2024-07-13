@@ -8,7 +8,6 @@ import (
 	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -110,7 +109,19 @@ func newMetricReader(ctx context.Context) (sdkmetric.Reader, error) {
 func newSpanExporter(ctx context.Context) (sdktrace.SpanExporter, error) {
 	return autoexport.NewSpanExporter(ctx, autoexport.WithFallbackSpanExporter(
 		func(ctx context.Context) (sdktrace.SpanExporter, error) {
-			return otlptracegrpc.New(ctx, otlptracegrpc.WithInsecure())
+			return noopSpanExporter{}, nil
 		},
 	))
+}
+
+type noopSpanExporter struct{}
+
+var _ sdktrace.SpanExporter = noopSpanExporter{}
+
+func (e noopSpanExporter) ExportSpans(_ context.Context, _ []sdktrace.ReadOnlySpan) error {
+	return nil
+}
+
+func (e noopSpanExporter) Shutdown(_ context.Context) error {
+	return nil
 }
