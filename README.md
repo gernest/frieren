@@ -1,18 +1,18 @@
 
 # frieren
 
-Ultra  fast alternative to prometheus, loki and tempo for open telemetry
-data in (development | testing | staging ) environments.
+Ultra  fast alternative to prometheus for open telemetry data in (development | testing | staging ) environments.
 
 Test , experiment and verify your open telemetry instrumentation before pushing things 
 to production.
 
+**Designed for rapid prototyping with grafana Explore**
 
 # Features
 
-- **Native grafana compatibility**: works with native prometheus. loki and tempo data sources.
+- **Native grafana compatibility**: works with native prometheus data sources.
 - **Single binary,zero dependency**
-- **Supports `PromQL` , `LogQL` and `TraceQL`**
+- **Supports `PromQL`**
 - **Standard Ingestion**: Support `otlp` and `otlphttp`. Send data via `gRPC`, `http/json` `http/protobuf`
 - **Painless**: Just point your otel collector, or send the data directly via otlp.
 
@@ -24,15 +24,11 @@ exporters:
       insecure: true
 service:
   pipelines:
-    traces:
-      exporters: [otlp]
     metrics:
-      exporters: [otlp]
-    logs:
       exporters: [otlp]
 ```
 
-- **Familiar API**: query metrics with prometheus api, logs with loki api and traces with tempo api
+- **Familiar API**: exposes prometheus api endpoints
 - **Crazy fast**: We use compressed roaring bitmaps for extremely fast queries.[We use the same technology as Pilosa](https://www.featurebase.com/blog/range-encoded-bitmaps)
 - **Realtime**:  If the sample is accepted it is ready to be queried right away.
 - **Unlimited cardinality**: We index attributes efficiently
@@ -53,27 +49,6 @@ service:
 - `GET /api/v1/series`
 - `GET /api/v1/metadata`
 
-# Loki
-
-### Query endpoints
-
- These endpoints are supported 
-
-- `GET /loki/api/v1/query`
-- `GET /loki/api/v1/query_range`
-- `GET /loki/api/v1/labels`
-- `GET /loki/api/v1/labels/:name/values`
-
-# Tempo
-
-### Query endpoints
-
- These endpoints are supported 
-
-- `GET /api/traces/:trace_id`
-- `GET /api/search`
-- `GET /api/search/tags`
-- `GET /api/search/tag/:name/values`
 
 ## Installation
 
