@@ -19,6 +19,7 @@ import (
 	"github.com/gernest/frieren/internal/self"
 	"github.com/gernest/frieren/internal/traces"
 	"github.com/gernest/frieren/internal/util"
+	"github.com/gorilla/mux"
 	"github.com/urfave/cli/v3"
 	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
 	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
@@ -226,7 +227,7 @@ func Main() *cli.Command {
 
 			shutdown := self.Setup(ctx)
 
-			mux := http.NewServeMux()
+			mux := mux.NewRouter()
 
 			// register http api
 			api.Add(mux, mdb, tdb, ldb)

@@ -10,6 +10,7 @@ import (
 	"net/http"
 
 	"github.com/gernest/frieren/internal/logs"
+	"github.com/gorilla/mux"
 	"github.com/grafana/loki/v3/pkg/loghttp"
 	"github.com/grafana/loki/v3/pkg/logproto"
 	"github.com/grafana/loki/v3/pkg/logql"
@@ -17,7 +18,6 @@ import (
 	"github.com/grafana/loki/v3/pkg/querier/queryrange"
 	"github.com/grafana/loki/v3/pkg/querier/queryrange/queryrangebase"
 	"github.com/grafana/loki/v3/pkg/util/server"
-	"github.com/prometheus/common/route"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -42,7 +42,7 @@ func newLokiAPI(db *logs.Store) *lokiAPI {
 	}
 }
 
-func (a *lokiAPI) Register(r *route.Router) {
+func (a *lokiAPI) Register(r *mux.Router) {
 	wrap := func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		req, err := codec.DecodeRequest(ctx, r, nil)
@@ -63,16 +63,11 @@ func (a *lokiAPI) Register(r *route.Router) {
 		w.WriteHeader(resp.StatusCode)
 		_, _ = io.Copy(w, resp.Body)
 	}
-	r.Get("/loki/api/v1/query_range", wrap)
-	r.Post("/loki/api/v1/query_range", wrap)
-	r.Get("/loki/api/v1/query", wrap)
-	r.Post("/loki/api/v1/query", wrap)
-	r.Get("/loki/api/v1/label", wrap)
-	r.Post("/loki/api/v1/label", wrap)
-	r.Get("/loki/api/v1/labels", wrap)
-	r.Post("/loki/api/v1/labels", wrap)
-	r.Get("/loki/api/v1/label/:name/values", wrap)
-	r.Post("/loki/api/v1/label/:name/values", wrap)
+	handler := http.HandlerFunc(wrap)
+	r.Path("/loki/api/v1/query_range").Methods(http.MethodGet, http.MethodPost).Handler(handler)
+	r.Path("/loki/api/v1/query").Methods(http.MethodGet, http.MethodPost).Handler(handler)
+	r.Path("/loki/api/v1/labels").Methods(http.MethodGet, http.MethodPost).Handler(handler)
+	r.Path("/loki/api/v1/label/{name}/values").Methods(http.MethodGet, http.MethodPost).Handler(handler)
 }
 
 func writeError(w http.ResponseWriter, err error) {

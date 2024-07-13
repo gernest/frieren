@@ -13,6 +13,7 @@ import (
 
 	"github.com/gernest/frieren/internal/traces"
 	"github.com/gogo/protobuf/jsonpb"
+	"github.com/gorilla/mux"
 	"github.com/grafana/tempo/pkg/api"
 	"github.com/grafana/tempo/pkg/model/trace"
 	"github.com/grafana/tempo/pkg/tempopb"
@@ -36,19 +37,13 @@ func newTempoAPI(_ *traces.Store) *tempoAPI {
 	return &tempoAPI{}
 }
 
-func (a *tempoAPI) Register(r *route.Router) {
-	r.Get("/api/traces/:id", a.findTraceByID)
-	r.Post("/api/traces/:id", a.findTraceByID)
-	r.Get(api.PathSearch, a.search)
-	r.Post(api.PathSearch, a.search)
-	r.Get(api.PathSearchTags, a.searchTags)
-	r.Post(api.PathSearchTags, a.searchTags)
-	r.Get("/api/search/tag/:name/values", a.searchTagValues)
-	r.Post("/api/search/tag/:name/values", a.searchTagValues)
-	r.Get("/api/echo", echo)
-	r.Post("/api/echo", echo)
-	r.Get("/api/status/buildinfo", build)
-	r.Post("/api/status/buildinfo", build)
+func (a *tempoAPI) Register(h *mux.Router) {
+	h.HandleFunc(api.PathTraces, a.findTraceByID)
+	h.HandleFunc(api.PathSearch, a.search)
+	h.HandleFunc(api.PathSearchTagsV2, a.searchTags)
+	h.HandleFunc(api.PathSearchTagValuesV2, a.search)
+	h.HandleFunc(api.PathEcho, echo)
+	h.HandleFunc(api.PathBuildInfo, build)
 }
 
 func echo(w http.ResponseWriter, r *http.Request) {

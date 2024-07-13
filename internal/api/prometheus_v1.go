@@ -29,6 +29,7 @@ import (
 	"github.com/gernest/frieren/internal/metrics"
 	"github.com/gernest/frieren/internal/traces"
 	"github.com/go-kit/log"
+	"github.com/gorilla/mux"
 	"github.com/grafana/regexp"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
@@ -118,16 +119,10 @@ type prometheusAPI struct {
 	now      func() time.Time
 }
 
-func Add(mux *http.ServeMux, mdb *metrics.Store, tdb *traces.Store, ldb *logs.Store) {
-	api := route.New()
+func Add(api *mux.Router, mdb *metrics.Store, tdb *traces.Store, ldb *logs.Store) {
 	newPrometheusAPI(mdb).Register(api)
 	newLokiAPI(ldb).Register(api)
 	newTempoAPI(tdb).Register(api)
-	cors, _ := compileCORSRegexString(".*")
-	mux.Handle("/api/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		httputil.SetCORS(w, cors, r)
-		api.ServeHTTP(w, r)
-	}))
 }
 
 func newPrometheusAPI(db *metrics.Store) *prometheusAPI {
@@ -164,9 +159,13 @@ func compileCORSRegexString(s string) (*regexp.Regexp, error) {
 	return r.Regexp, nil
 }
 
-func (api *prometheusAPI) Register(r *route.Router) {
+func (api *prometheusAPI) Register(mux *mux.Router) {
+	r := route.New()
+	cors, _ := compileCORSRegexString(".*")
+
 	wrap := func(f apiFunc) http.HandlerFunc {
 		hf := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			httputil.SetCORS(w, cors, r)
 			result := f(r)
 			if result.finalizer != nil {
 				defer result.finalizer()
@@ -186,6 +185,7 @@ func (api *prometheusAPI) Register(r *route.Router) {
 			Handler: hf,
 		}.ServeHTTP
 	}
+
 	r.Get("/api/v1/query", wrap(api.query))
 	r.Post("/api/v1/query", wrap(api.query))
 	r.Get("/api/v1/query_range", wrap(api.queryRange))
@@ -199,8 +199,9 @@ func (api *prometheusAPI) Register(r *route.Router) {
 	r.Get("/api/v1/series", wrap(api.series))
 	r.Post("/api/v1/series", wrap(api.series))
 	r.Get("/api/v1/status/buildinfo", wrap(api.buildInfo))
-
 	r.Get("/api/v1/metadata", wrap(api.metricMetadata))
+	mux.PathPrefix("/api/v1").
+		Methods(http.MethodGet, http.MethodPost).Handler(r)
 }
 
 type QueryData struct {
