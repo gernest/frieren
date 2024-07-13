@@ -50,6 +50,7 @@ func newMetrics(db *metrics.Store) *Metrics {
 
 func (m *Metrics) Start(ctx context.Context) {
 	slog.Info("starting metrics processing loop")
+	start := true
 	for {
 		select {
 		case <-ctx.Done():
@@ -60,8 +61,17 @@ func (m *Metrics) Start(ctx context.Context) {
 			if err != nil {
 				slog.Error("failed saving metrics sample", "err", err)
 			}
+			if start {
+				start = false
+				slog.Info("ready to start querying")
+			}
 		}
 	}
+}
+
+func (m *Metrics) Export(_ context.Context, req pmetricotlp.ExportRequest) (pmetricotlp.ExportResponse, error) {
+	m.buffer <- &req
+	return pmetricotlp.NewExportResponse(), nil
 }
 
 func Main() *cli.Command {
