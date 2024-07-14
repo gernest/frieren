@@ -12,6 +12,7 @@ import (
 
 	"github.com/RoaringBitmap/roaring"
 	"github.com/gernest/rbf"
+	"github.com/gernest/rbf/dsl/boolean"
 	"github.com/gernest/rbf/dsl/bsi"
 	"github.com/gernest/rbf/dsl/mutex"
 	rroaring "github.com/gernest/roaring"
@@ -111,6 +112,11 @@ func (db *DB) Get(ids []uint32, f func(pos int, value []byte) error) error {
 	})
 }
 
+func get(b *bbolt.Bucket, buf *[4]byte, id uint32) []byte {
+	binary.BigEndian.PutUint32(buf[:], id)
+	return b.Get(buf[:])
+}
+
 func (b *Batch) Blob(data []byte) uint32 {
 	if len(data) == 0 {
 		data = emptyKey
@@ -208,8 +214,9 @@ type DB struct {
 	db  *bbolt.DB
 	idx *rbf.DB
 
-	blobs roaring.Bitmap
-	meta  roaring.Bitmap
+	blobs  roaring.Bitmap
+	meta   roaring.Bitmap
+	shards roaring.Bitmap
 }
 
 func New(path string) (*DB, error) {
@@ -247,6 +254,7 @@ func (db *DB) apply(b *Batch, f ...func(tx *bbolt.Tx) error) error {
 				return err
 			}
 			err = each(b.ids, func(shard uint64, start, end int) error {
+				db.shards.Add(uint32(shard))
 				{
 					// labels
 					a := rroaring.NewBitmap()
@@ -273,14 +281,20 @@ func (db *DB) apply(b *Batch, f ...func(tx *bbolt.Tx) error) error {
 				}
 				{
 					// histogram
+					exists := rroaring.NewBitmap()
 					a := rroaring.NewBitmap()
 					for i := start; i < end; i++ {
 						if b.histograms[i] == 0 {
 							continue
 						}
+						boolean.Add(exists, b.ids[i], true)
 						mutex.Add(a, b.ids[i], uint64(b.histograms[i]))
 					}
 					_, err := txn.AddRoaring(fmt.Sprintf("histogram:%d", shard), a)
+					if err != nil {
+						return err
+					}
+					_, err = txn.AddRoaring(fmt.Sprintf("kind:%d", shard), a)
 					if err != nil {
 						return err
 					}
