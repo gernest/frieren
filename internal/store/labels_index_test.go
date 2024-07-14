@@ -62,3 +62,13 @@ func TestWrite(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []uint32{series}, o.ToArray())
 }
+
+func TestSave(t *testing.T) {
+	db, err := New(t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+
+	m := generateOTLPWriteRequest().Metrics()
+	err = db.Save(m)
+	require.NoError(t, err)
+}
