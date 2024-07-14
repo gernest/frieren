@@ -1,7 +1,6 @@
 package store
 
 import (
-	"path/filepath"
 	"slices"
 	"testing"
 
@@ -19,7 +18,7 @@ func TestWrite(t *testing.T) {
 		{"__name__", "bar"},
 		{"key", "value"},
 	}
-	db, err := New(filepath.Join(t.TempDir(), "db"))
+	db, err := New(t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -29,7 +28,7 @@ func TestWrite(t *testing.T) {
 			w.Write([]byte(v.key), []byte(v.value))
 		}
 	})
-	err = db.Apply(b)
+	err = db.apply(b)
 	require.NoError(t, err)
 
 	names, err := db.Names()
