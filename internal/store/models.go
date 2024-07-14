@@ -43,7 +43,7 @@ func (b *Batch) Append(ts *prompb.TimeSeries) {
 	}
 }
 
-func (db *DB) From(m pmetric.Metrics) error {
+func (db *DB) Save(m pmetric.Metrics) error {
 	ts, err := prometheusremotewrite.FromMetrics(m, prometheusremotewrite.Settings{
 		AddMetricSuffixes: true,
 	})
