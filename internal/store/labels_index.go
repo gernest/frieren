@@ -294,7 +294,8 @@ func (db *DB) apply(b *Batch, f ...func(tx *bbolt.Tx) error) error {
 					if err != nil {
 						return err
 					}
-					_, err = txn.AddRoaring(fmt.Sprintf("kind:%d", shard), a)
+
+					_, err = txn.AddRoaring(fmt.Sprintf("kind:%d", shard), exists)
 					if err != nil {
 						return err
 					}
