@@ -1,0 +1,217 @@
+[
+  {
+    "metric": {
+      "__name__": "test_histogram_sum",
+      "foo_bar": "baz",
+      "instance": "test-instance",
+      "job": "test-service"
+    },
+    "values": [
+      [
+        1136214240,
+        "30"
+      ]
+    ]
+  },
+  {
+    "metric": {
+      "__name__": "target_info",
+      "host_name": "test-host",
+      "instance": "test-instance",
+      "job": "test-service"
+    },
+    "values": [
+      [
+        1136214240,
+        "1"
+      ]
+    ]
+  },
+  {
+    "metric": {
+      "__name__": "test_histogram_bucket",
+      "foo_bar": "baz",
+      "instance": "test-instance",
+      "job": "test-service",
+      "le": "5"
+    },
+    "values": [
+      [
+        1136214240,
+        "12"
+      ]
+    ]
+  },
+  {
+    "metric": {
+      "__name__": "test_histogram_bucket",
+      "foo_bar": "baz",
+      "instance": "test-instance",
+      "job": "test-service",
+      "le": "3"
+    },
+    "values": [
+      [
+        1136214240,
+        "8"
+      ]
+    ]
+  },
+  {
+    "metric": {
+      "__name__": "test_histogram_bucket",
+      "foo_bar": "baz",
+      "instance": "test-instance",
+      "job": "test-service",
+      "le": "0"
+    },
+    "values": [
+      [
+        1136214240,
+        "2"
+      ]
+    ]
+  },
+  {
+    "metric": {
+      "__name__": "test_histogram_bucket",
+      "foo_bar": "baz",
+      "instance": "test-instance",
+      "job": "test-service",
+      "le": "2"
+    },
+    "values": [
+      [
+        1136214240,
+        "6"
+      ]
+    ]
+  },
+  {
+    "metric": {
+      "__name__": "test_exponential_histogram",
+      "foo_bar": "baz",
+      "instance": "test-instance",
+      "job": "test-service"
+    },
+    "histograms": [
+      [
+        1136214240,
+        {
+          "count": "10",
+          "sum": "30",
+          "buckets": [
+            [
+              3,
+              "-0.00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001",
+              "0.00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001",
+              "2"
+            ],
+            [
+              0,
+              "1",
+              "1.189207115002721",
+              "2"
+            ],
+            [
+              0,
+              "1.189207115002721",
+              "1.414213562373095",
+              "2"
+            ],
+            [
+              0,
+              "1.414213562373095",
+              "1.6817928305074288",
+              "2"
+            ],
+            [
+              0,
+              "1.6817928305074288",
+              "2",
+              "2"
+            ],
+            [
+              0,
+              "2",
+              "2.378414230005442",
+              "2"
+            ]
+          ]
+        }
+      ]
+    ]
+  },
+  {
+    "metric": {
+      "__name__": "test_histogram_count",
+      "foo_bar": "baz",
+      "instance": "test-instance",
+      "job": "test-service"
+    },
+    "values": [
+      [
+        1136214240,
+        "10"
+      ]
+    ]
+  },
+  {
+    "metric": {
+      "__name__": "test_histogram_bucket",
+      "foo_bar": "baz",
+      "instance": "test-instance",
+      "job": "test-service",
+      "le": "4"
+    },
+    "values": [
+      [
+        1136214240,
+        "10"
+      ]
+    ]
+  },
+  {
+    "metric": {
+      "__name__": "test_counter_total",
+      "foo_bar": "baz",
+      "instance": "test-instance",
+      "job": "test-service"
+    },
+    "values": [
+      [
+        1136214240,
+        "10"
+      ]
+    ]
+  },
+  {
+    "metric": {
+      "__name__": "test_gauge",
+      "foo_bar": "baz",
+      "instance": "test-instance",
+      "job": "test-service"
+    },
+    "values": [
+      [
+        1136214240,
+        "10"
+      ]
+    ]
+  },
+  {
+    "metric": {
+      "__name__": "test_histogram_bucket",
+      "foo_bar": "baz",
+      "instance": "test-instance",
+      "job": "test-service",
+      "le": "+Inf"
+    },
+    "values": [
+      [
+        1136214240,
+        "10"
+      ]
+    ]
+  }
+]
