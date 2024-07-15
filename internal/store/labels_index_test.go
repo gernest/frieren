@@ -5,7 +5,9 @@ import (
 	"testing"
 
 	"github.com/RoaringBitmap/roaring"
+	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/model/metadata"
 	"github.com/stretchr/testify/require"
 )
 
@@ -71,4 +73,31 @@ func TestSave(t *testing.T) {
 	m := generateOTLPWriteRequest().Metrics()
 	err = db.Save(m)
 	require.NoError(t, err)
+	meta, err := db.Metadata("")
+	require.NoError(t, err)
+	want := map[string][]metadata.Metadata{
+		"test_counter_total": {
+			{Type: model.MetricTypeCounter, Unit: "", Help: "test-counter-description"},
+		},
+		"test_exponential_histogram": {
+			{Type: model.MetricTypeHistogram, Unit: "", Help: "test-exponential-histogram-description"},
+		},
+		"test_gauge": {
+			{Type: model.MetricTypeGauge, Unit: "", Help: "test-gauge-description"},
+		},
+		"test_histogram": {
+			{Type: model.MetricTypeHistogram, Unit: "", Help: "test-histogram-description"},
+		},
+	}
+	require.Equal(t, want, meta)
+
+	meta, err = db.Metadata("test_histogram")
+	require.NoError(t, err)
+
+	want = map[string][]metadata.Metadata{
+		"test_histogram": {
+			{Type: model.MetricTypeHistogram, Unit: "", Help: "test-histogram-description"},
+		},
+	}
+	require.Equal(t, want, meta)
 }
