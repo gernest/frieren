@@ -6,8 +6,6 @@ toolchain go1.22.5
 
 require (
 	github.com/RoaringBitmap/roaring v1.9.4
-	github.com/blevesearch/vellum v1.0.10
-	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/gernest/rbf v0.22.20
 	github.com/gernest/roaring v0.22.3
 	github.com/gernest/rows v1.22.9
@@ -52,7 +50,9 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.12.0 // indirect
 	github.com/blevesearch/mmap-go v1.0.4 // indirect
+	github.com/blevesearch/vellum v1.0.10 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dennwc/varint v1.0.0 // indirect
 	github.com/docker/docker v25.0.5+incompatible // indirect
