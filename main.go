@@ -10,7 +10,6 @@ import (
 	"os/signal"
 
 	"github.com/gernest/frieren/internal/api"
-	"github.com/gernest/frieren/internal/audit"
 	otlphttp "github.com/gernest/frieren/internal/http"
 	"github.com/gernest/frieren/internal/metrics"
 	"github.com/gernest/frieren/internal/self"
@@ -188,7 +187,7 @@ func Main() *cli.Command {
 				),
 			)
 			svr := &http.Server{
-				Handler:     audit.Audit(oh),
+				Handler:     oh,
 				BaseContext: func(l net.Listener) context.Context { return ctx },
 			}
 
