@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -249,6 +250,10 @@ func field(name string, shard uint64) string {
 func exists(tx *rbf.Tx, shard uint64, f *rows.Row) (*rows.Row, error) {
 	c, err := tx.Cursor(field("kind", shard))
 	if err != nil {
+		if errors.Is(err, rbf.ErrBitmapNotFound) {
+			// It is possible for samples to not have histogram series.
+			return rows.NewRow(), nil
+		}
 		return nil, err
 	}
 	defer c.Close()

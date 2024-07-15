@@ -8,6 +8,8 @@ import (
 	"hash"
 	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/RoaringBitmap/roaring"
@@ -231,7 +233,28 @@ func New(path string) (*DB, error) {
 		idx.Close()
 		return nil, err
 	}
-	return &DB{db: db, idx: idx}, nil
+	r := &DB{db: db, idx: idx}
+
+	// load existing shards
+	tx, err := idx.Begin(false)
+	if err != nil {
+		r.Close()
+		return nil, err
+	}
+	defer tx.Rollback()
+	views := tx.FieldViews()
+	prefix := "series:"
+	for _, s := range views {
+		if strings.HasPrefix(s, prefix) {
+			shard, err := strconv.Atoi(strings.TrimPrefix(s, prefix))
+			if err != nil {
+				r.Close()
+				return nil, fmt.Errorf("parsing shards%w", err)
+			}
+			r.shards.Add(uint32(shard))
+		}
+	}
+	return r, nil
 }
 
 func (db *DB) Close() error {
@@ -269,7 +292,7 @@ func (db *DB) apply(b *Batch, f ...func(tx *bbolt.Tx) error) error {
 					}
 				}
 				{
-					// save series
+					// series
 					a := rroaring.NewBitmap()
 					for i := start; i < end; i++ {
 						mutex.Add(a, b.ids[i], uint64(b.series[i]))
