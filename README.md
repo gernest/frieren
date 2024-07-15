@@ -68,6 +68,14 @@ docker pull ghcr.io/gernest/frieren:latest
 
 [See latest release page](https://github.com/gernest/frieren/releases/latest)
 
+### From source
+
+```
+go install github.com/gernest/frieren@latest
+```
+
+
+
 ## Start server
 
 ```
