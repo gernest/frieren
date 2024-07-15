@@ -446,7 +446,7 @@ func (api *prometheusAPI) labelNames(r *http.Request) apiFuncResult {
 		labelNamesSet := make(map[string]struct{})
 
 		for _, matchers := range matcherSets {
-			vals, callWarnings, err := q.LabelNames(r.Context(), matchers...)
+			vals, callWarnings, err := q.LabelNames(r.Context(), &ps.LabelHints{}, matchers...)
 			if err != nil {
 				return apiFuncResult{nil, returnAPIError(err), warnings, nil}
 			}
@@ -468,7 +468,7 @@ func (api *prometheusAPI) labelNames(r *http.Request) apiFuncResult {
 		if len(matcherSets) == 1 {
 			matchers = matcherSets[0]
 		}
-		names, warnings, err = q.LabelNames(r.Context(), matchers...)
+		names, warnings, err = q.LabelNames(r.Context(), &ps.LabelHints{}, matchers...)
 		if err != nil {
 			return apiFuncResult{nil, &apiError{errorExec, err}, warnings, nil}
 		}
@@ -537,7 +537,7 @@ func (api *prometheusAPI) labelValues(r *http.Request) (result apiFuncResult) {
 		var callWarnings annotations.Annotations
 		labelValuesSet := make(map[string]struct{})
 		for _, matchers := range matcherSets {
-			vals, callWarnings, err = q.LabelValues(ctx, name, matchers...)
+			vals, callWarnings, err = q.LabelValues(ctx, name, &ps.LabelHints{}, matchers...)
 			if err != nil {
 				return apiFuncResult{nil, &apiError{errorExec, err}, warnings, closer}
 			}
@@ -556,7 +556,7 @@ func (api *prometheusAPI) labelValues(r *http.Request) (result apiFuncResult) {
 		if len(matcherSets) == 1 {
 			matchers = matcherSets[0]
 		}
-		vals, warnings, err = q.LabelValues(ctx, name, matchers...)
+		vals, warnings, err = q.LabelValues(ctx, name, &ps.LabelHints{}, matchers...)
 		if err != nil {
 			return apiFuncResult{nil, &apiError{errorExec, err}, warnings, closer}
 		}

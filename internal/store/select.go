@@ -16,7 +16,6 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/storage"
-	"github.com/prometheus/prometheus/storage/remote"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
 	"github.com/prometheus/prometheus/util/annotations"
@@ -333,7 +332,7 @@ func (h *H) Type() chunkenc.ValueType      { return chunkenc.ValHistogram }
 func NewH(o *prompb.Histogram) *H {
 	return &H{
 		ts: o.Timestamp,
-		h:  remote.HistogramProtoToHistogram(*o),
+		h:  o.ToIntHistogram(),
 	}
 }
 
@@ -353,6 +352,6 @@ func (h *FH) Type() chunkenc.ValueType      { return chunkenc.ValHistogram }
 func NewFH(o *prompb.Histogram) *FH {
 	return &FH{
 		ts: o.Timestamp,
-		h:  remote.FloatHistogramProtoToFloatHistogram(*o),
+		h:  o.ToFloatHistogram(),
 	}
 }

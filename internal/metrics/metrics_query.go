@@ -32,7 +32,7 @@ func (q *Querier) Close() error {
 	return nil
 }
 
-func (s *Querier) LabelValues(ctx context.Context, name string, matchers ...*labels.Matcher) ([]string, annotations.Annotations, error) {
+func (s *Querier) LabelValues(ctx context.Context, name string, hits *storage.LabelHints, matchers ...*labels.Matcher) ([]string, annotations.Annotations, error) {
 	values, err := s.store.db.Values(name)
 	if err != nil {
 		return nil, nil, err
@@ -40,7 +40,7 @@ func (s *Querier) LabelValues(ctx context.Context, name string, matchers ...*lab
 	return values, nil, err
 }
 
-func (s *Querier) LabelNames(ctx context.Context, matchers ...*labels.Matcher) ([]string, annotations.Annotations, error) {
+func (s *Querier) LabelNames(ctx context.Context, hints *storage.LabelHints, matchers ...*labels.Matcher) ([]string, annotations.Annotations, error) {
 	names, err := s.store.db.Names()
 	if err != nil {
 		return nil, nil, err

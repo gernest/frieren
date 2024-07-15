@@ -16,12 +16,12 @@ require (
 	github.com/json-iterator/go v1.1.12
 	github.com/prometheus/client_golang v1.19.1
 	github.com/prometheus/common v0.55.0
-	github.com/prometheus/prometheus v0.51.0
+	github.com/prometheus/prometheus v0.53.2-0.20240714173210-52a73ec87166
 	github.com/stretchr/testify v1.9.0
 	github.com/urfave/cli/v3 v3.0.0-alpha9
 	go.etcd.io/bbolt v1.3.10
 	go.opentelemetry.io/collector/consumer v0.102.1
-	go.opentelemetry.io/collector/pdata v1.9.0
+	go.opentelemetry.io/collector/pdata v1.11.0
 	go.opentelemetry.io/contrib/bridges/prometheus v0.53.0
 	go.opentelemetry.io/contrib/exporters/autoexport v0.53.0
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.52.0
@@ -53,7 +53,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dennwc/varint v1.0.0 // indirect
-	github.com/docker/docker v25.0.5+incompatible // indirect
+	github.com/docker/docker v26.1.3+incompatible // indirect
 	github.com/docker/go-connections v0.5.0 // indirect
 	github.com/edsrzf/mmap-go v1.1.0 // indirect
 	github.com/facette/natsort v0.0.0-20181210072756-2cd4dd1e2dcb // indirect
@@ -94,7 +94,7 @@ require (
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
 	go.opentelemetry.io/collector/featuregate v1.9.0 // indirect
-	go.opentelemetry.io/collector/semconv v0.102.1 // indirect
+	go.opentelemetry.io/collector/semconv v0.104.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp v0.4.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.28.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.28.0 // indirect

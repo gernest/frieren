@@ -44,7 +44,8 @@ func (b *Batch) Append(ts *prompb.TimeSeries) {
 }
 
 func (db *DB) Save(m pmetric.Metrics) error {
-	ts, err := prometheusremotewrite.FromMetrics(m, prometheusremotewrite.Settings{
+	c := prometheusremotewrite.NewPrometheusConverter()
+	err := c.FromMetrics(m, prometheusremotewrite.Settings{
 		AddMetricSuffixes: true,
 	})
 	if err != nil {
@@ -53,8 +54,9 @@ func (db *DB) Save(m pmetric.Metrics) error {
 	b := NewBatch()
 	defer b.Release()
 	b.Resize(m.DataPointCount())
-	for _, t := range ts {
-		b.Append(t)
+	ts := c.TimeSeries()
+	for i := range ts {
+		b.Append(&ts[i])
 	}
 	meta := prometheusremotewrite.OtelMetricsToMetadata(m, true)
 	return db.apply(b, db.metadata(meta))
