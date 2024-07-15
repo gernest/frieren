@@ -96,3 +96,5 @@ GLOBAL OPTIONS:
    --api value       host:port for api exposing prometheus query endpoints (default: ":9090") [$FRI_API]
    --help, -h        show help (default: false)
 ```
+
+![grafana](show.png)
