@@ -100,8 +100,8 @@ func Main() *cli.Command {
 			},
 			&cli.StringFlag{
 				Name:    "api",
-				Value:   ":9000",
-				Usage:   "api exposing prometheus, loki and tempo endpoints",
+				Value:   ":9090",
+				Usage:   "host:port for api exposing prometheus query endpoints",
 				Sources: cli.EnvVars("FRI_API"),
 			},
 		},

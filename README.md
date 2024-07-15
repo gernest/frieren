@@ -93,7 +93,6 @@ GLOBAL OPTIONS:
    --data value      Path to data directory (default: ".fri-data") [$FRI_DATA]
    --otlp value      host:port for otlp grpc (default: ":4317") [$FRI_OTLP]
    --otlphttp value  host:port for otlp http (default: ":4318") [$FRI_OTLP_HTTP]
-   --api value       api exposing prometheus, loki and tempo endpoints (default: ":9000") [$FRI_API]
+   --api value       host:port for api exposing prometheus query endpoints (default: ":9090") [$FRI_API]
    --help, -h        show help (default: false)
-
 ```
