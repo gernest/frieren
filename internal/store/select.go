@@ -115,7 +115,7 @@ func (db *DB) Select(min, max int64, matchers ...*labels.Matcher) (MapSet, error
 
 		sit := match.Iterator()
 
-		vxc, err := txn.Cursor(field("value", shard))
+		vxc, err := txn.Cursor(field("values", shard))
 		if err != nil {
 			sxc.Close()
 			txc.Close()
