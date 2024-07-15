@@ -7,7 +7,6 @@ import (
 	"slices"
 
 	"github.com/RoaringBitmap/roaring"
-	"github.com/gernest/frieren/internal/lbx"
 	"github.com/gernest/rbf"
 	"github.com/gernest/rbf/dsl/bsi"
 	"github.com/gernest/rbf/dsl/cursor"
@@ -204,9 +203,9 @@ func (db *DB) Select(min, max int64, matchers ...*labels.Matcher) (MapSet, error
 				}
 			} else {
 				// float series
-				data := lbx.NewData(columns)
+				data := NewData(columns)
 
-				err = lbx.BSI(data, columns, vxc, f, shard, func(position int, value int64) error {
+				err = BSI(data, columns, vxc, f, shard, func(position int, value int64) error {
 					samples[position] = &V{
 						f: math.Float64frombits(uint64(value)),
 					}
@@ -220,7 +219,7 @@ func (db *DB) Select(min, max int64, matchers ...*labels.Matcher) (MapSet, error
 					lxc.Close()
 					return nil, err
 				}
-				err = lbx.BSI(data, columns, txc, f, shard, func(position int, value int64) error {
+				err = BSI(data, columns, txc, f, shard, func(position int, value int64) error {
 					samples[position].(*V).ts = value
 					return nil
 				})

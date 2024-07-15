@@ -1,4 +1,4 @@
-package lbx
+package store
 
 import (
 	"github.com/gernest/rbf"
@@ -49,39 +49,6 @@ func BSI(base Data, columns []uint64, c *rbf.Cursor, exists *rows.Row, shard uin
 		val := data[columnID]
 		val = uint64((2*(int64(val)>>63) + 1) * int64(val&^(1<<63)))
 		err := f(position, int64(val))
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func Distinct(c *rbf.Cursor, exists *rows.Row, shard uint64, f func(value uint64, columns *rows.Row) error) error {
-	cols := exists.Columns()
-	data := NewData(cols)
-
-	for i := uint64(0); i < 64; i++ {
-		bits, err := cursor.Row(c, shard, 2+uint64(i))
-		if err != nil {
-			return err
-		}
-		if bits.IsEmpty() {
-			continue
-		}
-		bits = bits.Intersect(exists)
-		if bits.IsEmpty() {
-			continue
-		}
-		data.mergeBits(bits.Columns(), 1<<i)
-	}
-	idx := make(map[uint64][]uint64, len(data))
-	for columnID, val := range data {
-		// Convert to two's complement and add base back to value.
-		val = uint64((2*(int64(val)>>63) + 1) * int64(val&^(1<<63)))
-		idx[val] = append(idx[val], columnID)
-	}
-	for i := range cols {
-		err := f(cols[i], rows.NewRow(idx[cols[i]]...))
 		if err != nil {
 			return err
 		}
